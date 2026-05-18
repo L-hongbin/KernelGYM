@@ -12,8 +12,15 @@ def test_drkernel_tree_is_not_present() -> None:
 def test_reward_only_entrypoints_are_present() -> None:
     assert (ROOT / "kernelgym" / "server" / "api" / "server.py").exists()
     assert (ROOT / "kernelgym" / "worker" / "single_worker.py").exists()
-    assert (ROOT / "start_all_with_monitor.sh").exists()
-    assert (ROOT / "stop_all.sh").exists()
+    assert (ROOT / "create_venv.sh").exists()
+    assert (ROOT / "kernelgym" / "deployment_profiles.py").exists()
+    assert (ROOT / "scripts" / "start_container.sh").exists()
+    assert (ROOT / "scripts" / "detect_profile.sh").exists()
+    assert (ROOT / "scripts" / "lock_gpu_clocks.sh").exists()
+    assert not (ROOT / "setup.sh").exists()
+    assert not (ROOT / "start_all_with_monitor.sh").exists()
+    assert not (ROOT / "stop_all.sh").exists()
+    assert not (ROOT / "kernelgym" / "cli" / "deploy.py").exists()
 
 
 def test_source_lineage_docs_name_both_sources() -> None:
@@ -37,15 +44,14 @@ def test_precommit_uses_ruff_format_and_not_black() -> None:
     assert " id: black" not in config
 
 
-def test_shell_entrypoints_are_thin_python_wrappers() -> None:
-    wrappers = [
+def test_no_pure_python_forwarder_shell_entrypoints_remain() -> None:
+    removed_wrappers = [
+        ROOT / "setup.sh",
         ROOT / "start_all_with_monitor.sh",
         ROOT / "start_worker_node.sh",
         ROOT / "start_worker_multinode.sh",
         ROOT / "stop_all.sh",
         ROOT / "scripts" / "auto_configure.sh",
     ]
-    for wrapper in wrappers:
-        text = wrapper.read_text(encoding="utf-8")
-        assert len(text.splitlines()) <= 12
-        assert "kernelgym.cli.service" in text
+    for wrapper in removed_wrappers:
+        assert not wrapper.exists()

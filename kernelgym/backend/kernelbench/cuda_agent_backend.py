@@ -23,12 +23,10 @@ from .base import KernelBenchBackendBase
 from kernelgym.toolkit.kernelbench.binding_detection import strip_think_blocks
 
 
-_CUDA_AGENT_TMPDIR_ENV = "KERNELGYM_CUDA_AGENT_TMPDIR"
 _CUDA_AGENT_DEFAULT_TMPDIR = "/dev/shm/kernelgym/work/cuda_agent"
 _CUDA_AGENT_MIN_TMPDIR_FREE_BYTES = 512 * 1024 * 1024
-_CUDA_AGENT_NVCC_THREADS_ENV = "KERNELGYM_CUDA_AGENT_NVCC_THREADS"
+_NVCC_THREADS_ENV = "KERNELGYM_NVCC_THREADS"
 _CUDA_AGENT_DEFAULT_NVCC_THREADS = "4"
-_CUDA_AGENT_COMPILE_CACHE_DIR_ENV = "KERNELGYM_CUDA_AGENT_COMPILE_CACHE_DIR"
 _CUDA_AGENT_COMPILE_CACHE_DISABLE_ENV = "KERNELGYM_CUDA_AGENT_COMPILE_CACHE_DISABLE"
 _CUDA_AGENT_FAST_RW_ROOT = Path("/dev/shm")
 _CUDA_AGENT_DEFAULT_COMPILE_CACHE_DIR = "/dev/shm/kernelgym/compile_cache/cuda_agent"
@@ -264,22 +262,22 @@ public:
 
     @staticmethod
     def _select_work_dir_parent() -> str | None:
-        candidate = os.environ.get(_CUDA_AGENT_TMPDIR_ENV) or _CUDA_AGENT_DEFAULT_TMPDIR
+        candidate = _CUDA_AGENT_DEFAULT_TMPDIR
         path = Path(candidate)
         KernelBenchCudaAgentBackend._require_fast_rw_path(
             path,
-            label=_CUDA_AGENT_TMPDIR_ENV,
+            label="CUDA-Agent tmpdir",
         )
         try:
             path.mkdir(parents=True, exist_ok=True)
             if not path.is_dir() or not os.access(path, os.W_OK | os.X_OK):
-                raise RuntimeError(f"{_CUDA_AGENT_TMPDIR_ENV} is not writable/executable: {path}")
+                raise RuntimeError(f"CUDA-Agent tmpdir is not writable/executable: {path}")
             if KernelBenchCudaAgentBackend._path_has_noexec_mount(path):
-                raise RuntimeError(f"{_CUDA_AGENT_TMPDIR_ENV} is mounted noexec: {path}")
+                raise RuntimeError(f"CUDA-Agent tmpdir is mounted noexec: {path}")
             if shutil.disk_usage(path).free < _CUDA_AGENT_MIN_TMPDIR_FREE_BYTES:
-                raise RuntimeError(f"{_CUDA_AGENT_TMPDIR_ENV} has less than 512MiB free: {path}")
+                raise RuntimeError(f"CUDA-Agent tmpdir has less than 512MiB free: {path}")
         except OSError as exc:
-            raise RuntimeError(f"{_CUDA_AGENT_TMPDIR_ENV} is not usable: {path}") from exc
+            raise RuntimeError(f"CUDA-Agent tmpdir is not usable: {path}") from exc
         return str(path)
 
     def _create_work_dir(self) -> Path:
@@ -379,27 +377,24 @@ public:
     @staticmethod
     def _compile_cache_root(
         *,
-        dir_env: str,
+        label: str,
         disable_env: str,
         default_dir: str,
     ) -> Path | None:
         if KernelBenchCudaAgentBackend._disabled_by_env(disable_env):
             return None
-        root_value = os.environ.get(dir_env, default_dir)
-        if not root_value:
-            return None
-        root = Path(root_value)
-        KernelBenchCudaAgentBackend._require_fast_rw_path(root, label=dir_env)
+        root = Path(default_dir)
+        KernelBenchCudaAgentBackend._require_fast_rw_path(root, label=label)
         try:
             root.mkdir(parents=True, exist_ok=True)
             if not os.access(root, os.W_OK | os.X_OK):
-                raise RuntimeError(f"{dir_env} is not writable/executable: {root}")
+                raise RuntimeError(f"{label} is not writable/executable: {root}")
             if KernelBenchCudaAgentBackend._path_has_noexec_mount(root):
-                raise RuntimeError(f"{dir_env} is mounted noexec: {root}")
+                raise RuntimeError(f"{label} is mounted noexec: {root}")
             if shutil.disk_usage(root).free < _CUDA_AGENT_MIN_TMPDIR_FREE_BYTES:
-                raise RuntimeError(f"{dir_env} has less than 512MiB free: {root}")
+                raise RuntimeError(f"{label} has less than 512MiB free: {root}")
         except OSError as exc:
-            raise RuntimeError(f"{dir_env} is not usable: {root}") from exc
+            raise RuntimeError(f"{label} is not usable: {root}") from exc
         return root
 
     @staticmethod
@@ -529,7 +524,7 @@ public:
         build_dir.mkdir(parents=True, exist_ok=True)
 
         nvcc_threads = os.environ.get(
-            _CUDA_AGENT_NVCC_THREADS_ENV,
+            _NVCC_THREADS_ENV,
             _CUDA_AGENT_DEFAULT_NVCC_THREADS,
         )
         torch, cpp_ext = _torch_modules()
@@ -544,7 +539,7 @@ public:
             "extra_cuda_cflags": extra_cuda_cflags,
         }
         cache_root = KernelBenchCudaAgentBackend._compile_cache_root(
-            dir_env=_CUDA_AGENT_COMPILE_CACHE_DIR_ENV,
+            label="CUDA-Agent compile cache",
             disable_env=_CUDA_AGENT_COMPILE_CACHE_DISABLE_ENV,
             default_dir=_CUDA_AGENT_DEFAULT_COMPILE_CACHE_DIR,
         )

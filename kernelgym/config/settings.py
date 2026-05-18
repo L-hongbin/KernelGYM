@@ -2,10 +2,22 @@
 
 import os
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, ClassVar
 
 from pydantic import Field, validator
 from pydantic_settings import BaseSettings
+
+from kernelgym.deployment_profiles import (
+    API_PORT,
+    API_RELOAD,
+    API_WORKERS,
+    METRICS_PORT,
+    REDIS_DB,
+    REDIS_KEY_PREFIX,
+    REDIS_KEY_PREFIX_LEGACY,
+    REDIS_PASSWORD,
+    REDIS_PORT,
+)
 
 PROJECT_ROOT = Path(__file__).parent.parent
 KERNELBENCH_ROOT = PROJECT_ROOT.parent
@@ -15,25 +27,22 @@ class Settings(BaseSettings):
     """Application settings with environment variable support."""
 
     api_host: str = Field(default="0.0.0.0", env="API_HOST")
-    api_port: int = Field(default=10907, env="API_PORT")
-    api_workers: int = Field(default=4, env="API_WORKERS")
-    api_reload: bool = Field(default=False, env="API_RELOAD")
+    api_port: ClassVar[int] = API_PORT
+    api_workers: ClassVar[int] = API_WORKERS
+    api_reload: ClassVar[bool] = API_RELOAD
 
     gpu_devices: List[int] = Field(default_factory=lambda: list(range(8)), env="GPU_DEVICES")
-    gpu_memory_limit: str = Field(default="16GB", env="GPU_MEMORY_LIMIT")
     node_id: str = Field(default="", env="NODE_ID")
     worker_name_prefix: str = Field(default="", env="WORKER_NAME_PREFIX")
     worker_only_mode: bool = Field(default=False, env="WORKER_ONLY_MODE")
 
     redis_host: str = Field(default="localhost", env="REDIS_HOST")
-    redis_port: int = Field(default=6379, env="REDIS_PORT")
-    redis_db: int = Field(default=0, env="REDIS_DB")
-    redis_password: str = Field(default="", env="REDIS_PASSWORD")
-    redis_key_prefix: str = Field(default="kernelgym", env="REDIS_KEY_PREFIX")
-    redis_key_prefix_legacy: str = Field(default="kernelserver", env="REDIS_KEY_PREFIX_LEGACY")
+    redis_port: ClassVar[int] = REDIS_PORT
+    redis_db: ClassVar[int] = REDIS_DB
+    redis_password: ClassVar[str] = REDIS_PASSWORD
+    redis_key_prefix: ClassVar[str] = REDIS_KEY_PREFIX
+    redis_key_prefix_legacy: ClassVar[str] = REDIS_KEY_PREFIX_LEGACY
 
-    celery_broker_url: str = Field(default="redis://localhost:6379/0", env="CELERY_BROKER_URL")
-    celery_result_backend: str = Field(default="redis://localhost:6379/0", env="CELERY_RESULT_BACKEND")
     celery_task_serializer: str = Field(default="json", env="CELERY_TASK_SERIALIZER")
     celery_accept_content: List[str] = Field(default_factory=lambda: ["json"], env="CELERY_ACCEPT_CONTENT")
     celery_timezone: str = Field(default="UTC", env="CELERY_TIMEZONE")
@@ -107,7 +116,7 @@ class Settings(BaseSettings):
         env="EVAL_RESULTS_PATH",
         description="JSONL file path for persisted evaluation results.",
     )
-    metrics_port: int = Field(default=8001, env="METRICS_PORT")
+    metrics_port: ClassVar[int] = METRICS_PORT
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
     worker_monitor_interval: int = Field(default=30, env="WORKER_MONITOR_INTERVAL")
     worker_monitor_heartbeat_timeout: int = Field(default=120, env="WORKER_MONITOR_HEARTBEAT_TIMEOUT")
@@ -189,6 +198,14 @@ class Settings(BaseSettings):
     def redis_url(self) -> str:
         return self.get_redis_url()
 
+    @property
+    def celery_broker_url(self) -> str:
+        return self.get_redis_url()
+
+    @property
+    def celery_result_backend(self) -> str:
+        return self.get_redis_url()
+
     def get_celery_config(self) -> Dict[str, Any]:
         return {
             "broker_url": self.celery_broker_url,
@@ -238,7 +255,6 @@ settings = Settings()
 GPU_DEVICE_MAP = {
     f"cuda:{i}": {
         "device_id": i,
-        "memory_limit": settings.gpu_memory_limit,
         "worker_queue": f"gpu_{i}",
     }
     for i in settings.gpu_devices

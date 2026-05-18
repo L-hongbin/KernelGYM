@@ -21,14 +21,10 @@ from .base import KernelBenchBackendBase
 from .cuda_agent_backend import KernelBenchCudaAgentBackend
 
 
-_TVM_FFI_TMPDIR_ENV = "KERNELGYM_TVM_FFI_TMPDIR"
-_CUDA_AGENT_TMPDIR_ENV = "KERNELGYM_CUDA_AGENT_TMPDIR"
 _TVM_FFI_DEFAULT_TMPDIR = "/dev/shm/kernelgym/work/tvm_ffi"
 _TVM_FFI_MIN_TMPDIR_FREE_BYTES = 512 * 1024 * 1024
-_TVM_FFI_NVCC_THREADS_ENV = "KERNELGYM_TVM_FFI_NVCC_THREADS"
-_CUDA_AGENT_NVCC_THREADS_ENV = "KERNELGYM_CUDA_AGENT_NVCC_THREADS"
+_NVCC_THREADS_ENV = "KERNELGYM_NVCC_THREADS"
 _TVM_FFI_DEFAULT_NVCC_THREADS = "4"
-_TVM_FFI_COMPILE_CACHE_DIR_ENV = "KERNELGYM_TVM_FFI_COMPILE_CACHE_DIR"
 _TVM_FFI_COMPILE_CACHE_DISABLE_ENV = "KERNELGYM_TVM_FFI_COMPILE_CACHE_DISABLE"
 _TVM_FFI_DEFAULT_COMPILE_CACHE_DIR = "/dev/shm/kernelgym/compile_cache/tvm_ffi"
 
@@ -79,24 +75,22 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
 
     @staticmethod
     def _select_work_dir_parent() -> str | None:
-        candidate = (
-            os.environ.get(_TVM_FFI_TMPDIR_ENV) or os.environ.get(_CUDA_AGENT_TMPDIR_ENV) or _TVM_FFI_DEFAULT_TMPDIR
-        )
+        candidate = _TVM_FFI_DEFAULT_TMPDIR
         path = Path(candidate)
         KernelBenchCudaAgentBackend._require_fast_rw_path(
             path,
-            label=_TVM_FFI_TMPDIR_ENV,
+            label="TVM-FFI tmpdir",
         )
         try:
             path.mkdir(parents=True, exist_ok=True)
             if not path.is_dir() or not os.access(path, os.W_OK | os.X_OK):
-                raise RuntimeError(f"{_TVM_FFI_TMPDIR_ENV} is not writable/executable: {path}")
+                raise RuntimeError(f"TVM-FFI tmpdir is not writable/executable: {path}")
             if KernelBenchCudaAgentBackend._path_has_noexec_mount(path):
-                raise RuntimeError(f"{_TVM_FFI_TMPDIR_ENV} is mounted noexec: {path}")
+                raise RuntimeError(f"TVM-FFI tmpdir is mounted noexec: {path}")
             if shutil.disk_usage(path).free < _TVM_FFI_MIN_TMPDIR_FREE_BYTES:
-                raise RuntimeError(f"{_TVM_FFI_TMPDIR_ENV} has less than 512MiB free: {path}")
+                raise RuntimeError(f"TVM-FFI tmpdir has less than 512MiB free: {path}")
         except OSError as exc:
-            raise RuntimeError(f"{_TVM_FFI_TMPDIR_ENV} is not usable: {path}") from exc
+            raise RuntimeError(f"TVM-FFI tmpdir is not usable: {path}") from exc
         return str(path)
 
     def _create_work_dir(self) -> Path:
@@ -168,15 +162,12 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
 
         _tvm_ffi_api, tvm_ffi_cpp = KernelBenchTvmFfiBackend._import_tvm_ffi()
         ext_name = work_dir.name.replace("-", "_")
-        nvcc_threads = os.environ.get(
-            _TVM_FFI_NVCC_THREADS_ENV,
-            os.environ.get(_CUDA_AGENT_NVCC_THREADS_ENV, _TVM_FFI_DEFAULT_NVCC_THREADS),
-        )
+        nvcc_threads = os.environ.get(_NVCC_THREADS_ENV, _TVM_FFI_DEFAULT_NVCC_THREADS)
         extra_cflags = ["-O3"]
         extra_cuda_cflags = ["-O3", "--use_fast_math", "--threads", nvcc_threads]
         all_sources = sorted(set(cpp_files + cuda_files))
         cache_root = KernelBenchCudaAgentBackend._compile_cache_root(
-            dir_env=_TVM_FFI_COMPILE_CACHE_DIR_ENV,
+            label="TVM-FFI compile cache",
             disable_env=_TVM_FFI_COMPILE_CACHE_DISABLE_ENV,
             default_dir=_TVM_FFI_DEFAULT_COMPILE_CACHE_DIR,
         )

@@ -7,7 +7,7 @@ name = "kernelgym-reward"
 version = "0.1.0"
 description = "Reward-only KernelGYM service extracted from drkernel-oriented repositories."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "aiohttp>=3.9",
     "fastapi>=0.104",
@@ -41,14 +41,13 @@ cuda129 = [
 
 [project.scripts]
 kernelgym-service = "kernelgym.cli.service:main"
-kernelgym-deploy = "kernelgym.cli.deploy:main"
 
 [tool.setuptools.packages.find]
 include = ["kernelgym*"]
 
 [tool.ruff]
 line-length = 119
-target-version = "py310"
+target-version = "py312"
 exclude = [
     ".git",
     ".pytest_cache",

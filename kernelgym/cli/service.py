@@ -21,12 +21,57 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from kernelgym.deployment_profiles import (
+    API_PORT,
+    API_RELOAD,
+    API_WORKERS,
+    METRICS_PORT,
+    REDIS_DB,
+    REDIS_KEY_PREFIX,
+    REDIS_PASSWORD,
+    REDIS_PORT,
+    bool_env,
+    get_profile,
+    profile_names,
+)
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
 
 def _hostname() -> str:
     return os.environ.get("HOSTNAME") or socket.gethostname() or "local"
+
+
+def _local_host_addresses() -> set[str]:
+    addresses = {"localhost", "127.0.0.1", _hostname(), socket.gethostname()}
+    try:
+        addresses.update(socket.gethostbyname_ex(socket.gethostname())[2])
+    except OSError:
+        pass
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        probe.connect(("8.8.8.8", 80))
+        addresses.add(probe.getsockname()[0])
+        probe.close()
+    except OSError:
+        pass
+    return {address for address in addresses if address}
+
+
+def _profile_values(profile_name: str) -> dict[str, str]:
+    if profile_name != "auto":
+        try:
+            return get_profile(profile_name).env()
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+
+    addresses = _local_host_addresses()
+    for name in profile_names():
+        profile = get_profile(name)
+        if profile.host in addresses:
+            return profile.env()
+    choices = ", ".join(("auto", *profile_names()))
+    raise SystemExit(f"Could not auto-detect reward profile from local addresses {sorted(addresses)}. Use: {choices}")
 
 
 def _default_env_file() -> Path:
@@ -59,7 +104,7 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
             ),
         ),
         ("Network", ("API_HOST", "API_PORT", "API_WORKERS", "API_RELOAD")),
-        ("GPU", ("GPU_DEVICES", "GPU_MEMORY_LIMIT", "NODE_ID")),
+        ("GPU", ("GPU_DEVICES", "NODE_ID")),
         ("Redis", ("REDIS_HOST", "REDIS_PORT", "REDIS_DB", "REDIS_PASSWORD", "REDIS_KEY_PREFIX")),
         ("Worker pool", ("WORKER_POOL_SIZE", "MAX_TASKS_PER_WORKER")),
         ("Defaults", ("DEFAULT_TOOLKIT", "DEFAULT_BACKEND_ADAPTER", "DEFAULT_BACKEND")),
@@ -70,15 +115,7 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
         ("Result persistence", ("SAVE_EVAL_RESULTS", "EVAL_RESULTS_PATH")),
         (
             "CUDA build",
-            (
-                "CUDA_HOME",
-                "KERNELGYM_CUDA_AGENT_NVCC_THREADS",
-                "KERNELGYM_TVM_FFI_NVCC_THREADS",
-                "KERNELGYM_CUDA_AGENT_TMPDIR",
-                "KERNELGYM_TVM_FFI_TMPDIR",
-                "KERNELGYM_CUDA_AGENT_COMPILE_CACHE_DIR",
-                "KERNELGYM_TVM_FFI_COMPILE_CACHE_DIR",
-            ),
+            ("KERNELGYM_NVCC_THREADS",),
         ),
     ]
     emitted: set[str] = set()
@@ -115,64 +152,6 @@ def _parse_gpu_devices(raw: str | None) -> list[str]:
         return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def _detect_gpus_json() -> str:
-    nvidia_smi = shutil.which("nvidia-smi")
-    if not nvidia_smi:
-        return "[0]"
-    try:
-        proc = subprocess.run(
-            [nvidia_smi, "-L"],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-    except OSError:
-        return "[0]"
-    count = len([line for line in proc.stdout.splitlines() if line.strip()])
-    if count <= 0:
-        return "[0]"
-    return json.dumps(list(range(count)))
-
-
-def _host_ip() -> str:
-    arnold_role = os.environ.get("ARNOLD_ROLE", "")
-    arnold_id = os.environ.get("ARNOLD_ID", "")
-    arnold_host = os.environ.get(f"ARNOLD_{arnold_role.upper()}_{arnold_id}_HOST")
-    if arnold_host:
-        return arnold_host
-    try:
-        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        probe.connect(("8.8.8.8", 80))
-        address = probe.getsockname()[0]
-        probe.close()
-        return address
-    except OSError:
-        return "127.0.0.1"
-
-
-def _available_ports(use_indexed_ports: bool) -> list[int]:
-    if use_indexed_ports:
-        ports = []
-    else:
-        role = os.environ.get("ARNOLD_ROLE", "")
-        worker_id = os.environ.get("ARNOLD_ID", "")
-        raw = os.environ.get(f"ARNOLD_{role.upper()}_{worker_id}_PORT", "")
-        ports = [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
-
-    if not ports:
-        index = 0
-        while True:
-            raw = os.environ.get(f"PORT{index}")
-            if raw is None:
-                break
-            if raw.isdigit():
-                ports.append(int(raw))
-            index += 1
-
-    return ports or list(range(8000, 8010))
-
-
 def _port_is_open(host: str, port: int, timeout: float = 1.0) -> bool:
     try:
         with socket.create_connection((host, int(port)), timeout=timeout):
@@ -181,29 +160,19 @@ def _port_is_open(host: str, port: int, timeout: float = 1.0) -> bool:
         return False
 
 
-def _select_ports(candidates: list[int], count: int = 3) -> list[int]:
-    selected: list[int] = []
-    for port in candidates:
-        if len(selected) >= count:
-            break
-        if not _port_is_open("127.0.0.1", port, timeout=0.2):
-            selected.append(port)
-    if len(selected) < count:
-        raise SystemExit(f"Could not find {count} available ports from candidates: {candidates}")
-    return selected
-
-
 def _service_env(values: dict[str, str]) -> dict[str, str]:
     env = os.environ.copy()
     env.update(values)
+    env["API_PORT"] = str(API_PORT)
+    env["API_WORKERS"] = str(API_WORKERS)
+    env["API_RELOAD"] = bool_env(API_RELOAD)
+    env["REDIS_PORT"] = str(REDIS_PORT)
+    env["REDIS_DB"] = str(REDIS_DB)
+    env["REDIS_PASSWORD"] = REDIS_PASSWORD
+    env["REDIS_KEY_PREFIX"] = REDIS_KEY_PREFIX
+    env["METRICS_PORT"] = str(METRICS_PORT)
     pythonpath = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(ROOT_DIR) if not pythonpath else f"{ROOT_DIR}:{pythonpath}"
-    cuda_home = env.get("CUDA_HOME")
-    if cuda_home:
-        cuda_bin = str(Path(cuda_home) / "bin")
-        cuda_lib = str(Path(cuda_home) / "lib64")
-        env["PATH"] = f"{cuda_bin}:{env.get('PATH', '')}"
-        env["LD_LIBRARY_PATH"] = f"{cuda_lib}:{env.get('LD_LIBRARY_PATH', '')}"
     return env
 
 
@@ -227,19 +196,18 @@ def _redis_client(values: dict[str, str]) -> Any | None:
         import redis
     except Exception:
         return None
-    password = values.get("REDIS_PASSWORD") or None
     return redis.Redis(
         host=values.get("REDIS_HOST", "localhost"),
-        port=int(values.get("REDIS_PORT", "6379")),
-        db=int(values.get("REDIS_DB", "0")),
-        password=password,
+        port=REDIS_PORT,
+        db=REDIS_DB,
+        password=None,
         decode_responses=True,
     )
 
 
 def _ensure_redis(values: dict[str, str]) -> None:
     host = values.get("REDIS_HOST", "localhost")
-    port = int(values.get("REDIS_PORT", "6379"))
+    port = REDIS_PORT
     if _port_is_open(host, port):
         return
     if host not in {"localhost", "127.0.0.1"}:
@@ -248,16 +216,13 @@ def _ensure_redis(values: dict[str, str]) -> None:
     if not redis_server:
         raise SystemExit("redis-server not found; install Redis or set REDIS_HOST/REDIS_PORT to an existing server.")
     command = [redis_server, "--port", str(port), "--daemonize", "yes"]
-    password = values.get("REDIS_PASSWORD")
-    if password:
-        command.extend(["--requirepass", password])
     subprocess.run(command, check=True)
     time.sleep(1)
 
 
 def _api_base(values: dict[str, str]) -> str:
     host = values.get("API_HOST", "127.0.0.1")
-    port = values.get("API_PORT", "10907")
+    port = str(API_PORT)
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
     return f"http://{host}:{port}"
@@ -272,58 +237,6 @@ def _http_post_json(url: str, timeout: float = 5.0) -> Any:
     request = urllib.request.Request(url, method="POST")
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
-
-
-def cmd_auto_configure(args: argparse.Namespace) -> int:
-    env_file = Path(args.env_file) if args.env_file else _default_env_file()
-    if env_file.exists() and not args.force:
-        print(f"Found existing env file at {env_file}. Use --force to overwrite.")
-        return 0
-
-    redis_port, api_port, metrics_port = _select_ports(_available_ports(args.use_indexed_ports))
-    tmp_root = os.environ.get("KERNELGYM_TMP_ROOT", "/dev/shm/kernelgym")
-    values = {
-        "API_HOST": os.environ.get("API_HOST", _host_ip()),
-        "API_PORT": str(api_port),
-        "API_WORKERS": os.environ.get("API_WORKERS", "4"),
-        "API_RELOAD": os.environ.get("API_RELOAD", "false"),
-        "GPU_DEVICES": os.environ.get("GPU_DEVICES", _detect_gpus_json()),
-        "GPU_MEMORY_LIMIT": os.environ.get("GPU_MEMORY_LIMIT", "16GB"),
-        "NODE_ID": os.environ.get("NODE_ID", _hostname()),
-        "REDIS_HOST": os.environ.get("REDIS_HOST", "localhost"),
-        "REDIS_PORT": str(redis_port),
-        "REDIS_DB": os.environ.get("REDIS_DB", "0"),
-        "REDIS_PASSWORD": os.environ.get("REDIS_PASSWORD", ""),
-        "REDIS_KEY_PREFIX": os.environ.get("REDIS_KEY_PREFIX", "kernelgym"),
-        "WORKER_POOL_SIZE": os.environ.get("WORKER_POOL_SIZE", "1"),
-        "MAX_TASKS_PER_WORKER": os.environ.get("MAX_TASKS_PER_WORKER", "1"),
-        "DEFAULT_TOOLKIT": os.environ.get("DEFAULT_TOOLKIT", "kernelbench"),
-        "DEFAULT_BACKEND_ADAPTER": os.environ.get("DEFAULT_BACKEND_ADAPTER", "kernelbench"),
-        "DEFAULT_BACKEND": os.environ.get("DEFAULT_BACKEND", "triton"),
-        "LOG_LEVEL": os.environ.get("LOG_LEVEL", "INFO"),
-        "LOG_DIR": os.environ.get("LOG_DIR", f"logs/{_hostname()}"),
-        "PY_LOG_DIR": os.environ.get("PY_LOG_DIR", f"py_logs/{_hostname()}"),
-        "ENABLE_METRICS": os.environ.get("ENABLE_METRICS", "true"),
-        "METRICS_PORT": str(metrics_port),
-        "ENABLE_PROFILING": os.environ.get("ENABLE_PROFILING", "true"),
-        "VERBOSE_ERROR_TRACEBACK": os.environ.get("VERBOSE_ERROR_TRACEBACK", "true"),
-        "SAVE_EVAL_RESULTS": os.environ.get("SAVE_EVAL_RESULTS", "true" if args.save_eval_results else "false"),
-        "EVAL_RESULTS_PATH": os.environ.get("EVAL_RESULTS_PATH", f"logs/{_hostname()}/eval_results.jsonl"),
-        "CUDA_HOME": os.environ.get("CUDA_HOME", "/usr/local/cuda-12.9"),
-        "KERNELGYM_CUDA_AGENT_NVCC_THREADS": os.environ.get("KERNELGYM_CUDA_AGENT_NVCC_THREADS", "4"),
-        "KERNELGYM_TVM_FFI_NVCC_THREADS": os.environ.get("KERNELGYM_TVM_FFI_NVCC_THREADS", "4"),
-        "KERNELGYM_CUDA_AGENT_TMPDIR": os.environ.get("KERNELGYM_CUDA_AGENT_TMPDIR", f"{tmp_root}/work/cuda_agent"),
-        "KERNELGYM_TVM_FFI_TMPDIR": os.environ.get("KERNELGYM_TVM_FFI_TMPDIR", f"{tmp_root}/work/tvm_ffi"),
-        "KERNELGYM_CUDA_AGENT_COMPILE_CACHE_DIR": os.environ.get(
-            "KERNELGYM_CUDA_AGENT_COMPILE_CACHE_DIR", f"{tmp_root}/compile_cache/cuda_agent"
-        ),
-        "KERNELGYM_TVM_FFI_COMPILE_CACHE_DIR": os.environ.get(
-            "KERNELGYM_TVM_FFI_COMPILE_CACHE_DIR", f"{tmp_root}/compile_cache/tvm_ffi"
-        ),
-    }
-    _write_env_file(env_file, values)
-    print(f"Wrote configuration to {env_file}")
-    return 0
 
 
 def _kill_processes(pattern: str, description: str) -> None:
@@ -356,8 +269,7 @@ def _kill_processes(pattern: str, description: str) -> None:
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
-    env_file = Path(args.env_file) if args.env_file else _default_env_file()
-    values = _read_env_file(env_file)
+    values = _profile_values(args.profile)
     patterns = [
         ("kernelgym.server.api.server", "KernelGym API server"),
         ("kernelgym.worker.worker_monitor", "KernelGym worker monitor"),
@@ -372,7 +284,7 @@ def cmd_stop(args: argparse.Namespace) -> int:
 
     client = _redis_client(values)
     if client is not None and values.get("REDIS_PORT"):
-        prefix = values.get("REDIS_KEY_PREFIX", "kernelgym")
+        prefix = REDIS_KEY_PREFIX
         try:
             keys = list(client.scan_iter(f"{prefix}:*"))
             if keys:
@@ -385,20 +297,10 @@ def cmd_stop(args: argparse.Namespace) -> int:
 
 
 def cmd_start_local(args: argparse.Namespace) -> int:
-    env_file = Path(args.env_file) if args.env_file else _default_env_file()
-    if args.force_config or not env_file.exists():
-        cmd_auto_configure(
-            argparse.Namespace(
-                env_file=str(env_file),
-                force=True,
-                use_indexed_ports=args.use_indexed_ports,
-                save_eval_results=False,
-            )
-        )
     if not args.no_stop_first:
-        cmd_stop(argparse.Namespace(env_file=str(env_file)))
+        cmd_stop(argparse.Namespace(profile=args.profile))
 
-    values = _read_env_file(env_file)
+    values = _profile_values(args.profile)
     if args.log_dir:
         values["LOG_DIR"] = args.log_dir
     if args.eval_results_path:
@@ -420,7 +322,7 @@ def cmd_start_local(args: argparse.Namespace) -> int:
     print(f"Worker monitor PID: {monitor_pid}")
 
     client = _redis_client(values)
-    prefix = values.get("REDIS_KEY_PREFIX", "kernelgym")
+    prefix = REDIS_KEY_PREFIX
     if client is not None:
         try:
             client.delete(f"{prefix}:expected_workers")
@@ -485,7 +387,7 @@ def cmd_start_worker_node(args: argparse.Namespace) -> int:
         shutil.copyfile(server_env, env_file)
 
     values = _read_env_file(env_file)
-    for required in ("API_HOST", "API_PORT", "REDIS_HOST", "REDIS_PORT"):
+    for required in ("API_HOST", "REDIS_HOST"):
         if not values.get(required):
             raise SystemExit(f"Missing required env var in {env_file}: {required}")
     _check_worker_connectivity(values)
@@ -536,17 +438,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Manage reward-only KernelGym services")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    auto_configure = subparsers.add_parser("auto-configure", help="generate a KernelGym .env file")
-    auto_configure.add_argument("--env-file", default=None)
-    auto_configure.add_argument("--force", action="store_true")
-    auto_configure.add_argument("--use-indexed-ports", action="store_true")
-    auto_configure.add_argument("--save-eval-results", action="store_true")
-    auto_configure.set_defaults(func=cmd_auto_configure)
-
     start_local = subparsers.add_parser("start-local", help="start local API, monitor, and GPU workers")
-    start_local.add_argument("--env-file", default=None)
-    start_local.add_argument("--force-config", action="store_true")
-    start_local.add_argument("--use-indexed-ports", action="store_true")
+    start_local.add_argument("--profile", choices=("auto", *profile_names()), default="auto")
     start_local.add_argument("--log-dir", default=None)
     start_local.add_argument("--eval-results-path", default=None)
     start_local.add_argument("--no-stop-first", action="store_true")
@@ -557,7 +450,7 @@ def build_parser() -> argparse.ArgumentParser:
     worker_node.set_defaults(func=cmd_start_worker_node)
 
     stop = subparsers.add_parser("stop", help="stop local KernelGym processes and clear Redis keys")
-    stop.add_argument("--env-file", default=None)
+    stop.add_argument("--profile", choices=("auto", *profile_names()), default="auto")
     stop.set_defaults(func=cmd_stop)
 
     return parser

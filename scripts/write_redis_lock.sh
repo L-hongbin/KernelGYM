@@ -18,8 +18,8 @@ fi
 
 # Extract Redis configuration from .env file
 redis_host=$(grep -E '^REDIS_HOST=' "$ENV_FILE" | cut -d= -f2 | tr -d '\r\n')
-redis_port=$(grep -E '^REDIS_PORT=' "$ENV_FILE" | cut -d= -f2 | tr -d '\r\n')
-redis_password=$(grep -E '^REDIS_PASSWORD=' "$ENV_FILE" | cut -d= -f2 | tr -d '\r\n')
+redis_port=20110
+redis_password=
 api_host=$(grep -E '^API_HOST=' "$ENV_FILE" | cut -d= -f2 | tr -d '\r\n')
 
 # Fallback to API_HOST if REDIS_HOST is not set

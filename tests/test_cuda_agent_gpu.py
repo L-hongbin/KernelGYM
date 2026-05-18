@@ -14,13 +14,9 @@ def _require_cuda_agent_toolchain() -> object:
     if not torch.cuda.is_available():
         pytest.skip("CUDA runtime is not available")
 
-    from torch.utils.cpp_extension import CUDA_HOME
-
-    nvcc = shutil.which("nvcc")
-    if CUDA_HOME is not None:
-        nvcc = nvcc or str(Path(CUDA_HOME) / "bin" / "nvcc")
-    if nvcc is None or not Path(nvcc).exists():
-        pytest.skip("nvcc is not available")
+    nvcc = Path("/usr/local/cuda-12.9/bin/nvcc")
+    if not nvcc.exists():
+        pytest.skip("CUDA 12.9 nvcc is not available")
 
     if shutil.which(os.environ.get("CXX", "c++")) is None and shutil.which("g++") is None:
         pytest.skip("C++ compiler is not available")
@@ -39,11 +35,7 @@ def _require_cuda_agent_toolchain() -> object:
 @pytest.mark.gpu
 def test_cuda_agent_compile_load_and_run_on_gpu(monkeypatch) -> None:
     torch = _require_cuda_agent_toolchain()
-    runtime_root = Path("/dev/shm") / f"kernelgym_reward_test_{os.getpid()}"
-    shutil.rmtree(runtime_root, ignore_errors=True)
-    monkeypatch.setenv("KERNELGYM_CUDA_AGENT_TMPDIR", str(runtime_root / "work"))
-    monkeypatch.setenv("KERNELGYM_CUDA_AGENT_COMPILE_CACHE_DIR", str(runtime_root / "compile_cache"))
-    monkeypatch.setenv("KERNELGYM_CUDA_AGENT_NVCC_THREADS", "1")
+    monkeypatch.setenv("KERNELGYM_NVCC_THREADS", "1")
 
     backend = KernelBenchCudaAgentBackend()
     model_code = """
@@ -73,6 +65,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     }
 
     handle = None
+    artifact = None
     try:
         artifact = backend.compile(
             model_code,
@@ -92,4 +85,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     finally:
         if handle is not None:
             backend.cleanup(handle)
-        shutil.rmtree(runtime_root, ignore_errors=True)
+        if artifact is not None and artifact.get("work_dir"):
+            shutil.rmtree(artifact["work_dir"], ignore_errors=True)

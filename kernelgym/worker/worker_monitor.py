@@ -4,7 +4,7 @@ Monitors worker health and restarts crashed workers.
 
 Enhancement: Persistent monitoring mode (opt-in via --persistent or env)
 - When enabled, the monitor maintains target workers based on Redis keys that
-  are populated by the launcher (e.g., start_all_with_monitor.sh):
+  are populated by the service launcher:
     - f"{KEY_PREFIX}:expected_workers" (SET of worker_ids)
     - f"{KEY_PREFIX}:expected_worker:{worker_id}" (HASH: device, node_id, hostname)
     - f"{KEY_PREFIX}:worker_process:{worker_id}" (HASH: pid, start_time, device)
