@@ -1,6 +1,10 @@
 from pathlib import Path
+import subprocess
 
 from kernelgym.cli import deploy
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_deploy_parser_exposes_expected_commands() -> None:
@@ -8,7 +12,6 @@ def test_deploy_parser_exposes_expected_commands() -> None:
     help_text = parser.format_help()
     assert "detect-profile" in help_text
     assert "write-env" in help_text
-    assert "create-venv" in help_text
     assert "lock-gpu-clocks" in help_text
     assert "host-container" in help_text
 
@@ -127,35 +130,30 @@ def test_host_container_command_mounts_cuda129_and_nfs(tmp_path: Path) -> None:
     assert "example/cuda129:latest sleep infinity" in joined
 
 
-def test_create_venv_dry_run_uses_cuda129_packages(tmp_path: Path, capsys) -> None:
-    rc = deploy.main(
-        [
-            "create-venv",
-            "--venv",
-            str(tmp_path / ".venv"),
-            "--python",
-            "python3.10",
-            "--dry-run",
-        ]
-    )
+def test_create_venv_is_a_bash_script_with_internal_external_support() -> None:
+    script = ROOT / "scripts" / "create_venv.sh"
+    text = script.read_text(encoding="utf-8")
 
-    assert rc == 0
-    output = capsys.readouterr().out
-    assert "uv venv --python python3.10" in output
-    assert deploy.CUDA129_INDEX_URL in output
-    assert "torch==2.11.0+cu129" in output
-    assert "torchvision==0.26.0+cu129" in output
+    subprocess.run(["bash", "-n", str(script)], check=True)
+    assert len(text.splitlines()) <= 100
+    assert "requirements-cuda129.txt" in text
+    assert "scripts/validate_cuda129.py" in text
+    assert "KERNELGYM_FALLBACK_PROXY" in text
+    assert "192.168.28.186:7897" in text
+    assert "--cuda-home" not in text
+    assert "--fallback-proxy" not in text
+    assert "--skip-validate" not in text
+    assert "[[ -L" in text
+    assert "external" in text
+    assert "internal" in text
 
 
-def test_cuda_env_adds_proxy_when_requested() -> None:
-    env = deploy._cuda_env("/usr/local/cuda-12.9", proxy=deploy.DEFAULT_PROXY)
+def test_cuda129_validation_helper_checks_torch_and_nvcc() -> None:
+    helper = (ROOT / "scripts" / "validate_cuda129.py").read_text(encoding="utf-8")
 
-    assert env["CUDA_HOME"] == "/usr/local/cuda-12.9"
-    assert env["PATH"].startswith("/usr/local/cuda-12.9/bin:")
-    assert env["LD_LIBRARY_PATH"].startswith("/usr/local/cuda-12.9/lib64:")
-    assert env["HTTP_PROXY"] == deploy.DEFAULT_PROXY
-    assert env["HTTPS_PROXY"] == deploy.DEFAULT_PROXY
-    assert env["ALL_PROXY"] == deploy.DEFAULT_PROXY
+    assert "torch.version.cuda" in helper
+    assert "12.9" in helper
+    assert "nvcc" in helper
 
 
 def test_lock_gpu_clocks_dry_run_uses_host_level_nvidia_smi(capsys) -> None:

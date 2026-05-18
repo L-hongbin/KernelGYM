@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import socket
 import subprocess
 from pathlib import Path
@@ -19,16 +18,10 @@ from kernelgym.cli import service
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
-CUDA129_INDEX_URL = "https://download.pytorch.org/whl/cu129"
-TORCH_CUDA129_PACKAGES = (
-    "torch==2.11.0+cu129",
-    "torchvision==0.26.0+cu129",
-)
 DEFAULT_CUDA_HOME = "/usr/local/cuda-12.9"
 DEFAULT_CONTAINER_IMAGE = "192.168.14.129:80/fm/llmc:v1.1"
 DEFAULT_SHM_SIZE = "256g"
 DEFAULT_MARKER_PATH = "/ms"
-DEFAULT_PROXY = "http://192.168.28.186:7897"
 PROFILE_INTERNAL = "internal"
 PROFILE_EXTERNAL = "external"
 PROFILE_AUTO = "auto"
@@ -161,124 +154,6 @@ def _run(
     return subprocess.run(command, check=check, env=env, text=True)
 
 
-def _with_proxy(env: dict[str, str], proxy: str | None) -> dict[str, str]:
-    if not proxy:
-        return env
-    updated = env.copy()
-    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
-        updated[key] = proxy
-    return updated
-
-
-def _uv_command(uv: str, python: str, *, dry_run: bool = False, env: dict[str, str] | None = None) -> list[str]:
-    if shutil.which(uv):
-        return [uv]
-    if uv != "uv":
-        return [uv]
-    _run([python, "-m", "pip", "install", "uv"], dry_run=dry_run, env=env)
-    return [python, "-m", "uv"]
-
-
-def _cuda_env(cuda_home: str, *, proxy: str | None = None) -> dict[str, str]:
-    env = os.environ.copy()
-    cuda_bin = str(Path(cuda_home) / "bin")
-    cuda_lib = str(Path(cuda_home) / "lib64")
-    env["CUDA_HOME"] = cuda_home
-    env["PATH"] = f"{cuda_bin}:{env.get('PATH', '')}"
-    env["LD_LIBRARY_PATH"] = f"{cuda_lib}:{env.get('LD_LIBRARY_PATH', '')}"
-    return _with_proxy(env, proxy)
-
-
-def _venv_python(venv: Path) -> Path:
-    return venv / "bin" / "python"
-
-
-def _validate_cuda129_environment(
-    venv: Path,
-    cuda_home: str,
-    *,
-    dry_run: bool = False,
-    proxy: str | None = None,
-) -> None:
-    script = """
-import shutil
-import subprocess
-import sys
-
-import torch
-
-print(f"python={sys.executable}")
-print(f"torch={torch.__version__}")
-print(f"torch_cuda={torch.version.cuda}")
-if torch.version.cuda != "12.9":
-    raise SystemExit(f"expected torch.version.cuda == 12.9, got {torch.version.cuda!r}")
-
-nvcc = shutil.which("nvcc")
-print(f"nvcc={nvcc}")
-if not nvcc:
-    raise SystemExit("nvcc not found on PATH")
-out = subprocess.check_output([nvcc, "--version"], text=True)
-print(out.strip().splitlines()[-1])
-if "12.9" not in out:
-    raise SystemExit("expected nvcc from CUDA 12.9")
-"""
-    command = [str(_venv_python(venv)), "-c", script]
-    _run(command, dry_run=dry_run, env=_cuda_env(cuda_home, proxy=proxy))
-
-
-def cmd_create_venv(args: argparse.Namespace) -> int:
-    venv = Path(args.venv)
-    cuda_home = args.cuda_home
-    proxy = args.proxy or os.environ.get("KERNELGYM_PROXY") or None
-    fallback_proxy = args.fallback_proxy or os.environ.get("KERNELGYM_FALLBACK_PROXY") or DEFAULT_PROXY
-    uv_command = _uv_command(args.uv, args.python, dry_run=args.dry_run, env=_cuda_env(cuda_home, proxy=proxy))
-    if args.recreate and venv.exists():
-        print(f"Removing existing venv: {venv}")
-        if not args.dry_run:
-            shutil.rmtree(venv)
-
-    if not venv.exists():
-        _run(
-            [*uv_command, "venv", "--python", args.python, str(venv)],
-            dry_run=args.dry_run,
-        )
-
-    _run(
-        [
-            *uv_command,
-            "pip",
-            "install",
-            "--python",
-            str(_venv_python(venv)),
-            "-e",
-            ".[dev]",
-        ],
-        dry_run=args.dry_run,
-        env=_cuda_env(cuda_home, proxy=proxy),
-    )
-    torch_install_command = [
-        *uv_command,
-        "pip",
-        "install",
-        "--python",
-        str(_venv_python(venv)),
-        "--index-url",
-        CUDA129_INDEX_URL,
-        *TORCH_CUDA129_PACKAGES,
-    ]
-    try:
-        _run(torch_install_command, dry_run=args.dry_run, env=_cuda_env(cuda_home, proxy=proxy))
-    except subprocess.CalledProcessError:
-        if proxy or not fallback_proxy:
-            raise
-        print(f"PyTorch CUDA 12.9 install failed; retrying with proxy {fallback_proxy}")
-        _run(torch_install_command, dry_run=args.dry_run, env=_cuda_env(cuda_home, proxy=fallback_proxy))
-        proxy = fallback_proxy
-    if not args.skip_validate:
-        _validate_cuda129_environment(venv, cuda_home, dry_run=args.dry_run, proxy=proxy)
-    return 0
-
-
 def _sudo_prefix(use_sudo: bool) -> list[str]:
     return ["sudo"] if use_sudo else []
 
@@ -382,18 +257,6 @@ def cmd_write_env(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Prepare reward-only KernelGym deployments")
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    create_venv = subparsers.add_parser("create-venv", help="create a uv .venv with PyTorch CUDA 12.9")
-    create_venv.add_argument("--venv", default=str(ROOT_DIR / ".venv"))
-    create_venv.add_argument("--python", default="python3.10")
-    create_venv.add_argument("--uv", default="uv")
-    create_venv.add_argument("--cuda-home", default=DEFAULT_CUDA_HOME)
-    create_venv.add_argument("--proxy", default=None)
-    create_venv.add_argument("--fallback-proxy", default=DEFAULT_PROXY)
-    create_venv.add_argument("--recreate", action="store_true")
-    create_venv.add_argument("--skip-validate", action="store_true")
-    create_venv.add_argument("--dry-run", action="store_true")
-    create_venv.set_defaults(func=cmd_create_venv)
 
     detect_profile = subparsers.add_parser(
         "detect-profile",

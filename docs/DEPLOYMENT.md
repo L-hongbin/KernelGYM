@@ -1,7 +1,8 @@
 # Deployment
 
-KernelGYM reward-only supports two deployment modes. Keep operational logic in Python; shell files in this
-repo should stay thin wrappers.
+KernelGYM reward-only supports two deployment modes. Service orchestration and host/container deployment logic
+stay in Python. The CUDA 12.9 virtualenv bootstrap is intentionally a bash script because it is environment
+assembly around shell-native tools: Python, uv, pip, CUDA paths, and proxy environment variables.
 
 ## Shared Runtime Policy
 
@@ -16,21 +17,25 @@ repo should stay thin wrappers.
   - PyTorch wheels are installed from `https://download.pytorch.org/whl/cu129`.
   - `CUDA_HOME` should point at `/usr/local/cuda-12.9`.
   - `nvcc --version` must report CUDA 12.9 before running CUDA-Agent compile tests.
-- If CUDA wheel dependencies cannot be fetched directly, `create-venv` retries with
-  `http://192.168.28.186:7897`. Override this with `--proxy`, `--fallback-proxy`, `KERNELGYM_PROXY`, or
-  `KERNELGYM_FALLBACK_PROXY`.
+- If CUDA wheel dependencies cannot be fetched directly, `scripts/create_venv.sh` retries with
+  `http://192.168.28.186:7897` on external nodes. Override with `KERNELGYM_PROXY` or
+  `KERNELGYM_FALLBACK_PROXY` only when needed.
 - Do not reuse older KernelGYM or drkernel virtual environments.
 
 Create the environment in the runtime where reward will execute:
 
 ```bash
 cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
-python -m kernelgym.cli.deploy create-venv --recreate --cuda-home /usr/local/cuda-12.9
+bash scripts/create_venv.sh --recreate
 source .venv/bin/activate
 ```
 
-The command validates both `torch.version.cuda == "12.9"` and `nvcc` from CUDA 12.9 unless
-`--skip-validate` is passed.
+The script validates both `torch.version.cuda == "12.9"` and `nvcc` from CUDA 12.9. Common overrides are
+environment variables, not long command lines:
+
+```bash
+KERNELGYM_PYTHON=python3.12 CUDA_HOME=/usr/local/cuda-12.9 bash scripts/create_venv.sh --recreate
+```
 
 Detect the current deployment profile:
 
@@ -93,7 +98,7 @@ Inside the container:
 
 ```bash
 cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
-python -m kernelgym.cli.deploy create-venv --recreate --cuda-home /usr/local/cuda-12.9
+bash scripts/create_venv.sh --recreate
 source .venv/bin/activate
 python -m kernelgym.cli.deploy write-env --role api --env-file .env --force
 python -m kernelgym.cli.service start-local
@@ -114,7 +119,7 @@ inside this container. Create `.venv` and start services directly:
 
 ```bash
 cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
-python -m kernelgym.cli.deploy create-venv --recreate --cuda-home /usr/local/cuda-12.9
+bash scripts/create_venv.sh --recreate
 source .venv/bin/activate
 python -m kernelgym.cli.deploy write-env --role api --env-file .env --force
 python -m kernelgym.cli.service start-local

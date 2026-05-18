@@ -46,7 +46,7 @@ Deployment is documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 ## Quick Start
 
 ```bash
-python -m kernelgym.cli.deploy create-venv --recreate --cuda-home /usr/local/cuda-12.9
+bash scripts/create_venv.sh --recreate
 source .venv/bin/activate
 pre-commit install
 pytest
@@ -78,7 +78,7 @@ Deployment profile is detected from `/ms`: a real `/ms` path means internal, whi
 means external. Use `python -m kernelgym.cli.deploy write-env ...` to generate the matching `.env`.
 Physical-host deployment, such as external `192.168.16.39` / `192.168.16.40` reward nodes, then uses
 `python -m kernelgym.cli.deploy host-container ...` to lock GPU clocks and start a Docker container first.
-Internal deployments where SSH already lands inside a container skip Docker and run `create-venv` plus
+Internal deployments where SSH already lands inside a container skip Docker and run `scripts/create_venv.sh` plus
 `kernelgym.cli.service` directly.
 
 ## Development Policy
