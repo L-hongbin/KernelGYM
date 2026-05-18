@@ -45,7 +45,6 @@ def test_correctness_runs_zero_like_cache_poison_before_custom_forward() -> None
 
     assert result.correctness is False
     assert result.metadata["correctness_reference_cache_poison_enabled"] is True
-    assert result.metadata["correctness_reference_cache_poison_tensor_counts"] == [1]
     assert result.metadata["correctness_failed_trial"] == 0
 
 
@@ -78,4 +77,4 @@ def test_correctness_accepts_matching_cuda_model_with_cache_poison() -> None:
 
     assert result.correctness is True
     assert result.metadata["correctness_trials"] == "(2 / 2)"
-    assert result.metadata["correctness_reference_cache_poison_tensor_counts"] == [1, 1]
+    assert result.metadata["correctness_reference_cache_poison_enabled"] is True

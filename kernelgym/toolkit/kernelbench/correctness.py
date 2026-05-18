@@ -238,8 +238,6 @@ def run_and_check_correctness(
     input_generation_durations: list[float] = []
     input_transfer_durations: list[float] = []
     reference_alias_clone_durations: list[float] = []
-    reference_cache_poison_durations: list[float] = []
-    reference_cache_poison_tensor_counts: list[int] = []
 
     def _set_substage(name: str, *, trial: int | None = None) -> None:
         if trial is not None:
@@ -282,8 +280,6 @@ def run_and_check_correctness(
         metadata["correctness_input_generation_trial_s"] = input_generation_durations
         metadata["correctness_input_transfer_trial_s"] = input_transfer_durations
         metadata["correctness_reference_alias_clone_trial_s"] = reference_alias_clone_durations
-        metadata["correctness_reference_cache_poison_trial_s"] = reference_cache_poison_durations
-        metadata["correctness_reference_cache_poison_tensor_counts"] = reference_cache_poison_tensor_counts
 
     def _maybe_finish_on_time_budget() -> KernelExecResult | None:
         if max_wall_time_s is None or trials_run == 0:
@@ -382,15 +378,10 @@ def run_and_check_correctness(
             else:
                 reference_alias_clone_durations.append(0.0)
 
-            _set_substage("reference_cache_poison", trial=trial)
-            poison_start = perf_counter()
             poison_scratch = _zero_poison_like(output)
-            poison_tensor_count = sum(1 for _ in _iter_tensors(poison_scratch))
-            if poison_tensor_count:
+            if any(True for _ in _iter_tensors(poison_scratch)):
                 torch.cuda.synchronize(device=device)
             del poison_scratch
-            reference_cache_poison_durations.append(perf_counter() - poison_start)
-            reference_cache_poison_tensor_counts.append(poison_tensor_count)
 
             try:
                 _set_substage("custom_forward", trial=trial)
