@@ -1,8 +1,9 @@
 # CUDA-Agent Compile Acceleration Design
 
+Status: proposed target design
 Date: 2026-05-18
 
-This document defines the CUDA-Agent compile acceleration design for the reward-only service.
+This document defines the target CUDA-Agent compile acceleration design for the reward-only service.
 
 ## Goals
 

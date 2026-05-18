@@ -13,7 +13,7 @@ This repo is derived from two local source repositories:
   - Comparative source for CUDA reward-env optimization logic.
   - Provides reference logic for ninja-driven fine-grained compilation, object cache, split compile/execute, CPU compile workers, and resource-aware scheduling. The reward-only implementation keeps the useful mechanics while preserving this repo's parser, validation, metadata, and workflow contracts.
 
-See [docs/SOURCE_LINEAGE.md](docs/SOURCE_LINEAGE.md), [docs/IMPLEMENTATION_DIFFERENCES.md](docs/IMPLEMENTATION_DIFFERENCES.md), and [docs/COMPILE_ACCELERATION_DESIGN.md](docs/COMPILE_ACCELERATION_DESIGN.md).
+See [docs/SOURCE_LINEAGE.md](docs/SOURCE_LINEAGE.md), [docs/IMPLEMENTATION_DIFFERENCES.md](docs/IMPLEMENTATION_DIFFERENCES.md), and [docs/design-doc/COMPILE_ACCELERATION.md](docs/design-doc/COMPILE_ACCELERATION.md).
 Deployment is documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## What Is Included

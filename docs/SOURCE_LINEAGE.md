@@ -55,4 +55,4 @@ Not adopted from this source:
 - repository-specific implementation style and service wiring.
 - LHB CUDA decoy policy.
 
-The reward-only implementation keeps this repo's newer CUDA-Agent parsing, TVM-FFI support, static validation, and profiling metadata while adopting the compile acceleration mechanics described in `docs/COMPILE_ACCELERATION_DESIGN.md`.
+The reward-only implementation keeps this repo's newer CUDA-Agent parsing, TVM-FFI support, static validation, and profiling metadata while adopting the compile acceleration mechanics described in `docs/design-doc/COMPILE_ACCELERATION.md`.

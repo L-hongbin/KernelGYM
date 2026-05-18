@@ -12,7 +12,9 @@ This file indexes stable repository docs and evidence locations.
 | `docs/DEVELOPMENT.md` | Local development and test conventions. |
 | `docs/SOURCE_LINEAGE.md` | Source repositories and imported/excluded behavior. |
 | `docs/IMPLEMENTATION_DIFFERENCES.md` | Current implementation differences from source repositories. |
-| `docs/COMPILE_ACCELERATION_DESIGN.md` | CUDA-Agent compile acceleration design. |
+| `docs/design-doc/COMPILE_ACCELERATION.md` | CUDA-Agent compile acceleration design. |
+| `docs/design-doc/REWARD_HACKING_DEFENSES.md` | Current reward-hacking defense design notes. |
+| `docs/design-doc/TWO_WORKER_WARM_POOL.md` | Current two-worker GPU subprocess warm-pool design. |
 
 ## Important Code Areas
 

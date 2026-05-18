@@ -76,4 +76,4 @@ The active CUDA-Agent acceleration path has these components:
 - CPU/GPU resource queues with dedicated CPU compile workers;
 - sanitized public compile artifact metadata and internal full-artifact handoff.
 
-See `docs/COMPILE_ACCELERATION_DESIGN.md` for the target design.
+See `docs/design-doc/COMPILE_ACCELERATION.md` for the target design.
