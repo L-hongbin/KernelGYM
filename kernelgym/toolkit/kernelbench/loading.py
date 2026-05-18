@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 
 
-logger = logging.getLogger("kernelgym.toolkit.kernelbench.loading")
+logger = logging.getLogger(__name__)
 _MODEL_TMPDIR_ENV = "KERNELGYM_MODEL_TMPDIR"
 _MODEL_DEFAULT_TMPDIR = "/dev/shm/kernelgym/work/model_loading"
 _FAST_RW_ROOT = Path("/dev/shm")

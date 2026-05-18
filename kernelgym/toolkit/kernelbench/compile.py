@@ -9,7 +9,7 @@ from typing import Any, Dict
 
 from kernelgym.toolkit.kernelbench.loading import load_custom_model
 
-logger = logging.getLogger("kernelgym.toolkit.kernelbench.compile")
+logger = logging.getLogger(__name__)
 
 
 def build_compile_cache(custom_model_src: str, build_dir: str | None, verbose: bool = False) -> Dict[str, Any]:

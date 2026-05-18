@@ -25,7 +25,7 @@ from kernelgym.toolkit.kernelbench import pipeline as kernelbench_pipeline
 
 from ..base import Toolkit
 
-logger = logging.getLogger("kernelgym.toolkit.kernelbench.toolkit")
+logger = logging.getLogger(__name__)
 
 
 class KernelBenchToolkit(Toolkit):

@@ -18,7 +18,7 @@ from kernelgym.toolkit.kernelbench.exec_types import (
 )
 
 
-logger = logging.getLogger("kernelgym.toolkit.kernelbench.correctness")
+logger = logging.getLogger(__name__)
 _CORRECTNESS_EARLY_STOP_ENV = "KERNELGYM_CORRECTNESS_EARLY_STOP"
 _CORRECTNESS_MAX_WALL_S_ENV = "KERNELGYM_CORRECTNESS_MAX_WALL_S"
 _CORRECTNESS_PASS_ON_BUDGET_ENV = "KERNELGYM_CORRECTNESS_PASS_ON_BUDGET"

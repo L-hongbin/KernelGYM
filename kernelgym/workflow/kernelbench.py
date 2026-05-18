@@ -31,7 +31,7 @@ from ..core.workflow import WorkflowController, WorkflowState
 from ..core.scheduler import SchedulerAPI
 from kernelgym.utils.task_status import task_status_from_result_payload
 
-logger = logging.getLogger("kernelgym.workflow.kernelbench")
+logger = logging.getLogger(__name__)
 
 
 class KernelBenchWorkflowController(WorkflowController):

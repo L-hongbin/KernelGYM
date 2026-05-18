@@ -22,7 +22,7 @@ import queue
 from typing import Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 
-logger = logging.getLogger("kernelgym.task_executor")
+logger = logging.getLogger(__name__)
 
 
 @dataclass

@@ -11,7 +11,7 @@ import torch
 
 from kernelgym.config import settings
 
-logger = logging.getLogger("kernelgym.toolkit.kernelbench.profiling")
+logger = logging.getLogger(__name__)
 
 
 def _matches_profiler_name(captured: str, profiler_name: str) -> bool:

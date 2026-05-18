@@ -33,7 +33,7 @@ from kernelgym.toolkit.kernelbench.timing import (
 from kernelgym.utils.error_classifier import classify_compile_error_detail
 
 
-logger = logging.getLogger("kernelgym.toolkit.kernelbench.pipeline")
+logger = logging.getLogger(__name__)
 _STAGE_METADATA_PATH_ENV = "KERNELGYM_STAGE_METADATA_PATH"
 _FAST_RW_ROOT = Path("/dev/shm")
 

@@ -14,7 +14,7 @@ from kernelgym.toolkit.kernelbench.profiling import (
     profiling_context,
 )
 
-logger = logging.getLogger("kernelgym.toolkit.kernelbench.timing")
+logger = logging.getLogger(__name__)
 
 
 def time_execution_with_cuda_event(
