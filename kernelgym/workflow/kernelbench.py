@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Optional
 from pathlib import Path
 import json
@@ -30,6 +31,8 @@ from ..core.workflow import WorkflowController, WorkflowState
 from ..core.scheduler import SchedulerAPI
 from kernelgym.utils.task_status import task_status_from_result_payload
 
+logger = logging.getLogger("kernelgym.workflow.kernelbench")
+
 
 class KernelBenchWorkflowController(WorkflowController):
     """Main controller for KernelBench evaluation workflow."""
@@ -48,7 +51,7 @@ class KernelBenchWorkflowController(WorkflowController):
         state = WorkflowState({"base_task_id": eval_task.task_id})
 
         if eval_task.reference_backend:
-            print(f"[Workflow] task={eval_task.task_id} reference_backend={eval_task.reference_backend}")
+            logger.info("[Workflow] task=%s reference_backend=%s", eval_task.task_id, eval_task.reference_backend)
 
         validation = self._validate_inputs(eval_task)
         if not validation["valid"]:

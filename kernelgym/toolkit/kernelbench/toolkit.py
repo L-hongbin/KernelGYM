@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from typing import Any, Dict
 
@@ -23,6 +24,8 @@ from kernelgym.toolkit.kernelbench.exec_types import set_seed
 from kernelgym.toolkit.kernelbench import pipeline as kernelbench_pipeline
 
 from ..base import Toolkit
+
+logger = logging.getLogger("kernelgym.toolkit.kernelbench.toolkit")
 
 
 class KernelBenchToolkit(Toolkit):
@@ -235,7 +238,7 @@ class KernelBenchToolkit(Toolkit):
             set_seed(42)
 
             if task.reference_backend:
-                print(f"[RefTiming] task={task.task_id} reference_backend={task.reference_backend}")
+                logger.info("[RefTiming] task=%s reference_backend=%s", task.task_id, task.reference_backend)
 
             num_warmup = getattr(task, "num_warmup", 3)
             perf_trim_count = getattr(task, "perf_trim_count", 0)
@@ -410,7 +413,7 @@ class KernelBenchToolkit(Toolkit):
             if enable_profiling and "profiling" in result.metadata:
                 profiling_metrics = result.metadata["profiling"]
                 if profiling_metrics:
-                    print(f"[DEBUG] Profiling captured {profiling_metrics.get('kernel_count', 0)} kernels")
+                    logger.debug("Profiling captured %s kernels", profiling_metrics.get("kernel_count", 0))
 
             return KernelEvaluationResult.from_kernel_exec_result(
                 task.task_id,

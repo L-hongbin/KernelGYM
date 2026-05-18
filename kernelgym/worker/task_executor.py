@@ -14,7 +14,6 @@ Date: 2025-10-29
 Version: v0.3.3-alpha
 """
 
-import sys
 import time
 import logging
 import traceback
@@ -232,4 +231,4 @@ def _toolkit_worker(
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
         except Exception as cleanup_error:
-            print(f"[WARNING] GPU cleanup failed: {cleanup_error}", file=sys.stderr)
+            logger.warning("GPU cleanup failed: %s", cleanup_error)

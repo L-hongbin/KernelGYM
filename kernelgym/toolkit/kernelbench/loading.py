@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -12,6 +13,7 @@ import torch
 import torch.nn as nn
 
 
+logger = logging.getLogger("kernelgym.toolkit.kernelbench.loading")
 _MODEL_TMPDIR_ENV = "KERNELGYM_MODEL_TMPDIR"
 _MODEL_DEFAULT_TMPDIR = "/dev/shm/kernelgym/work/model_loading"
 _FAST_RW_ROOT = Path("/dev/shm")
@@ -39,12 +41,12 @@ def load_original_model_and_inputs(
     try:
         compile(model_original_src, "<string>", "exec")
     except SyntaxError as e:
-        print(f"Syntax Error in original code {e}")
+        logger.warning("Syntax error in original code: %s", e)
         return None
     try:
         exec(model_original_src, context)
     except Exception as e:
-        print(f"Error in executing original code {e}")
+        logger.warning("Error executing original code: %s", e)
         return None
     get_init_inputs_fn = context.get("get_init_inputs")
     get_inputs_fn = context.get("get_inputs")
@@ -84,7 +86,7 @@ def load_custom_model(model_custom_src: str, context: dict, build_directory: str
         compile(model_custom_src, "<string>", "exec")
         exec(model_custom_src, context)
     except SyntaxError as e:
-        print(f"Syntax Error in custom generated code or Compilation Error {e}")
+        logger.warning("Syntax error in custom generated code or compilation error: %s", e)
         return None
 
     ModelNew = context.get("ModelNew")

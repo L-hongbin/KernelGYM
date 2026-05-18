@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from time import perf_counter
 from typing import Any, Dict, List, Tuple
 
@@ -12,6 +13,8 @@ from kernelgym.toolkit.kernelbench.profiling import (
     extract_profiling_metrics,
     profiling_context,
 )
+
+logger = logging.getLogger("kernelgym.toolkit.kernelbench.timing")
 
 
 def time_execution_with_cuda_event(
@@ -25,7 +28,7 @@ def time_execution_with_cuda_event(
 ) -> Tuple[List[float], Dict[str, Any], Dict[str, Any]]:
     if device is None:
         if verbose:
-            print(f"Using current device: {torch.cuda.current_device()}")
+            logger.info("Using current device: %s", torch.cuda.current_device())
         device = torch.cuda.current_device()
 
     overall_start = perf_counter()
@@ -36,8 +39,12 @@ def time_execution_with_cuda_event(
         torch.cuda.synchronize(device=device)
     warmup_wall_s = perf_counter() - warmup_start
 
-    print(
-        f"[Profiling] Using device: {device} {torch.cuda.get_device_name(device)}, warm up {num_warmup}, trials {num_trials}"
+    logger.debug(
+        "[Profiling] Using device: %s %s, warm up %s, trials %s",
+        device,
+        torch.cuda.get_device_name(device),
+        num_warmup,
+        num_trials,
     )
     elapsed_times = []
 
@@ -54,7 +61,7 @@ def time_execution_with_cuda_event(
 
         elapsed_time_ms = start_event.elapsed_time(end_event)
         if verbose:
-            print(f"Trial {trial + 1}: {elapsed_time_ms:.3g} ms")
+            logger.info("Trial %s: %.3g ms", trial + 1, elapsed_time_ms)
         elapsed_times.append(elapsed_time_ms)
     measure_wall_s = perf_counter() - measure_start
 
@@ -65,7 +72,7 @@ def time_execution_with_cuda_event(
             torch.cuda.synchronize(device=device)
 
             num_profiling_trials = min(10, num_trials)
-            print(f"[Profiling] Running {num_profiling_trials} additional iterations for profiling...")
+            logger.info("[Profiling] Running %s additional iterations for profiling...", num_profiling_trials)
 
             profiling_start = perf_counter()
             with profiling_context(True) as prof:
@@ -76,11 +83,11 @@ def time_execution_with_cuda_event(
 
             profiling_metrics = extract_profiling_metrics(prof)
             if profiling_metrics:
-                print(f"[Profiling] Captured {profiling_metrics.get('kernel_count', 0)} CUDA kernels")
-                print(f"[Profiling] Total CUDA time: {profiling_metrics.get('total_cuda_time_us', 0):.2f} us")
+                logger.info("[Profiling] Captured %s CUDA kernels", profiling_metrics.get("kernel_count", 0))
+                logger.info("[Profiling] Total CUDA time: %.2f us", profiling_metrics.get("total_cuda_time_us", 0))
 
         except Exception as e:
-            print(f"[Profiling] Warning: Profiling failed: {e}")
+            logger.warning("[Profiling] Profiling failed: %s", e)
             profiling_metrics = {"profiling_error": str(e)}
 
     timing_info = {
@@ -106,22 +113,22 @@ def run_profiling_only(
 ) -> Dict[str, Any]:
     if device is None:
         if verbose:
-            print(f"Using current device: {torch.cuda.current_device()}")
+            logger.info("Using current device: %s", torch.cuda.current_device())
         device = torch.cuda.current_device()
 
     profiling_metrics: Dict[str, Any] = {}
     try:
         torch.cuda.synchronize(device=device)
-        print(f"[Profiling] Running {num_trials} iterations (profiling-only)...")
+        logger.info("[Profiling] Running %s iterations (profiling-only)...", num_trials)
         with profiling_context(True) as prof:
             for _ in range(num_trials):
                 kernel_fn(*args)
             torch.cuda.synchronize(device=device)
         profiling_metrics = extract_profiling_metrics(prof)
         if profiling_metrics:
-            print(f"[Profiling] Captured {profiling_metrics.get('kernel_count', 0)} CUDA kernels")
+            logger.info("[Profiling] Captured %s CUDA kernels", profiling_metrics.get("kernel_count", 0))
     except Exception as e:
-        print(f"[Profiling] Warning: Profiling-only failed: {e}")
+        logger.warning("[Profiling] Profiling-only failed: %s", e)
         profiling_metrics = {"profiling_error": str(e)}
 
     return profiling_metrics

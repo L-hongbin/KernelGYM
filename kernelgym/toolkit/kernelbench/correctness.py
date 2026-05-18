@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import contextmanager
 from time import perf_counter
@@ -17,6 +18,7 @@ from kernelgym.toolkit.kernelbench.exec_types import (
 )
 
 
+logger = logging.getLogger("kernelgym.toolkit.kernelbench.correctness")
 _CORRECTNESS_EARLY_STOP_ENV = "KERNELGYM_CORRECTNESS_EARLY_STOP"
 _CORRECTNESS_MAX_WALL_S_ENV = "KERNELGYM_CORRECTNESS_MAX_WALL_S"
 _CORRECTNESS_PASS_ON_BUDGET_ENV = "KERNELGYM_CORRECTNESS_PASS_ON_BUDGET"
@@ -210,7 +212,7 @@ def register_and_format_exception(
     max_length: int = 200,
 ):
     if verbose:
-        print(f"[Exception {exception_type}] {str(exception_msg)} ")
+        logger.warning("[Exception %s] %s", exception_type, exception_msg)
 
     metadata[exception_type] = exception_msg
     return metadata
@@ -325,8 +327,8 @@ def run_and_check_correctness(
         nonlocal metadata, trials_run
         trials_run = trial + 1
         trial_durations.append(perf_counter() - trial_start)
-        print("[Error] Exception happens during correctness check")
-        print(f"Error in launching kernel for ModelNew: {exception}")
+        logger.warning("[Error] Exception happened during correctness check")
+        logger.warning("Error in launching kernel for ModelNew: %s", exception)
 
         metadata = register_and_format_exception("runtime_error", exception, metadata, truncate=False)
         metadata["runtime_error_name"] = get_error_name(exception)
@@ -344,7 +346,7 @@ def run_and_check_correctness(
             trial_start = perf_counter()
             trial_seed = correctness_trial_seeds[trial]
             if verbose:
-                print(f"[Eval] Generating Random Input with seed {trial_seed}")
+                logger.info("[Eval] Generating Random Input with seed %s", trial_seed)
 
             set_seed(trial_seed)
             _set_substage("input_generation", trial=trial)
@@ -360,8 +362,8 @@ def run_and_check_correctness(
 
             if verbose:
                 first_input_device = getattr(inputs[0], "device", None) if inputs else None
-                print(f"device: {device}")
-                print(f"inputs: {first_input_device}")
+                logger.debug("device: %s", device)
+                logger.debug("inputs: %s", first_input_device)
 
             _set_substage("reference_forward", trial=trial)
             reference_start = perf_counter()
@@ -404,8 +406,11 @@ def run_and_check_correctness(
                     metadata["correctness_failed_trial"] = trial
                     _record_trial_metadata()
                     if verbose:
-                        print(
-                            f"[FAIL] trial {trial}: Output shape mismatch: Expected {output.shape}, got {output_new.shape}"
+                        logger.warning(
+                            "[FAIL] trial %s: Output shape mismatch: Expected %s, got %s",
+                            trial,
+                            output.shape,
+                            output_new.shape,
                         )
                     return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
 
@@ -430,7 +435,7 @@ def run_and_check_correctness(
                     metadata["correctness_issue_name"] = "correctness_issue"
                     metadata["correctness_failed_trial"] = trial
                     if verbose:
-                        print(f"[FAIL] trial {trial}: Output mismatch")
+                        logger.warning("[FAIL] trial %s: Output mismatch", trial)
                     if stop_on_first_failure:
                         metadata["correctness_early_stopped"] = True
                         _record_trial_metadata()
@@ -438,7 +443,7 @@ def run_and_check_correctness(
                 else:
                     pass_count += 1
                     if verbose:
-                        print(f"[PASS] trial {trial}: New Model matches Model")
+                        logger.info("[PASS] trial %s: New Model matches Model", trial)
                 del output, output_new
 
             except Exception as e:
@@ -451,7 +456,7 @@ def run_and_check_correctness(
                 )
 
     if verbose:
-        print(f"[Eval] Pass count: {pass_count}, num_correct_trials: {num_correct_trials}")
+        logger.info("[Eval] Pass count: %s, num_correct_trials: %s", pass_count, num_correct_trials)
 
     _record_trial_metadata()
 

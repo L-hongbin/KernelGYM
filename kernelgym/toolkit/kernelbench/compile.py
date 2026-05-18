@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from typing import Any, Dict
 
 from kernelgym.toolkit.kernelbench.loading import load_custom_model
+
+logger = logging.getLogger("kernelgym.toolkit.kernelbench.compile")
 
 
 def build_compile_cache(custom_model_src: str, build_dir: str | None, verbose: bool = False) -> Dict[str, Any]:
@@ -15,7 +18,7 @@ def build_compile_cache(custom_model_src: str, build_dir: str | None, verbose: b
     context: Dict[str, Any] = {}
 
     if verbose:
-        print("[Compilation] Pre-compile custom CUDA binaries")
+        logger.info("[Compilation] Pre-compile custom CUDA binaries")
 
     try:
         if build_dir:
@@ -25,7 +28,7 @@ def build_compile_cache(custom_model_src: str, build_dir: str | None, verbose: b
             load_custom_model(custom_model_src, context, build_dir)
 
         if verbose:
-            print(f"[Compilation] Compilation Successful, saved cache at: {build_dir}")
+            logger.info("[Compilation] Compilation successful, saved cache at: %s", build_dir)
         return {
             "compiled": True,
             "stdout": stdout_buffer.getvalue(),
@@ -34,7 +37,7 @@ def build_compile_cache(custom_model_src: str, build_dir: str | None, verbose: b
         }
     except Exception as exc:
         if verbose:
-            print(f"[Compilation] Failed to compile custom CUDA kernel. Unable to cache, Error: {exc}")
+            logger.warning("[Compilation] Failed to compile custom CUDA kernel. Unable to cache, Error: %s", exc)
         return {
             "compiled": False,
             "stdout": stdout_buffer.getvalue(),

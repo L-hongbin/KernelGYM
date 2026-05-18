@@ -695,7 +695,7 @@ class GPUWorker:
                 return False
 
             url = f"{self.api_url}/worker/register"
-            print(f"[DEBUG]: url: {url}")
+            logger.debug("Worker register URL: %s", url)
             import socket
 
             hostname = socket.gethostname()
