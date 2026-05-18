@@ -23,6 +23,50 @@ def test_service_profile_values_load_python_profiles() -> None:
     assert values["REDIS_PORT"] == "20110"
 
 
+def test_service_env_respects_configured_torch_cuda_arch_list(monkeypatch) -> None:
+    monkeypatch.setenv("TORCH_CUDA_ARCH_LIST", "9.0")
+    monkeypatch.setattr(
+        service,
+        "_detect_visible_torch_cuda_arch_list",
+        lambda: (_ for _ in ()).throw(AssertionError("should not auto-detect")),
+    )
+
+    env = service._service_env({"TORCH_CUDA_ARCH_LIST": "8.9"})
+
+    assert env["TORCH_CUDA_ARCH_LIST"] == "8.9"
+
+
+def test_service_env_detects_torch_cuda_arch_list(monkeypatch) -> None:
+    monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
+    monkeypatch.setattr(service, "_detect_visible_torch_cuda_arch_list", lambda: "8.9")
+
+    env = service._service_env({})
+
+    assert env["TORCH_CUDA_ARCH_LIST"] == "8.9"
+
+
+def test_write_env_file_groups_torch_cuda_arch_list(tmp_path) -> None:
+    env_file = tmp_path / ".env"
+
+    service._write_env_file(
+        env_file,
+        {
+            "API_HOST": "127.0.0.1",
+            "TORCH_CUDA_ARCH_LIST": "8.9",
+            "KERNELGYM_NVCC_THREADS": "4",
+        },
+    )
+
+    text = env_file.read_text(encoding="utf-8")
+    cuda_build_index = text.index("# CUDA build")
+    assert text.index("TORCH_CUDA_ARCH_LIST=8.9") > cuda_build_index
+    assert text.index("KERNELGYM_NVCC_THREADS=4") > cuda_build_index
+
+
+def test_format_torch_cuda_arch_list_deduplicates_and_filters() -> None:
+    assert service._format_torch_cuda_arch_list([" 8.9 ", "8.9", "9.0,invalid", "10.0;9.0"]) == "8.9;9.0;10.0"
+
+
 def test_settings_hardcode_api_and_redis_runtime_knobs(monkeypatch) -> None:
     monkeypatch.setenv("API_PORT", "19081")
     monkeypatch.setenv("API_WORKERS", "99")

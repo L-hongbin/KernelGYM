@@ -8,6 +8,7 @@ This document defines the CUDA-Agent compile acceleration design for the reward-
 
 - Remove `torch.utils.cpp_extension.load(...)` from CUDA-Agent compilation.
 - Compile through an explicit ninja build graph.
+- Restrict CUDA code generation to the visible GPU architectures.
 - Reuse compiled object files when source/header/build inputs are unchanged.
 - Split CPU-heavy compile work from GPU execution work.
 - Preserve CUDA-Agent parsing, validation, binding handling, profiling metadata, and reward semantics.
@@ -15,7 +16,7 @@ This document defines the CUDA-Agent compile acceleration design for the reward-
 
 ## Target Architecture
 
-The compile acceleration has three required parts:
+The compile acceleration has four required parts:
 
 1. **Manual ninja backend**
    CUDA-Agent writes `build.ninja`, runs ninja, and imports the built extension. This replaces `cpp_extension.load`.
@@ -23,10 +24,13 @@ The compile acceleration has three required parts:
 2. **Object-level cache**
    Reusable object files are looked up before ninja runs. Cache hits are linked directly; only misses are compiled.
 
-3. **Compile/execute resource separation**
+3. **CUDA architecture selection**
+   Service startup honors an existing `TORCH_CUDA_ARCH_LIST`; otherwise it detects visible CUDA device capabilities and generates a deduplicated semicolon-separated value such as `8.9`. This prevents PyTorch extension builds from emitting unnecessary architectures.
+
+4. **Compile/execute resource separation**
    CPU workers produce compile artifacts. GPU workers consume those artifacts and run correctness/performance.
 
-The first two reduce compile work. The third reduces GPU worker occupancy caused by compilation.
+The first three reduce compile work. The fourth reduces GPU worker occupancy caused by compilation.
 
 ## Compile Flow
 

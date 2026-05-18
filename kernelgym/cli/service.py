@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -36,6 +37,8 @@ from kernelgym.deployment_profiles import (
 )
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
+TORCH_CUDA_ARCH_LIST_ENV = "TORCH_CUDA_ARCH_LIST"
+_CUDA_ARCH_PATTERN = re.compile(r"^[0-9]+(?:\.[0-9]+)?$")
 
 
 def _hostname() -> str:
@@ -92,6 +95,71 @@ def _read_env_file(path: Path) -> dict[str, str]:
     return values
 
 
+def _format_torch_cuda_arch_list(values: list[str]) -> str:
+    arches: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values:
+        for item in re.split(r"[;\s,]+", raw_value.strip().strip('"').strip("'")):
+            arch = item.strip()
+            if not arch or not _CUDA_ARCH_PATTERN.match(arch) or arch in seen:
+                continue
+            seen.add(arch)
+            arches.append(arch)
+    return ";".join(arches)
+
+
+def _detect_torch_cuda_arch_list_with_torch() -> str:
+    try:
+        import torch
+    except Exception:
+        return ""
+    try:
+        if not torch.cuda.is_available():
+            return ""
+        arches = []
+        for device_index in range(torch.cuda.device_count()):
+            major, minor = torch.cuda.get_device_capability(device_index)
+            arches.append(f"{major}.{minor}")
+        return _format_torch_cuda_arch_list(arches)
+    except Exception:
+        return ""
+
+
+def _detect_torch_cuda_arch_list_with_nvidia_smi() -> str:
+    nvidia_smi = shutil.which("nvidia-smi")
+    if not nvidia_smi:
+        return ""
+    for query_field in ("compute_cap", "compute_capability"):
+        proc = subprocess.run(
+            [nvidia_smi, f"--query-gpu={query_field}", "--format=csv,noheader"],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        if proc.returncode == 0:
+            arch_list = _format_torch_cuda_arch_list(proc.stdout.splitlines())
+            if arch_list:
+                return arch_list
+    return ""
+
+
+def _detect_visible_torch_cuda_arch_list() -> str:
+    return _detect_torch_cuda_arch_list_with_torch() or _detect_torch_cuda_arch_list_with_nvidia_smi()
+
+
+def _with_torch_cuda_arch_list(values: dict[str, str]) -> dict[str, str]:
+    if values.get(TORCH_CUDA_ARCH_LIST_ENV):
+        return values
+    configured = os.environ.get(TORCH_CUDA_ARCH_LIST_ENV, "").strip()
+    arch_list = configured or _detect_visible_torch_cuda_arch_list()
+    if not arch_list:
+        return values
+    updated = dict(values)
+    updated[TORCH_CUDA_ARCH_LIST_ENV] = arch_list
+    return updated
+
+
 def _write_env_file(path: Path, values: dict[str, str]) -> None:
     groups = [
         (
@@ -116,6 +184,7 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
         (
             "CUDA build",
             (
+                "TORCH_CUDA_ARCH_LIST",
                 "KERNELGYM_NVCC_THREADS",
                 "KERNELGYM_MANUAL_NINJA_OBJECT_CACHE",
                 "KERNELGYM_MANUAL_NINJA_OBJECT_CACHE_INDEX",
@@ -166,6 +235,7 @@ def _port_is_open(host: str, port: int, timeout: float = 1.0) -> bool:
 
 
 def _service_env(values: dict[str, str]) -> dict[str, str]:
+    values = _with_torch_cuda_arch_list(values)
     env = os.environ.copy()
     env.update(values)
     env["API_PORT"] = str(API_PORT)
@@ -424,6 +494,10 @@ def cmd_start_worker_node(args: argparse.Namespace) -> int:
     for required in ("API_HOST", "REDIS_HOST"):
         if not values.get(required):
             raise SystemExit(f"Missing required env var in {env_file}: {required}")
+    arch_values = _with_torch_cuda_arch_list(values)
+    if arch_values is not values:
+        _update_env_file(env_file, {TORCH_CUDA_ARCH_LIST_ENV: arch_values[TORCH_CUDA_ARCH_LIST_ENV]})
+        values = arch_values
     _check_worker_connectivity(values)
 
     api_base = _api_base(values)
