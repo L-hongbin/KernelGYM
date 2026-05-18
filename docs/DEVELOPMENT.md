@@ -3,7 +3,8 @@
 ## Environment
 
 ```bash
-python -m pip install -r requirements.txt
+python -m kernelgym.cli.deploy create-venv --recreate --cuda-home /usr/local/cuda-12.9
+source .venv/bin/activate
 pre-commit install
 ```
 
@@ -43,3 +44,8 @@ python -m kernelgym.cli.service --help
 
 Add new startup, shutdown, or worker-node behavior in `kernelgym/cli/service.py`, then keep the shell wrapper
 small enough to only resolve the repository root and delegate to Python.
+
+Deployment and environment-preparation logic belongs in `kernelgym/cli/deploy.py`. This includes CUDA 12.9
+uv environment creation, physical-host GPU clock locking, and Docker container preparation for hosts where SSH
+does not land inside the container. Internal/external profile detection must only inspect `/ms`: a real path is
+internal, while missing `/ms` or a symlink is external.

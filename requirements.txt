@@ -16,6 +16,4 @@ redis>=5
 ruff>=0.14.7
 structlog>=15.1
 tenacity>=8
-torch>=2.0
-torchvision>=0.15
 uvicorn[standard]>=0.24

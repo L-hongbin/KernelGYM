@@ -49,6 +49,15 @@ def _read_env_file(path: Path) -> dict[str, str]:
 
 def _write_env_file(path: Path, values: dict[str, str]) -> None:
     groups = [
+        (
+            "Deployment",
+            (
+                "KERNELGYM_DEPLOYMENT_PROFILE",
+                "KERNELGYM_SSH_RUNTIME",
+                "KERNELGYM_CONTAINER_REQUIRED",
+                "KERNELGYM_LOCK_GPU_CLOCKS",
+            ),
+        ),
         ("Network", ("API_HOST", "API_PORT", "API_WORKERS", "API_RELOAD")),
         ("GPU", ("GPU_DEVICES", "GPU_MEMORY_LIMIT", "NODE_ID")),
         ("Redis", ("REDIS_HOST", "REDIS_PORT", "REDIS_DB", "REDIS_PASSWORD", "REDIS_KEY_PREFIX")),
@@ -62,6 +71,7 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
         (
             "CUDA build",
             (
+                "CUDA_HOME",
                 "KERNELGYM_CUDA_AGENT_NVCC_THREADS",
                 "KERNELGYM_TVM_FFI_NVCC_THREADS",
                 "KERNELGYM_CUDA_AGENT_TMPDIR",
@@ -188,6 +198,12 @@ def _service_env(values: dict[str, str]) -> dict[str, str]:
     env.update(values)
     pythonpath = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(ROOT_DIR) if not pythonpath else f"{ROOT_DIR}:{pythonpath}"
+    cuda_home = env.get("CUDA_HOME")
+    if cuda_home:
+        cuda_bin = str(Path(cuda_home) / "bin")
+        cuda_lib = str(Path(cuda_home) / "lib64")
+        env["PATH"] = f"{cuda_bin}:{env.get('PATH', '')}"
+        env["LD_LIBRARY_PATH"] = f"{cuda_lib}:{env.get('LD_LIBRARY_PATH', '')}"
     return env
 
 
@@ -293,6 +309,7 @@ def cmd_auto_configure(args: argparse.Namespace) -> int:
         "VERBOSE_ERROR_TRACEBACK": os.environ.get("VERBOSE_ERROR_TRACEBACK", "true"),
         "SAVE_EVAL_RESULTS": os.environ.get("SAVE_EVAL_RESULTS", "true" if args.save_eval_results else "false"),
         "EVAL_RESULTS_PATH": os.environ.get("EVAL_RESULTS_PATH", f"logs/{_hostname()}/eval_results.jsonl"),
+        "CUDA_HOME": os.environ.get("CUDA_HOME", "/usr/local/cuda-12.9"),
         "KERNELGYM_CUDA_AGENT_NVCC_THREADS": os.environ.get("KERNELGYM_CUDA_AGENT_NVCC_THREADS", "4"),
         "KERNELGYM_TVM_FFI_NVCC_THREADS": os.environ.get("KERNELGYM_TVM_FFI_NVCC_THREADS", "4"),
         "KERNELGYM_CUDA_AGENT_TMPDIR": os.environ.get("KERNELGYM_CUDA_AGENT_TMPDIR", f"{tmp_root}/work/cuda_agent"),

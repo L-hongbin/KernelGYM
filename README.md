@@ -21,6 +21,7 @@ This repo is derived from two local source repositories:
 
 See [docs/SOURCE_LINEAGE.md](docs/SOURCE_LINEAGE.md) and
 [docs/IMPLEMENTATION_DIFFERENCES.md](docs/IMPLEMENTATION_DIFFERENCES.md).
+Deployment is documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## What Is Included
 
@@ -31,6 +32,8 @@ See [docs/SOURCE_LINEAGE.md](docs/SOURCE_LINEAGE.md) and
   `kernelgym.cli.service`.
 - `tests/`: unit tests that verify extraction boundaries, source-lineage docs, pre-commit policy, schema
   behavior, CUDA-Agent parsing, validation behavior, and a GPU-gated CUDA-Agent compile/load/run smoke test.
+- `kernelgym.cli.deploy`: Python deployment helpers for CUDA 12.9 uv environments, physical-host GPU clock
+  locking, and Docker container preparation.
 - Ruff-only formatting and linting via `.pre-commit-config.yaml`.
 
 ## What Is Excluded
@@ -43,7 +46,8 @@ See [docs/SOURCE_LINEAGE.md](docs/SOURCE_LINEAGE.md) and
 ## Quick Start
 
 ```bash
-python -m pip install -r requirements.txt
+python -m kernelgym.cli.deploy create-venv --recreate --cuda-home /usr/local/cuda-12.9
+source .venv/bin/activate
 pre-commit install
 pytest
 ruff format .
@@ -69,6 +73,13 @@ Stop local service:
 ```bash
 bash stop_all.sh
 ```
+
+Deployment profile is detected from `/ms`: a real `/ms` path means internal, while missing `/ms` or a symlink
+means external. Use `python -m kernelgym.cli.deploy write-env ...` to generate the matching `.env`.
+Physical-host deployment, such as external `192.168.16.39` / `192.168.16.40` reward nodes, then uses
+`python -m kernelgym.cli.deploy host-container ...` to lock GPU clocks and start a Docker container first.
+Internal deployments where SSH already lands inside a container skip Docker and run `create-venv` plus
+`kernelgym.cli.service` directly.
 
 ## Development Policy
 

@@ -22,8 +22,6 @@ dependencies = [
     "redis>=5",
     "structlog>=15.1",
     "tenacity>=8",
-    "torch>=2.0",
-    "torchvision>=0.15",
     "uvicorn[standard]>=0.24",
 ]
 
@@ -36,6 +34,14 @@ dev = [
     "ruff>=0.14.7",
 ]
 tvm-ffi = ["tvm-ffi"]
+cuda129 = [
+    "torch==2.11.0+cu129",
+    "torchvision==0.26.0+cu129",
+]
+
+[project.scripts]
+kernelgym-service = "kernelgym.cli.service:main"
+kernelgym-deploy = "kernelgym.cli.deploy:main"
 
 [tool.setuptools.packages.find]
 include = ["kernelgym*"]

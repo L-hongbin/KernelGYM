@@ -86,7 +86,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
         handle = backend.load(artifact, device="cuda:0")
         x = torch.randn(8, device="cuda")
-        output = backend.run(handle, {"inputs": [x]}, device="cuda:0")["output"]
+        output = backend.run(handle, {"init_inputs": [], "inputs": [x]}, device="cuda:0")["output"]
 
         assert torch.allclose(output, x)
     finally:
