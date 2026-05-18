@@ -52,6 +52,7 @@ class BaseRewardProfile:
             "REDIS_KEY_PREFIX": REDIS_KEY_PREFIX,
             "WORKER_POOL_SIZE": "1",
             "MAX_TASKS_PER_WORKER": "1",
+            "CPU_COMPILE_WORKERS": "2",
             "DEFAULT_TOOLKIT": "kernelbench",
             "DEFAULT_BACKEND_ADAPTER": "kernelbench",
             "DEFAULT_BACKEND": "triton",
@@ -65,6 +66,9 @@ class BaseRewardProfile:
             "SAVE_EVAL_RESULTS": "false",
             "EVAL_RESULTS_PATH": f"logs/{profile_id}/eval_results.jsonl",
             "KERNELGYM_NVCC_THREADS": "4",
+            "KERNELGYM_MANUAL_NINJA_OBJECT_CACHE": "true",
+            "KERNELGYM_MANUAL_NINJA_OBJECT_CACHE_INDEX": "redis",
+            "KERNELGYM_COMPILE_ARTIFACT_CACHE": "true",
         }
 
 

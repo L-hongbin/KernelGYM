@@ -145,6 +145,47 @@ def _sync_exec_result_metadata(result: Optional[KernelExecResult], metadata: Dic
         result.metadata.update(metadata)
 
 
+def _sanitize_compile_artifact(artifact: Dict[str, Any]) -> Dict[str, Any]:
+    hidden = {
+        "work_dir",
+        "so_path",
+        "code",
+        "compile_artifact_cache_key",
+        "compile_cache_key",
+        "compile_cache_dir",
+        "persistent_work_dir",
+    }
+    sanitized = {key: value for key, value in artifact.items() if key not in hidden}
+    timing = sanitized.get("compile_timing")
+    if isinstance(timing, dict):
+        timing = dict(timing)
+        object_cache = timing.get("manual_ninja_object_cache")
+        if isinstance(object_cache, dict):
+            object_cache = dict(object_cache)
+            for item in object_cache.get("objects") or []:
+                if isinstance(item, dict):
+                    item.pop("cache_path", None)
+                    item.pop("local_object", None)
+                    item.pop("lock_path", None)
+                    item.pop("cache_key", None)
+            object_cache.pop("root", None)
+            timing["manual_ninja_object_cache"] = object_cache
+        sanitized["compile_timing"] = timing
+    return sanitized
+
+
+def _copy_compile_artifact_metadata(metadata: Dict[str, Any], artifact: Dict[str, Any]) -> None:
+    for artifact_key in (
+        "build_backend",
+        "compile_timing",
+        "compile_artifact_cache_enabled",
+        "compile_artifact_cache_hit",
+    ):
+        if artifact_key in artifact:
+            metadata[artifact_key] = artifact.get(artifact_key)
+    metadata["compile_artifact"] = _sanitize_compile_artifact(artifact)
+
+
 def _apply_coverage_metadata(
     *,
     metadata: Dict[str, Any],
@@ -513,8 +554,13 @@ def eval_kernel_against_ref(
     enable_triton_detection: bool = True,
     detect_decoy_kernel: bool = True,
     backend_adapter: Optional[Any] = None,
+    precompiled_artifact: Optional[Dict[str, Any]] = None,
+    enable_compile_artifact_cache: bool = False,
+    compile_only: bool = False,
+    return_internal_compile_artifact: bool = False,
 ) -> KernelExecResult:
-    assert torch.cuda.is_available(), "CUDA is not available, cannot run Eval"
+    if not compile_only:
+        assert torch.cuda.is_available(), "CUDA is not available, cannot run Eval"
     torch.set_printoptions(
         precision=4,
         threshold=10,
@@ -522,14 +568,15 @@ def eval_kernel_against_ref(
         linewidth=80,
     )
 
-    torch.cuda.set_device(device)
+    if not compile_only:
+        torch.cuda.set_device(device)
     is_triton = backend == "triton"
     metadata: Dict[str, Any] = {}
-    metadata["hardware"] = torch.cuda.get_device_name(device=device)
+    metadata["hardware"] = "compile-only" if compile_only else torch.cuda.get_device_name(device=device)
     metadata["device"] = str(device)
     overall_start = perf_counter()
 
-    if is_triton:
+    if is_triton and not compile_only:
         if isinstance(device, int):
             device_num = device
         elif isinstance(device, torch.device):
@@ -539,6 +586,50 @@ def eval_kernel_against_ref(
             raise ValueError(f"device must be an int or torch.device, got {type(device)}")
         os.environ["CUDA_VISIBLE_DEVICES"] = str(device_num)
     context = {}
+
+    if compile_only:
+        metadata["task_stage"] = "compile"
+        metadata["required_resource"] = "cpu"
+        if backend_adapter is None:
+            metadata["compilation_error_name"] = "compile_error"
+            metadata["compilation_error"] = "compile_only requires a backend adapter"
+            return KernelExecResult(compiled=False, correctness=False, metadata=metadata)
+        try:
+            compile_start = _begin_stage(
+                metadata,
+                prefix="kg_kernel",
+                stage="kernel.compile_only",
+                overall_start=overall_start,
+            )
+            artifact = backend_adapter.compile(
+                custom_model_src,
+                device=device,
+                backend=backend,
+                entry_point=f"{entry_point}New",
+                build_dir=build_dir,
+                enable_compile_artifact_cache=enable_compile_artifact_cache,
+            )
+            _finish_stage(
+                metadata,
+                stage="kernel.compile_only",
+                timing_key="kg_kernel_backend_compile_s",
+                start_time=compile_start,
+            )
+            _copy_compile_artifact_metadata(metadata, artifact)
+            if return_internal_compile_artifact:
+                metadata["_internal_compile_artifact"] = artifact
+            if not artifact.get("compiled"):
+                error = artifact.get("error", "Unknown compile error")
+                metadata["compilation_error_name"] = "compile_error"
+                metadata["compilation_error"] = error
+                metadata["compilation_error_detail"] = classify_compile_error_detail(str(error), backend=backend)
+                return KernelExecResult(compiled=False, correctness=False, metadata=metadata)
+            return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
+        except Exception as exc:
+            metadata["compilation_error_name"] = get_error_name(exc)
+            metadata["compilation_error"] = exc
+            metadata["compilation_error_detail"] = classify_compile_error_detail(str(exc), backend=backend)
+            return KernelExecResult(compiled=False, correctness=False, metadata=metadata)
 
     if verbose:
         print(f"[Eval] Start Evalulation! on device: {device}")
@@ -631,26 +722,31 @@ def eval_kernel_against_ref(
             overall_start=overall_start,
         )
         if backend_adapter is not None:
-            backend_compile_start = perf_counter()
-            artifact = backend_adapter.compile(
-                custom_model_src,
-                device=device,
-                backend=backend,
-                entry_point=f"{entry_point}New",
-                build_dir=build_dir,
-            )
-            _record_phase_timing(
-                metadata,
-                "kg_kernel_backend_compile_s",
-                backend_compile_start,
-            )
-            for artifact_key in (
-                "compile_cache_hit",
-                "compile_cache_key",
-                "compile_cache_dir",
-            ):
-                if artifact_key in artifact:
-                    metadata[f"kg_kernel_{artifact_key}"] = artifact.get(artifact_key)
+            if precompiled_artifact is not None:
+                artifact = dict(precompiled_artifact)
+                artifact.setdefault("compiled", True)
+                artifact.setdefault("code", custom_model_src)
+                artifact.setdefault("entry_point", f"{entry_point}New")
+                artifact.setdefault("backend", backend)
+                artifact.setdefault("device", str(device))
+                metadata["precompiled_artifact_used"] = True
+                metadata["kg_kernel_backend_compile_s"] = 0.0
+            else:
+                backend_compile_start = perf_counter()
+                artifact = backend_adapter.compile(
+                    custom_model_src,
+                    device=device,
+                    backend=backend,
+                    entry_point=f"{entry_point}New",
+                    build_dir=build_dir,
+                    enable_compile_artifact_cache=enable_compile_artifact_cache,
+                )
+                _record_phase_timing(
+                    metadata,
+                    "kg_kernel_backend_compile_s",
+                    backend_compile_start,
+                )
+            _copy_compile_artifact_metadata(metadata, artifact)
             if not artifact.get("compiled"):
                 error = artifact.get("error", "Unknown compile error")
                 if "lock" in str(error) or "No such file or directory" in str(error):

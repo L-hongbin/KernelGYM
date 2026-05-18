@@ -22,6 +22,9 @@ class EvaluationTask:
     device: str = "cuda:0"
     priority: str = "normal"
     entry_point: str = "Model"
+    required_resource: Optional[str] = None
+    task_stage: Optional[str] = None
+    assigned_worker: Optional[str] = None
     reference_backend: Optional[str] = None
     device_preference: Optional[str] = None
     force_refresh: bool = False
@@ -35,6 +38,11 @@ class EvaluationTask:
     run_correctness: Optional[bool] = None
     run_triton_detection: Optional[bool] = None
     run_performance: Optional[bool] = None
+    compile_artifact: Optional[Dict[str, Any]] = None
+    split_compile_and_execute: bool = False
+    pure_compile_task: bool = False
+    enable_compile_artifact_cache: bool = False
+    return_internal_compile_artifact: bool = False
     resources: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -62,6 +70,9 @@ class ReferenceTimingTask:
     device: str = "cuda:0"
     priority: str = "normal"
     entry_point: str = "Model"
+    required_resource: Optional[str] = None
+    task_stage: Optional[str] = None
+    assigned_worker: Optional[str] = None
     reference_backend: Optional[str] = None
     device_preference: Optional[str] = None
     resources: Optional[Dict[str, Any]] = None
@@ -93,6 +104,9 @@ class KernelEvaluationTask:
     device: str = "cuda:0"
     priority: str = "normal"
     entry_point: str = "Model"
+    required_resource: Optional[str] = None
+    task_stage: Optional[str] = None
+    assigned_worker: Optional[str] = None
     device_preference: Optional[str] = None
     enable_profiling: Optional[bool] = None
     enable_triton_detection: Optional[bool] = None
@@ -101,6 +115,11 @@ class KernelEvaluationTask:
     run_correctness: Optional[bool] = None
     run_triton_detection: Optional[bool] = None
     run_performance: Optional[bool] = None
+    compile_artifact: Optional[Dict[str, Any]] = None
+    split_compile_and_execute: bool = False
+    pure_compile_task: bool = False
+    enable_compile_artifact_cache: bool = False
+    return_internal_compile_artifact: bool = False
     resources: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:

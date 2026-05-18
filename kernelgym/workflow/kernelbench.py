@@ -57,42 +57,27 @@ class KernelBenchWorkflowController(WorkflowController):
             self._persist_result(eval_task, result)
             return result
 
+        compile_only = self._is_compile_only(eval_task)
         ref_task, kernel_task = _create_paired_tasks(eval_task)
 
-        kernel_payload = kernel_task.to_dict()
-        kernel_payload["task_type"] = "kernel_evaluation"
-        kernel_payload["toolkit"] = kernel_payload.get("toolkit", "kernelbench")
-        kernel_payload["backend_adapter"] = kernel_payload.get("backend_adapter", "kernelbench")
-        run_correctness = eval_task.run_correctness
-        if run_correctness is None:
-            run_correctness = True
-        run_triton_detection = eval_task.run_triton_detection
-        if run_triton_detection is None:
-            run_triton_detection = eval_task.enable_triton_detection
-        if run_triton_detection is None:
-            run_triton_detection = eval_task.backend == "triton"
-        run_performance = eval_task.run_performance
-        if run_performance is None:
-            run_performance = eval_task.measure_performance
-        if run_performance is None:
-            run_performance = True
-        kernel_payload["run_correctness"] = run_correctness
-        kernel_payload["run_triton_detection"] = run_triton_detection
-        kernel_payload["run_performance"] = run_performance
-        kernel_payload["enable_triton_detection"] = run_triton_detection
-        kernel_payload["measure_performance"] = run_performance
-        enable_profiling = eval_task.enable_profiling
-        if enable_profiling is None:
-            enable_profiling = settings.enable_profiling
-        kernel_payload["enable_profiling"] = enable_profiling
-        kernel_task_spec = TaskSpec(
-            kind="kernelbench.kernel",
-            payload=kernel_payload,
-            resources=eval_task.resources,
-            metadata={"base_task_id": eval_task.task_id},
-        )
-        kernel_task_id = await scheduler.submit(kernel_task_spec)
-        kernel_result_dict = await scheduler.wait(kernel_task_id)
+        if eval_task.split_compile_and_execute and not compile_only:
+            kernel_result_dict = await self._run_split_kernel_task(eval_task, kernel_task, scheduler)
+        else:
+            kernel_payload = kernel_task.to_dict()
+            if compile_only:
+                kernel_payload["task_id"] = f"{eval_task.task_id}_compile"
+            kernel_payload["task_type"] = "kernel_evaluation"
+            kernel_payload["toolkit"] = kernel_payload.get("toolkit", "kernelbench")
+            kernel_payload["backend_adapter"] = kernel_payload.get("backend_adapter", "kernelbench")
+            kernel_payload.update(self._kernel_execution_options(eval_task, compile_only=compile_only))
+            kernel_task_spec = TaskSpec(
+                kind="kernelbench.kernel",
+                payload=kernel_payload,
+                resources=eval_task.resources,
+                metadata={"base_task_id": eval_task.task_id},
+            )
+            kernel_task_id = await scheduler.submit(kernel_task_spec)
+            kernel_result_dict = await scheduler.wait(kernel_task_id)
 
         if not kernel_result_dict:
             result = self._failed_result(eval_task.task_id, "kernel result missing")
@@ -127,6 +112,11 @@ class KernelBenchWorkflowController(WorkflowController):
 
         kernel_result = KernelEvaluationResult.from_dict(kernel_result_dict)
         state.data["kernel_result"] = kernel_result.to_dict()
+
+        if compile_only:
+            result = self._kernel_only_result(eval_task, kernel_result)
+            self._persist_result(eval_task, result)
+            return result
 
         if not (kernel_result.compiled and kernel_result.correctness):
             result = self._kernel_only_result(eval_task, kernel_result)
@@ -201,6 +191,114 @@ class KernelBenchWorkflowController(WorkflowController):
     @staticmethod
     def _resolve_auto_backend(eval_task: EvaluationTask) -> None:
         eval_task.backend = resolve_kernel_backend(eval_task.kernel_code, eval_task.backend)
+
+    @staticmethod
+    def _first_not_none(*values: Any) -> Any:
+        for value in values:
+            if value is not None:
+                return value
+        return None
+
+    def _is_compile_only(self, eval_task: EvaluationTask) -> bool:
+        return str(eval_task.task_stage or "").lower() == "compile" or bool(eval_task.pure_compile_task)
+
+    def _kernel_execution_options(self, eval_task: EvaluationTask, *, compile_only: bool) -> Dict[str, Any]:
+        run_correctness = self._first_not_none(eval_task.run_correctness, True)
+        run_triton_detection = self._first_not_none(
+            eval_task.run_triton_detection,
+            eval_task.enable_triton_detection,
+            eval_task.backend == "triton",
+        )
+        run_performance = self._first_not_none(eval_task.run_performance, eval_task.measure_performance, True)
+        enable_profiling = self._first_not_none(eval_task.enable_profiling, settings.enable_profiling)
+        if compile_only:
+            run_correctness = False
+            run_performance = False
+            enable_profiling = False
+        return {
+            "run_correctness": run_correctness,
+            "run_triton_detection": run_triton_detection,
+            "run_performance": run_performance,
+            "enable_triton_detection": run_triton_detection,
+            "measure_performance": run_performance,
+            "enable_profiling": enable_profiling,
+        }
+
+    async def _run_split_kernel_task(
+        self,
+        eval_task: EvaluationTask,
+        kernel_task: Any,
+        scheduler: SchedulerAPI,
+    ) -> Dict[str, Any]:
+        execute_options = self._kernel_execution_options(eval_task, compile_only=False)
+        compile_payload = kernel_task.to_dict()
+        compile_payload.update(
+            {
+                "task_id": f"{eval_task.task_id}_compile",
+                "task_type": "kernel_evaluation",
+                "toolkit": compile_payload.get("toolkit", "kernelbench"),
+                "backend_adapter": compile_payload.get("backend_adapter", "kernelbench"),
+                "task_stage": "compile",
+                "required_resource": "cpu",
+                "pure_compile_task": True,
+                "return_internal_compile_artifact": True,
+                "enable_compile_artifact_cache": eval_task.enable_compile_artifact_cache,
+            }
+        )
+        compile_payload.update(self._kernel_execution_options(eval_task, compile_only=True))
+        compile_task_spec = TaskSpec(
+            kind="kernelbench.kernel.compile",
+            payload=compile_payload,
+            resources=eval_task.resources,
+            metadata={"base_task_id": eval_task.task_id, "stage": "compile"},
+        )
+        compile_task_id = await scheduler.submit(compile_task_spec)
+        compile_result = await scheduler.wait(compile_task_id)
+        if not compile_result:
+            return self._failed_result(eval_task.task_id, "compile result missing")
+
+        compile_metadata = compile_result.get("metadata") or {}
+        compile_artifact = compile_metadata.get("_internal_compile_artifact")
+        if compile_result.get("compiled") is not True:
+            result = dict(compile_result)
+            metadata = dict(compile_metadata)
+            metadata["split_compile_and_execute"] = True
+            metadata.pop("_internal_compile_artifact", None)
+            result["metadata"] = metadata
+            return result
+        if not isinstance(compile_artifact, dict):
+            return self._failed_result(eval_task.task_id, "compile stage did not return a reusable compile_artifact")
+
+        execute_payload = kernel_task.to_dict()
+        execute_payload.update(
+            {
+                "task_id": f"{eval_task.task_id}_kernel",
+                "task_type": "kernel_evaluation",
+                "toolkit": execute_payload.get("toolkit", "kernelbench"),
+                "backend_adapter": execute_payload.get("backend_adapter", "kernelbench"),
+                "task_stage": "execute",
+                "required_resource": "gpu",
+                "compile_artifact": compile_artifact,
+                "pure_compile_task": False,
+                "enable_compile_artifact_cache": eval_task.enable_compile_artifact_cache,
+            }
+        )
+        execute_payload.update(execute_options)
+        execute_task_spec = TaskSpec(
+            kind="kernelbench.kernel.execute",
+            payload=execute_payload,
+            resources=eval_task.resources,
+            metadata={"base_task_id": eval_task.task_id, "stage": "execute", "compile_task_id": compile_task_id},
+        )
+        execute_task_id = await scheduler.submit(execute_task_spec)
+        execute_result = await scheduler.wait(execute_task_id)
+        if execute_result:
+            execute_result = dict(execute_result)
+            metadata = dict(execute_result.get("metadata") or {})
+            metadata["split_compile_and_execute"] = True
+            metadata.pop("_internal_compile_artifact", None)
+            execute_result["metadata"] = metadata
+        return execute_result
 
     def _cached_reference_result(self, eval_task: EvaluationTask, runtime: float) -> ReferenceTimingResult:
         return ReferenceTimingResult(

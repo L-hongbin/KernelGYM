@@ -97,10 +97,9 @@ class TaskManager:
         self.node_map_key = f"{self.key_prefix}:nodes"
         self.status_prefix = f"{self.key_prefix}:status:"
 
-        self.priority_queues = {
-            Priority.HIGH: f"{self.queue_prefix}priority:high",
-            Priority.NORMAL: f"{self.queue_prefix}priority:normal",
-            Priority.LOW: f"{self.queue_prefix}priority:low",
+        self.resource_queues = {
+            "cpu": f"{self.queue_prefix}resource:cpu",
+            "gpu": f"{self.queue_prefix}resource:gpu",
         }
         self.worker_queues: Dict[str, str] = {}
         self.active_tasks: Dict[str, TaskInfo] = {}
@@ -199,14 +198,11 @@ class TaskManager:
         now_iso: str,
     ) -> None:
         try:
-            try:
-                prio = task_data.get(b"priority", b"normal").decode()
-                prio_enum = Priority(prio)
-            except Exception:
-                prio_enum = Priority.NORMAL
             task_json["assigned_worker"] = ""
             task_json["queue_timeout_reason"] = reason
             task_json["queue_timeout_at"] = now_iso
+            required_resource = self._resolve_required_resource(task_json)
+            task_json["required_resource"] = required_resource
             await self.redis.hset(
                 f"{self.task_prefix}{task_id}",
                 mapping={
@@ -218,7 +214,7 @@ class TaskManager:
                     "updated_at": now_iso,
                 },
             )
-            queue_key = self.priority_queues[prio_enum]
+            queue_key = self.resource_queues[required_resource]
             await self.redis.lpush(queue_key, task_id)
         except Exception as e:
             logger.error(f"Failed to requeue task {task_id}: {e}")
@@ -307,6 +303,15 @@ class TaskManager:
         """Compatibility entrypoint: treat as a normal task submission."""
         return await self.submit_task(task_data)
 
+    def _resolve_required_resource(self, task_data: Dict[str, Any]) -> str:
+        explicit = str(task_data.get("required_resource") or "").strip().lower()
+        if explicit in self.resource_queues:
+            return explicit
+        stage = str(task_data.get("task_stage") or task_data.get("stage") or "").strip().lower()
+        if stage == "compile" or bool(task_data.get("pure_compile_task")):
+            return "cpu"
+        return "gpu"
+
     async def submit_task(self, task_data: Dict[str, Any]) -> str:
         task_data = dict(task_data)
         if not task_data.get("toolkit"):
@@ -325,6 +330,8 @@ class TaskManager:
 
         task_id = task_data["task_id"]
         priority = Priority(task_data.get("priority", Priority.NORMAL))
+        required_resource = self._resolve_required_resource(task_data)
+        task_data["required_resource"] = required_resource
 
         if await self.redis.exists(f"{self.task_prefix}{task_id}"):
             logger.info(f"Task {task_id} already exists, returning existing task")
@@ -357,14 +364,15 @@ class TaskManager:
             self.worker_queues.setdefault(assigned_worker, worker_queue_key)
             await self.redis.lpush(worker_queue_key, task_id)
         else:
-            queue_key = self.priority_queues[priority]
+            queue_key = self.resource_queues[required_resource]
             await self.redis.lpush(queue_key, task_id)
 
         self.active_tasks[task_id] = task_info
-        logger.info(f"Task {task_id} submitted with priority {priority.value}")
+        logger.info(f"Task {task_id} submitted with resource {required_resource}")
         return task_id
 
-    async def get_next_task(self, worker_id: str) -> Optional[Dict[str, Any]]:
+    async def get_next_task(self, worker_id: str, resources: Optional[list[str]] = None) -> Optional[Dict[str, Any]]:
+        resources = resources or ["gpu"]
         task_id = None
         for prefix in self._prefixes_for_read():
             worker_queue_key = f"{prefix}:queue:worker:{worker_id}"
@@ -372,8 +380,8 @@ class TaskManager:
             if task_id is not None:
                 break
 
-            for priority in (Priority.HIGH, Priority.NORMAL, Priority.LOW):
-                queue_key = f"{prefix}:queue:priority:{priority.value}"
+            for resource in resources:
+                queue_key = f"{prefix}:queue:resource:{resource}"
                 task_id = await self.redis.rpop(queue_key)
                 if task_id is not None:
                     break
@@ -560,8 +568,8 @@ class TaskManager:
         pending_by_prefix: Dict[str, int] = {}
         for prefix in self._prefixes_for_read():
             prefix_pending = 0
-            for priority in (Priority.HIGH, Priority.NORMAL, Priority.LOW):
-                queue_key = f"{prefix}:queue:priority:{priority.value}"
+            for resource in ("cpu", "gpu"):
+                queue_key = f"{prefix}:queue:resource:{resource}"
                 prefix_pending += await self.redis.llen(queue_key)
             pending_by_prefix[prefix] = prefix_pending
             pending += prefix_pending

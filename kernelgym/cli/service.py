@@ -106,7 +106,7 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
         ("Network", ("API_HOST", "API_PORT", "API_WORKERS", "API_RELOAD")),
         ("GPU", ("GPU_DEVICES", "NODE_ID")),
         ("Redis", ("REDIS_HOST", "REDIS_PORT", "REDIS_DB", "REDIS_PASSWORD", "REDIS_KEY_PREFIX")),
-        ("Worker pool", ("WORKER_POOL_SIZE", "MAX_TASKS_PER_WORKER")),
+        ("Worker pool", ("WORKER_POOL_SIZE", "MAX_TASKS_PER_WORKER", "CPU_COMPILE_WORKERS")),
         ("Defaults", ("DEFAULT_TOOLKIT", "DEFAULT_BACKEND_ADAPTER", "DEFAULT_BACKEND")),
         ("Logging", ("LOG_LEVEL", "LOG_DIR", "PY_LOG_DIR")),
         ("Metrics", ("ENABLE_METRICS", "METRICS_PORT")),
@@ -115,7 +115,12 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
         ("Result persistence", ("SAVE_EVAL_RESULTS", "EVAL_RESULTS_PATH")),
         (
             "CUDA build",
-            ("KERNELGYM_NVCC_THREADS",),
+            (
+                "KERNELGYM_NVCC_THREADS",
+                "KERNELGYM_MANUAL_NINJA_OBJECT_CACHE",
+                "KERNELGYM_MANUAL_NINJA_OBJECT_CACHE_INDEX",
+                "KERNELGYM_COMPILE_ARTIFACT_CACHE",
+            ),
         ),
     ]
     emitted: set[str] = set()
@@ -274,6 +279,7 @@ def cmd_stop(args: argparse.Namespace) -> int:
         ("kernelgym.server.api.server", "KernelGym API server"),
         ("kernelgym.worker.worker_monitor", "KernelGym worker monitor"),
         ("kernelgym.worker.single_worker", "KernelGym single workers"),
+        ("kernelgym.worker.cpu_worker", "KernelGym CPU compile workers"),
         ("kernelgym.worker.gpu_worker", "KernelGym worker manager"),
         ("uvicorn.*kernelgym", "Uvicorn server"),
         ("multiprocessing.spawn", "multiprocessing spawn workers"),
@@ -359,6 +365,34 @@ def cmd_start_local(args: argparse.Namespace) -> int:
                 )
             except Exception:
                 pass
+    cpu_workers = int(env.get("CPU_COMPILE_WORKERS", "2"))
+    for index in range(max(0, cpu_workers)):
+        worker_id = f"worker_cpu_{index}"
+        pid = _launch_background(
+            [
+                sys.executable,
+                "-m",
+                "kernelgym.worker.cpu_worker",
+                "--worker-id",
+                worker_id,
+            ],
+            log_dir / f"worker_cpu_{index}.log",
+            env,
+        )
+        print(f"{worker_id} PID: {pid}")
+        if client is not None:
+            try:
+                client.sadd(f"{prefix}:expected_workers", worker_id)
+                client.hset(
+                    f"{prefix}:expected_worker:{worker_id}",
+                    mapping={"device": "cpu", "hostname": _hostname(), "node_id": values.get("NODE_ID", "")},
+                )
+                client.hset(
+                    f"{prefix}:worker_process:{worker_id}",
+                    mapping={"pid": str(pid), "start_time": time.ctime(), "device": "cpu"},
+                )
+            except Exception:
+                pass
     print(f"KernelGym started. Logs: {log_dir}")
     return 0
 
@@ -421,6 +455,17 @@ def cmd_start_worker_node(args: argparse.Namespace) -> int:
         [sys.executable, "-m", "kernelgym.worker.gpu_worker"], log_dir / "worker_manager.log", env
     )
     (log_dir / "worker_manager.pid").write_text(f"{pid}\n", encoding="utf-8")
+    cpu_pids: list[str] = []
+    for index in range(max(0, int(env.get("CPU_COMPILE_WORKERS", "2")))):
+        cpu_worker_id = f"{updates.get('NODE_ID') or values.get('NODE_ID') or hostname}_cpu_{index}"
+        cpu_pid = _launch_background(
+            [sys.executable, "-m", "kernelgym.worker.cpu_worker", "--worker-id", cpu_worker_id],
+            log_dir / f"worker_cpu_{index}.log",
+            env,
+        )
+        cpu_pids.append(str(cpu_pid))
+    if cpu_pids:
+        (log_dir / "cpu_worker.pids").write_text("\n".join(cpu_pids) + "\n", encoding="utf-8")
 
     prefix = values.get("NODE_ID") or values.get("WORKER_NAME_PREFIX") or hostname
     worker_ids = [f"{prefix}_gpu_{gpu}" for gpu in _parse_gpu_devices(values.get("GPU_DEVICES"))]

@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import inspect
 import importlib.machinery
 import importlib.util
 import json
 import os
 import re
 import shutil
+import socket
 import sys
 import tempfile
+import time
 import types
 from contextlib import contextmanager
 from pathlib import Path
@@ -27,17 +30,15 @@ _CUDA_AGENT_DEFAULT_TMPDIR = "/dev/shm/kernelgym/work/cuda_agent"
 _CUDA_AGENT_MIN_TMPDIR_FREE_BYTES = 512 * 1024 * 1024
 _NVCC_THREADS_ENV = "KERNELGYM_NVCC_THREADS"
 _CUDA_AGENT_DEFAULT_NVCC_THREADS = "4"
-_CUDA_AGENT_COMPILE_CACHE_DISABLE_ENV = "KERNELGYM_CUDA_AGENT_COMPILE_CACHE_DISABLE"
 _CUDA_AGENT_FAST_RW_ROOT = Path("/dev/shm")
-_CUDA_AGENT_DEFAULT_COMPILE_CACHE_DIR = "/dev/shm/kernelgym/compile_cache/cuda_agent"
+_CUDA_AGENT_OBJECT_CACHE_ENV = "KERNELGYM_MANUAL_NINJA_OBJECT_CACHE"
+_CUDA_AGENT_OBJECT_CACHE_INDEX_ENV = "KERNELGYM_MANUAL_NINJA_OBJECT_CACHE_INDEX"
+_CUDA_AGENT_OBJECT_CACHE_DIR_ENV = "KERNELGYM_MANUAL_NINJA_OBJECT_CACHE_DIR"
+_CUDA_AGENT_DEFAULT_OBJECT_CACHE_DIR = "/dev/shm/kernelgym/compile_cache/manual_ninja_objects"
+_CUDA_AGENT_COMPILE_ARTIFACT_CACHE_ENV = "KERNELGYM_COMPILE_ARTIFACT_CACHE"
+_CUDA_AGENT_DEFAULT_ARTIFACT_CACHE_DIR = "/dev/shm/kernelgym/compile_cache/cuda_agent_artifacts"
+_DETAILED_COMPILE_TIMING_ENV = "KERNELGYM_DETAILED_COMPILE_TIMING"
 _CUDA_AGENT_COMPILE_SOURCE_EXTS = {".cu", ".cpp", ".cc", ".cxx"}
-_CUDA_AGENT_CACHE_INPUT_EXTS = _CUDA_AGENT_COMPILE_SOURCE_EXTS | {
-    ".cuh",
-    ".h",
-    ".hh",
-    ".hpp",
-    ".hxx",
-}
 
 
 def _torch_modules() -> tuple[Any, Any]:
@@ -333,71 +334,6 @@ public:
         return sorted(set(sources))
 
     @staticmethod
-    def _collect_cache_inputs(work_dir: Path, sources: list[str]) -> list[str]:
-        return KernelBenchCudaAgentBackend._collect_cache_inputs_excluding(
-            work_dir,
-            sources,
-            exclude_roots=[],
-        )
-
-    @staticmethod
-    def _collect_cache_inputs_excluding(
-        work_dir: Path,
-        sources: list[str],
-        *,
-        exclude_roots: list[Path],
-    ) -> list[str]:
-        resolved_excludes = []
-        for root in exclude_roots:
-            try:
-                resolved_excludes.append(root.resolve())
-            except OSError:
-                resolved_excludes.append(root)
-        inputs = {str(Path(source)) for source in sources}
-        for path in work_dir.rglob("*"):
-            if not path.is_file():
-                continue
-            try:
-                resolved_path = path.resolve()
-            except OSError:
-                resolved_path = path
-            if any(resolved_path == root or resolved_path.is_relative_to(root) for root in resolved_excludes):
-                continue
-            if "build" in path.parts:
-                continue
-            if path.suffix.lower() in _CUDA_AGENT_CACHE_INPUT_EXTS:
-                inputs.add(str(path))
-        return sorted(inputs)
-
-    @staticmethod
-    def _disabled_by_env(env_name: str) -> bool:
-        value = os.environ.get(env_name, "")
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-
-    @staticmethod
-    def _compile_cache_root(
-        *,
-        label: str,
-        disable_env: str,
-        default_dir: str,
-    ) -> Path | None:
-        if KernelBenchCudaAgentBackend._disabled_by_env(disable_env):
-            return None
-        root = Path(default_dir)
-        KernelBenchCudaAgentBackend._require_fast_rw_path(root, label=label)
-        try:
-            root.mkdir(parents=True, exist_ok=True)
-            if not os.access(root, os.W_OK | os.X_OK):
-                raise RuntimeError(f"{label} is not writable/executable: {root}")
-            if KernelBenchCudaAgentBackend._path_has_noexec_mount(root):
-                raise RuntimeError(f"{label} is mounted noexec: {root}")
-            if shutil.disk_usage(root).free < _CUDA_AGENT_MIN_TMPDIR_FREE_BYTES:
-                raise RuntimeError(f"{label} has less than 512MiB free: {root}")
-        except OSError as exc:
-            raise RuntimeError(f"{label} is not usable: {root}") from exc
-        return root
-
-    @staticmethod
     @contextmanager
     def _file_lock(lock_path: Path):
         import fcntl
@@ -425,71 +361,6 @@ public:
         return "unknown"
 
     @staticmethod
-    def _source_digest(
-        *,
-        work_dir: Path,
-        sources: list[str],
-        metadata: dict[str, Any],
-    ) -> str:
-        digest = hashlib.sha256()
-        digest.update(json.dumps(metadata, sort_keys=True).encode("utf-8"))
-        for source in sorted(sources):
-            path = Path(source)
-            try:
-                rel_path = path.relative_to(work_dir)
-            except ValueError:
-                rel_path = Path(path.name)
-            digest.update(str(rel_path).encode("utf-8"))
-            digest.update(b"\0")
-            digest.update(path.read_bytes())
-            digest.update(b"\0")
-        return digest.hexdigest()
-
-    @staticmethod
-    def _copy_sources_to_cache(
-        *,
-        work_dir: Path,
-        sources: list[str],
-        src_dir: Path,
-    ) -> list[str]:
-        if src_dir.exists():
-            shutil.rmtree(src_dir)
-        src_dir.mkdir(parents=True, exist_ok=True)
-        cached_sources: list[str] = []
-        for source in sorted(sources):
-            source_path = Path(source)
-            try:
-                rel_path = source_path.relative_to(work_dir)
-            except ValueError:
-                rel_path = Path(source_path.name)
-            target_path = src_dir / rel_path
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source_path, target_path)
-            cached_sources.append(str(target_path))
-        return cached_sources
-
-    @staticmethod
-    def _load_cached_compile_result(ready_path: Path) -> dict[str, Any] | None:
-        try:
-            payload = json.loads(ready_path.read_text(encoding="utf-8"))
-        except Exception:
-            return None
-        so_path = payload.get("so_path")
-        module_name = payload.get("module_name")
-        if not so_path or not module_name:
-            return None
-        if not Path(str(so_path)).is_file():
-            return None
-        return {
-            "compiled": True,
-            "so_path": str(so_path),
-            "module_name": str(module_name),
-            "compile_cache_hit": True,
-            "compile_cache_key": payload.get("compile_cache_key"),
-            "compile_cache_dir": str(ready_path.parent),
-        }
-
-    @staticmethod
     def _extract_custom_kernel_names(cuda_sources: dict[str, str]) -> list[str]:
         kernel_pattern = re.compile(
             r"__global__\s+"
@@ -505,6 +376,498 @@ public:
                 continue
             kernel_names.update(kernel_pattern.findall(content))
         return sorted(kernel_names)
+
+    @staticmethod
+    def _env_flag(name: str, *, default: bool = False) -> bool:
+        raw = os.environ.get(name)
+        if raw is None:
+            return default
+        return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+    @staticmethod
+    def _node_id() -> str:
+        return os.environ.get("NODE_ID") or socket.gethostname() or "local"
+
+    @staticmethod
+    def _manual_ninja_object_cache_root() -> Path:
+        root = Path(os.environ.get(_CUDA_AGENT_OBJECT_CACHE_DIR_ENV, _CUDA_AGENT_DEFAULT_OBJECT_CACHE_DIR))
+        KernelBenchCudaAgentBackend._require_fast_rw_path(root, label="CUDA-Agent manual ninja object cache")
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    @staticmethod
+    def _manual_ninja_object_cache_index() -> str:
+        index = os.environ.get(_CUDA_AGENT_OBJECT_CACHE_INDEX_ENV, "fs").strip().lower()
+        if index in {"", "local", "file", "fs", "filesystem"}:
+            return "fs"
+        if index != "redis":
+            raise ValueError(f"{_CUDA_AGENT_OBJECT_CACHE_INDEX_ENV} must be one of fs or redis")
+        return index
+
+    @staticmethod
+    def _manual_ninja_redis_client() -> Any | None:
+        try:
+            import redis
+        except Exception:
+            return None
+        try:
+            client = redis.Redis(
+                host=os.environ.get("REDIS_HOST", "localhost"),
+                port=int(os.environ.get("REDIS_PORT", "6379")),
+                db=int(os.environ.get("REDIS_DB", "0")),
+                password=os.environ.get("REDIS_PASSWORD") or None,
+                decode_responses=True,
+                socket_connect_timeout=0.2,
+                socket_timeout=0.2,
+            )
+            client.ping()
+            return client
+        except Exception:
+            return None
+
+    @staticmethod
+    def _manual_ninja_redis_cache_key(cache_key: str) -> str:
+        prefix = os.environ.get("REDIS_KEY_PREFIX", "kernelgym")
+        return f"{prefix}:manual_ninja_object_cache:{KernelBenchCudaAgentBackend._node_id()}:{cache_key}"
+
+    @staticmethod
+    def _redis_json_get(client: Any | None, key: str) -> dict[str, Any] | None:
+        if client is None:
+            return None
+        try:
+            raw = client.get(key)
+            value = json.loads(raw) if raw else None
+            return value if isinstance(value, dict) else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _redis_json_set(
+        client: Any | None, key: str, value: dict[str, Any], *, nx: bool = False, ex: int | None = None
+    ) -> bool:
+        if client is None:
+            return False
+        try:
+            return bool(client.set(key, json.dumps(value, sort_keys=True), nx=nx, ex=ex))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _prepare_torch_extension_ldflags(cpp_ext: Any) -> list[str]:
+        prepare_ldflags = cpp_ext._prepare_ldflags  # type: ignore[attr-defined]
+        signature = inspect.signature(prepare_ldflags)
+        kwargs = {
+            "extra_ldflags": [],
+            "with_cuda": True,
+            "with_sycl": False,
+            "verbose": False,
+            "is_standalone": False,
+        }
+        return prepare_ldflags(**{key: value for key, value in kwargs.items() if key in signature.parameters})
+
+    @staticmethod
+    def _write_ninja_file_to_build_library(
+        cpp_ext: Any,
+        *,
+        path: Path,
+        name: str,
+        sources: list[str],
+        extra_cflags: list[str],
+        extra_cuda_cflags: list[str],
+        extra_ldflags: list[str],
+    ) -> None:
+        writer = cpp_ext._write_ninja_file_to_build_library  # type: ignore[attr-defined]
+        kwargs = {
+            "path": str(path),
+            "name": name,
+            "sources": sources,
+            "extra_cflags": extra_cflags,
+            "extra_cuda_cflags": extra_cuda_cflags,
+            "extra_sycl_cflags": [],
+            "extra_ldflags": extra_ldflags,
+            "extra_include_paths": [],
+            "with_cuda": True,
+            "with_sycl": False,
+            "is_standalone": False,
+        }
+        signature = inspect.signature(writer)
+        writer(**{key: value for key, value in kwargs.items() if key in signature.parameters})
+
+    @staticmethod
+    def _run_ninja_build(cpp_ext: Any, build_dir: Path, ext_name: str) -> None:
+        runner = cpp_ext._run_ninja_build  # type: ignore[attr-defined]
+        try:
+            runner(str(build_dir), False, error_prefix=f"Error building extension '{ext_name}'")
+        except TypeError:
+            runner(str(build_dir), False)
+
+    @staticmethod
+    def _header_digest(work_dir: Path) -> str:
+        digest = hashlib.sha256()
+        for path in sorted(work_dir.rglob("*")):
+            if not path.is_file() or path.suffix.lower() not in {".h", ".hh", ".hpp", ".hxx", ".cuh"}:
+                continue
+            if "build" in path.parts:
+                continue
+            try:
+                digest.update(str(path.relative_to(work_dir)).encode("utf-8"))
+                digest.update(b"\0")
+                digest.update(path.read_bytes())
+                digest.update(b"\0")
+            except OSError:
+                continue
+        return digest.hexdigest()
+
+    @staticmethod
+    def _normalize_build_text_for_cache(text: str, *, ext_name: str, work_dir: Path, build_dir: Path) -> str:
+        normalized = text.replace(ext_name, "<TORCH_EXTENSION_NAME>")
+        normalized = normalized.replace(str(work_dir), "<WORK_DIR>")
+        normalized = normalized.replace(str(build_dir), "<BUILD_DIR>")
+        return normalized
+
+    @staticmethod
+    def _ninja_header_and_object_edges(build_ninja_text: str) -> tuple[str, list[dict[str, str]]]:
+        lines = build_ninja_text.splitlines()
+        first_build_index = len(lines)
+        edges: list[dict[str, str]] = []
+        for index, line in enumerate(lines):
+            if line.startswith("build "):
+                first_build_index = min(first_build_index, index)
+                match = re.match(r"^build\s+(\S+):\s+(compile|cuda_compile)\s+(.+)$", line)
+                if match:
+                    output, rule, source = match.groups()
+                    edges.append({"output": output, "rule": rule, "source": source.strip()})
+        header = "\n".join(lines[:first_build_index]).rstrip() + "\n"
+        return header, edges
+
+    @staticmethod
+    def _resolve_ninja_source_path(source: str, build_dir: Path) -> Path:
+        path = Path(source)
+        if path.is_absolute():
+            return path
+        return build_dir / path
+
+    @staticmethod
+    def _source_is_reusable_object(source_path: Path) -> tuple[bool, str | None]:
+        try:
+            text = source_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return False, f"source read failed: {exc}"
+        if "TORCH_EXTENSION_NAME" in text or "PYBIND11_MODULE" in text:
+            return False, "source references module name"
+        return True, None
+
+    @staticmethod
+    def _manual_ninja_cache_key(
+        *,
+        build_ninja_text: str,
+        ext_name: str,
+        work_dir: Path,
+        build_dir: Path,
+        object_name: str,
+        rule: str,
+        source_path: Path,
+        header_digest: str,
+        extra_cflags: list[str],
+        extra_cuda_cflags: list[str],
+        torch: Any,
+    ) -> str:
+        digest = hashlib.sha256()
+        digest.update(
+            KernelBenchCudaAgentBackend._normalize_build_text_for_cache(
+                build_ninja_text,
+                ext_name=ext_name,
+                work_dir=work_dir,
+                build_dir=build_dir,
+            ).encode("utf-8")
+        )
+        for item in (
+            object_name,
+            rule,
+            header_digest,
+            torch.__version__,
+            str(torch.version.cuda),
+            sys.version,
+            KernelBenchCudaAgentBackend._cuda_arch_fingerprint(),
+            json.dumps(extra_cflags, sort_keys=True),
+            json.dumps(extra_cuda_cflags, sort_keys=True),
+        ):
+            digest.update(b"\0")
+            digest.update(item.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(source_path.read_bytes())
+        return digest.hexdigest()
+
+    @staticmethod
+    def _prepare_manual_ninja_cached_objects(
+        *,
+        build_dir: Path,
+        work_dir: Path,
+        ext_name: str,
+        extra_cflags: list[str],
+        extra_cuda_cflags: list[str],
+        torch: Any,
+    ) -> dict[str, Any] | None:
+        if not KernelBenchCudaAgentBackend._env_flag(_CUDA_AGENT_OBJECT_CACHE_ENV, default=True):
+            return None
+        build_ninja_path = build_dir / "build.ninja"
+        build_ninja_text = build_ninja_path.read_text(encoding="utf-8")
+        _header, edges = KernelBenchCudaAgentBackend._ninja_header_and_object_edges(build_ninja_text)
+        header_digest = KernelBenchCudaAgentBackend._header_digest(work_dir)
+        cache_root = KernelBenchCudaAgentBackend._manual_ninja_object_cache_root()
+        cache_index = KernelBenchCudaAgentBackend._manual_ninja_object_cache_index()
+        redis_client = KernelBenchCudaAgentBackend._manual_ninja_redis_client() if cache_index == "redis" else None
+        if cache_index == "redis" and redis_client is None:
+            cache_index = "fs"
+
+        stats: dict[str, Any] = {
+            "enabled": True,
+            "index": cache_index,
+            "root": str(cache_root),
+            "hits": 0,
+            "misses": 0,
+            "objects": [],
+            "skipped": [],
+            "object_map": {},
+            "lookup_wall_sec": 0.0,
+            "store_wall_sec": 0.0,
+        }
+        lookup_started = time.perf_counter()
+        for edge in edges:
+            output = edge["output"]
+            source_path = KernelBenchCudaAgentBackend._resolve_ninja_source_path(edge["source"], build_dir)
+            reusable, reason = KernelBenchCudaAgentBackend._source_is_reusable_object(source_path)
+            if not reusable:
+                stats["skipped"].append({"object": output, "source": str(source_path), "reason": reason})
+                continue
+
+            cache_key = KernelBenchCudaAgentBackend._manual_ninja_cache_key(
+                build_ninja_text=build_ninja_text,
+                ext_name=ext_name,
+                work_dir=work_dir,
+                build_dir=build_dir,
+                object_name=output,
+                rule=edge["rule"],
+                source_path=source_path,
+                header_digest=header_digest,
+                extra_cflags=extra_cflags,
+                extra_cuda_cflags=extra_cuda_cflags,
+                torch=torch,
+            )
+            cache_dir = cache_root / cache_key
+            cache_object = cache_dir / output
+            local_object = build_dir / output
+            lock_path = cache_dir / ".lock"
+            redis_key = KernelBenchCudaAgentBackend._manual_ninja_redis_cache_key(cache_key)
+            object_info = {
+                "object": output,
+                "source": str(source_path),
+                "cache_key": cache_key,
+                "cache_path": str(cache_object),
+                "local_object": str(local_object),
+                "index": cache_index,
+            }
+            redis_entry = (
+                KernelBenchCudaAgentBackend._redis_json_get(redis_client, redis_key)
+                if cache_index == "redis"
+                else None
+            )
+            indexed_path = (
+                Path(str(redis_entry.get("object_path")))
+                if redis_entry and redis_entry.get("status") == "ready"
+                else None
+            )
+            if indexed_path and indexed_path.exists():
+                object_info["cache_status"] = "hit"
+                object_info["index_status"] = "redis_ready"
+                object_info["cache_path"] = str(indexed_path)
+                stats["hits"] += 1
+                stats["object_map"][output] = str(indexed_path)
+            elif cache_object.exists():
+                object_info["cache_status"] = "hit"
+                object_info["index_status"] = "fs_ready"
+                stats["hits"] += 1
+                stats["object_map"][output] = str(cache_object)
+            else:
+                object_info["cache_status"] = "miss_pending"
+                object_info["index_status"] = str(redis_entry.get("status")) if redis_entry else "missing"
+                object_info["lock_path"] = str(lock_path)
+                stats["misses"] += 1
+                if cache_index == "redis":
+                    KernelBenchCudaAgentBackend._redis_json_set(
+                        redis_client,
+                        redis_key,
+                        {
+                            "status": "building",
+                            "object_path": str(cache_object),
+                            "object_name": output,
+                            "cache_key": cache_key,
+                            "node_id": KernelBenchCudaAgentBackend._node_id(),
+                            "created_at": time.time(),
+                            "builder_pid": os.getpid(),
+                        },
+                        nx=True,
+                        ex=600,
+                    )
+            stats["objects"].append(object_info)
+        stats["lookup_wall_sec"] = round(time.perf_counter() - lookup_started, 6)
+        return stats
+
+    @staticmethod
+    def _rewrite_manual_ninja_for_cached_objects(build_dir: Path, object_map: dict[str, str]) -> None:
+        if not object_map:
+            return
+        build_ninja_path = build_dir / "build.ninja"
+        rewritten_lines: list[str] = []
+        for line in build_ninja_path.read_text(encoding="utf-8").splitlines():
+            if any(re.match(rf"^build\s+{re.escape(object_name)}:\s+", line) for object_name in object_map):
+                continue
+            if line.startswith("build ") and ": link " in line:
+                for object_name, cache_path in object_map.items():
+                    line = re.sub(rf"(?<!\S){re.escape(object_name)}(?!\S)", cache_path, line)
+            rewritten_lines.append(line)
+        build_ninja_path.write_text("\n".join(rewritten_lines) + "\n", encoding="utf-8")
+
+    @staticmethod
+    def _store_manual_ninja_cached_objects(object_cache_stats: dict[str, Any] | None) -> None:
+        if not object_cache_stats:
+            return
+        cache_index = str(object_cache_stats.get("index") or "fs")
+        redis_client = KernelBenchCudaAgentBackend._manual_ninja_redis_client() if cache_index == "redis" else None
+        store_started = time.perf_counter()
+        for object_info in object_cache_stats.get("objects") or []:
+            if object_info.get("cache_status") != "miss_pending":
+                continue
+            local_object = Path(str(object_info.get("local_object") or ""))
+            cache_object = Path(str(object_info.get("cache_path") or ""))
+            lock_path = Path(str(object_info.get("lock_path") or cache_object.parent / ".lock"))
+            redis_key = KernelBenchCudaAgentBackend._manual_ninja_redis_cache_key(
+                str(object_info.get("cache_key") or "")
+            )
+            if not local_object.exists():
+                object_info["cache_status"] = "miss_not_built"
+                continue
+            cache_object.parent.mkdir(parents=True, exist_ok=True)
+            with KernelBenchCudaAgentBackend._file_lock(lock_path):
+                if cache_object.exists():
+                    object_info["cache_status"] = "miss_lost_race"
+                else:
+                    temp_object = cache_object.with_suffix(cache_object.suffix + ".tmp")
+                    shutil.copy2(local_object, temp_object)
+                    temp_object.replace(cache_object)
+                    object_info["cache_status"] = "miss_stored"
+                if cache_index == "redis" and cache_object.exists():
+                    KernelBenchCudaAgentBackend._redis_json_set(
+                        redis_client,
+                        redis_key,
+                        {
+                            "status": "ready",
+                            "object_path": str(cache_object),
+                            "object_name": object_info.get("object"),
+                            "cache_key": object_info.get("cache_key"),
+                            "node_id": KernelBenchCudaAgentBackend._node_id(),
+                            "created_at": time.time(),
+                            "last_used_at": time.time(),
+                            "size_bytes": cache_object.stat().st_size,
+                        },
+                    )
+        object_cache_stats["store_wall_sec"] = round(time.perf_counter() - store_started, 6)
+
+    @staticmethod
+    def _new_compile_timing(build_dir: Path, *, build_backend: str) -> dict[str, Any]:
+        timing: dict[str, Any] = {
+            "build_backend": build_backend,
+            "build_dir": str(build_dir),
+            "detailed_compile_timing_enabled": KernelBenchCudaAgentBackend._env_flag(
+                _DETAILED_COMPILE_TIMING_ENV,
+                default=False,
+            ),
+        }
+        return timing
+
+    @staticmethod
+    def _compile_artifact_cache_root() -> Path:
+        root = Path(os.environ.get("KERNELGYM_COMPILE_ARTIFACT_CACHE_DIR", _CUDA_AGENT_DEFAULT_ARTIFACT_CACHE_DIR))
+        KernelBenchCudaAgentBackend._require_fast_rw_path(root, label="CUDA-Agent compile artifact cache")
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    @staticmethod
+    def _compile_artifact_cache_enabled(kwargs: dict[str, Any]) -> bool:
+        if kwargs.get("enable_compile_artifact_cache") is not None:
+            return bool(kwargs.get("enable_compile_artifact_cache"))
+        return KernelBenchCudaAgentBackend._env_flag(_CUDA_AGENT_COMPILE_ARTIFACT_CACHE_ENV, default=False)
+
+    @staticmethod
+    def _artifact_cache_key(
+        *,
+        model_code: str,
+        cuda_sources: dict[str, str],
+        entry_point: str,
+    ) -> str:
+        torch, _cpp_ext = _torch_modules()
+        payload = {
+            "backend": "cuda_agent",
+            "entry_point": entry_point,
+            "model_code": model_code,
+            "cuda_sources": {key: cuda_sources[key] for key in sorted(cuda_sources)},
+            "torch_version": torch.__version__,
+            "torch_cuda": torch.version.cuda,
+            "python": sys.version,
+            "cuda_arch": KernelBenchCudaAgentBackend._cuda_arch_fingerprint(),
+            "nvcc_threads": os.environ.get(_NVCC_THREADS_ENV, _CUDA_AGENT_DEFAULT_NVCC_THREADS),
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _load_cached_artifact(ready_path: Path) -> dict[str, Any] | None:
+        try:
+            payload = json.loads(ready_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        work_dir = payload.get("work_dir")
+        so_path = payload.get("so_path")
+        module_name = payload.get("module_name")
+        code = payload.get("code")
+        profiling_hints = payload.get("profiling_hints")
+        if not work_dir or not so_path or not module_name or not code or not isinstance(profiling_hints, dict):
+            return None
+        if not Path(str(work_dir)).is_dir() or not Path(str(so_path)).is_file():
+            return None
+        payload["compiled"] = True
+        payload["compile_artifact_cache_hit"] = True
+        payload["persistent_work_dir"] = True
+        return payload
+
+    @staticmethod
+    def _write_cached_artifact(ready_path: Path, artifact: dict[str, Any]) -> None:
+        ready_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            key: value
+            for key, value in artifact.items()
+            if key
+            in {
+                "compiled",
+                "device",
+                "entry_point",
+                "backend",
+                "work_dir",
+                "so_path",
+                "module_name",
+                "code",
+                "precheck",
+                "profiling_hints",
+                "build_backend",
+                "compile_timing",
+                "compile_artifact_cache_key",
+            }
+        }
+        payload["persistent_work_dir"] = True
+        tmp_path = ready_path.with_suffix(ready_path.suffix + ".tmp")
+        tmp_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        tmp_path.replace(ready_path)
 
     @staticmethod
     def _build_extension(work_dir: Path, sources: list[str]) -> Dict[str, Any]:
@@ -530,110 +893,97 @@ public:
         torch, cpp_ext = _torch_modules()
         extra_cflags = ["-O3", "-std=c++17"]
         extra_cuda_cflags = ["-O3", "--use_fast_math", "--threads", nvcc_threads]
-        cache_metadata = {
-            "backend": "cuda_agent",
-            "torch_version": torch.__version__,
-            "torch_cuda": torch.version.cuda,
-            "cuda_arch": KernelBenchCudaAgentBackend._cuda_arch_fingerprint(),
-            "extra_cflags": extra_cflags,
-            "extra_cuda_cflags": extra_cuda_cflags,
-        }
-        cache_root = KernelBenchCudaAgentBackend._compile_cache_root(
-            label="CUDA-Agent compile cache",
-            disable_env=_CUDA_AGENT_COMPILE_CACHE_DISABLE_ENV,
-            default_dir=_CUDA_AGENT_DEFAULT_COMPILE_CACHE_DIR,
-        )
-        cache_key = ""
-        compile_cache_dir = ""
-        compile_cache_hit = False
-        if cache_root is not None:
-            cache_inputs = KernelBenchCudaAgentBackend._collect_cache_inputs_excluding(
-                work_dir,
-                sources,
-                exclude_roots=[cache_root],
-            )
-            cache_key = KernelBenchCudaAgentBackend._source_digest(
-                work_dir=work_dir,
-                sources=cache_inputs,
-                metadata=cache_metadata,
-            )
-            cache_entry = cache_root / cache_key
-            ready_path = cache_entry / "ready.json"
-            cached = KernelBenchCudaAgentBackend._load_cached_compile_result(ready_path)
-            if cached is not None:
-                return cached
-
-            with KernelBenchCudaAgentBackend._file_lock(cache_entry / "compile.lock"):
-                cached = KernelBenchCudaAgentBackend._load_cached_compile_result(ready_path)
-                if cached is not None:
-                    return cached
-                cached_sources = KernelBenchCudaAgentBackend._copy_sources_to_cache(
-                    work_dir=work_dir,
-                    sources=cache_inputs,
-                    src_dir=cache_entry / "src",
-                )
-                sources = [
-                    source
-                    for source in cached_sources
-                    if Path(source).suffix.lower() in _CUDA_AGENT_COMPILE_SOURCE_EXTS
-                ]
-                build_dir = cache_entry / "build"
-                if build_dir.exists():
-                    shutil.rmtree(build_dir)
-                build_dir.mkdir(parents=True, exist_ok=True)
-                ext_name = f"kernelgym_cuda_agent_{cache_key[:16]}"
-                module = cpp_ext.load(
-                    name=ext_name,
-                    sources=sources,
-                    build_directory=str(build_dir),
-                    verbose=False,
-                    with_cuda=True,
-                    extra_cflags=extra_cflags,
-                    extra_cuda_cflags=extra_cuda_cflags,
-                )
-                so_path = getattr(module, "__file__", "")
-                ready_payload = {
-                    "compiled": True,
-                    "so_path": so_path,
-                    "module_name": ext_name,
-                    "compile_cache_key": cache_key,
-                }
-                ready_path.write_text(
-                    json.dumps(ready_payload, sort_keys=True),
-                    encoding="utf-8",
-                )
-                return {
-                    "compiled": True,
-                    "so_path": so_path,
-                    "module_name": ext_name,
-                    "compile_cache_hit": compile_cache_hit,
-                    "compile_cache_key": cache_key,
-                    "compile_cache_dir": str(cache_entry),
-                }
-
         ext_name = work_dir.name.replace("-", "_")
-        module = cpp_ext.load(
-            name=ext_name,
-            sources=sources,
-            build_directory=str(build_dir),
-            verbose=False,
-            with_cuda=True,
-            extra_cflags=extra_cflags,
-            extra_cuda_cflags=extra_cuda_cflags,
-        )
-        return {
-            "compiled": True,
-            "so_path": getattr(module, "__file__", ""),
-            "module_name": ext_name,
-            "compile_cache_hit": compile_cache_hit,
-            "compile_cache_key": cache_key,
-            "compile_cache_dir": compile_cache_dir,
-        }
+        compile_timing = KernelBenchCudaAgentBackend._new_compile_timing(build_dir, build_backend="manual_ninja")
+
+        try:
+            build_started = time.perf_counter()
+            extra_ldflags = KernelBenchCudaAgentBackend._prepare_torch_extension_ldflags(cpp_ext)
+            KernelBenchCudaAgentBackend._write_ninja_file_to_build_library(
+                cpp_ext,
+                path=build_dir / "build.ninja",
+                name=ext_name,
+                sources=sources,
+                extra_cflags=extra_cflags,
+                extra_cuda_cflags=extra_cuda_cflags,
+                extra_ldflags=extra_ldflags,
+            )
+            object_cache_stats = KernelBenchCudaAgentBackend._prepare_manual_ninja_cached_objects(
+                build_dir=build_dir,
+                work_dir=work_dir,
+                ext_name=ext_name,
+                extra_cflags=extra_cflags,
+                extra_cuda_cflags=extra_cuda_cflags,
+                torch=torch,
+            )
+            if object_cache_stats:
+                KernelBenchCudaAgentBackend._rewrite_manual_ninja_for_cached_objects(
+                    build_dir,
+                    object_cache_stats.get("object_map", {}),
+                )
+            KernelBenchCudaAgentBackend._run_ninja_build(cpp_ext, build_dir, ext_name)
+            KernelBenchCudaAgentBackend._store_manual_ninja_cached_objects(object_cache_stats)
+            build_wall_sec = time.perf_counter() - build_started
+            compile_timing["manual_ninja_build_wall_sec"] = round(build_wall_sec, 6)
+            if object_cache_stats:
+                compile_timing["manual_ninja_object_cache"] = {
+                    key: value for key, value in object_cache_stats.items() if key != "object_map"
+                }
+
+            lib_ext = getattr(cpp_ext, "LIB_EXT", ".so")
+            built_so = build_dir / f"{ext_name}{lib_ext}"
+            if not built_so.exists():
+                candidates = sorted(build_dir.glob(f"{ext_name}*.so"))
+                built_so = candidates[0] if candidates else built_so
+            if not built_so.exists():
+                compile_timing["total_wall_sec"] = round(build_wall_sec, 6)
+                return {
+                    "compiled": False,
+                    "error": "Manual ninja build finished but .so file was not generated",
+                    "build_backend": "manual_ninja",
+                    "compile_timing": compile_timing,
+                }
+
+            import_started = time.perf_counter()
+            cpp_ext._import_module_from_library(  # type: ignore[attr-defined]
+                ext_name,
+                str(build_dir),
+                is_python_module=True,
+            )
+            import_wall_sec = time.perf_counter() - import_started
+            compile_timing["manual_ninja_import_wall_sec"] = round(import_wall_sec, 6)
+            compile_timing["total_wall_sec"] = round(build_wall_sec + import_wall_sec, 6)
+            compile_timing["built_so_size_bytes"] = built_so.stat().st_size
+
+            return {
+                "compiled": True,
+                "so_path": str(built_so),
+                "module_name": ext_name,
+                "build_backend": "manual_ninja",
+                "compile_timing": compile_timing,
+            }
+        except Exception as exc:
+            if "object_cache_stats" in locals():
+                KernelBenchCudaAgentBackend._store_manual_ninja_cached_objects(object_cache_stats)
+                if object_cache_stats:
+                    compile_timing["manual_ninja_object_cache"] = {
+                        key: value for key, value in object_cache_stats.items() if key != "object_map"
+                    }
+            if "build_started" in locals():
+                compile_timing["manual_ninja_build_wall_sec"] = round(time.perf_counter() - build_started, 6)
+                compile_timing["total_wall_sec"] = compile_timing["manual_ninja_build_wall_sec"]
+            return {
+                "compiled": False,
+                "error": str(exc),
+                "build_backend": "manual_ninja",
+                "compile_timing": compile_timing,
+            }
 
     def compile(self, code: str, **kwargs: Any) -> Dict[str, Any]:
         device = self._normalize_device(kwargs.get("device"))
         entry_point = kwargs.get("entry_point", "ModelNew")
         explicit_sources = self._normalize_cuda_sources_input(kwargs.get("cuda_sources"))
+        enable_compile_artifact_cache = self._compile_artifact_cache_enabled(kwargs)
 
         try:
             embedded_sources, python_code = self._parse_embedded_sources(code)
@@ -664,17 +1014,51 @@ public:
                 "precheck": precheck_info,
             }
 
-        work_dir = self._create_work_dir()
-        work_dir.mkdir(parents=True, exist_ok=True)
-        self._write_runtime_scaffold(work_dir, model_code, cuda_sources)
-        self._materialize_sources(work_dir, cuda_sources)
+        work_dir: Path
+        cache_key = ""
+        ready_path: Path | None = None
+        if enable_compile_artifact_cache:
+            cache_key = self._artifact_cache_key(
+                model_code=model_code,
+                cuda_sources=cuda_sources,
+                entry_point=entry_point,
+            )
+            cache_entry = self._compile_artifact_cache_root() / cache_key
+            ready_path = cache_entry / "ready.json"
+            cached_artifact = self._load_cached_artifact(ready_path)
+            if cached_artifact is not None:
+                cached_artifact["device"] = str(device)
+                cached_artifact["compile_artifact_cache_enabled"] = True
+                cached_artifact["compile_artifact_cache_key"] = cache_key
+                return cached_artifact
+            work_dir = cache_entry / "work"
+        else:
+            work_dir = self._create_work_dir()
 
-        try:
-            result = self._build_extension(work_dir, self._collect_compile_sources(work_dir))
-        except Exception as exc:
-            result = {"compiled": False, "error": str(exc)}
+        def _compile_in_work_dir() -> dict[str, Any]:
+            if work_dir.exists():
+                shutil.rmtree(work_dir)
+            work_dir.mkdir(parents=True, exist_ok=True)
+            self._write_runtime_scaffold(work_dir, model_code, cuda_sources)
+            self._materialize_sources(work_dir, cuda_sources)
+            try:
+                return self._build_extension(work_dir, self._collect_compile_sources(work_dir))
+            except Exception as exc:
+                return {"compiled": False, "error": str(exc)}
 
-        return {
+        if enable_compile_artifact_cache and ready_path is not None:
+            with self._file_lock(ready_path.parent / "compile.lock"):
+                cached_artifact = self._load_cached_artifact(ready_path)
+                if cached_artifact is not None:
+                    cached_artifact["device"] = str(device)
+                    cached_artifact["compile_artifact_cache_enabled"] = True
+                    cached_artifact["compile_artifact_cache_key"] = cache_key
+                    return cached_artifact
+                result = _compile_in_work_dir()
+        else:
+            result = _compile_in_work_dir()
+
+        artifact = {
             "compiled": bool(result.get("compiled")),
             "error": result.get("error"),
             "device": str(device),
@@ -683,9 +1067,12 @@ public:
             "work_dir": str(work_dir),
             "so_path": result.get("so_path"),
             "module_name": result.get("module_name"),
-            "compile_cache_hit": result.get("compile_cache_hit"),
-            "compile_cache_key": result.get("compile_cache_key"),
-            "compile_cache_dir": result.get("compile_cache_dir"),
+            "build_backend": result.get("build_backend", "manual_ninja"),
+            "compile_timing": result.get("compile_timing"),
+            "compile_artifact_cache_enabled": enable_compile_artifact_cache,
+            "compile_artifact_cache_hit": False,
+            "compile_artifact_cache_key": cache_key or None,
+            "persistent_work_dir": enable_compile_artifact_cache,
             "code": model_code,
             "precheck": precheck_info,
             "profiling_hints": {
@@ -695,6 +1082,9 @@ public:
                 "source_files": sorted(cuda_sources.keys()),
             },
         }
+        if enable_compile_artifact_cache and ready_path is not None and artifact["compiled"]:
+            self._write_cached_artifact(ready_path, artifact)
+        return artifact
 
     @staticmethod
     def _load_extension_module(module_name: str, so_path: Path) -> types.ModuleType:
@@ -773,6 +1163,7 @@ public:
             "module_aliases": module_aliases,
             "tempfile_handle": None,
             "profiling_hints": artifact.get("profiling_hints", {}),
+            "persistent_work_dir": bool(artifact.get("persistent_work_dir")),
         }
 
     def cleanup(self, handle: Any, **kwargs: Any) -> None:
@@ -784,5 +1175,7 @@ public:
             sys.modules.pop(module_name, None)
 
         work_dir = handle.get("work_dir")
+        if handle.get("persistent_work_dir"):
+            return
         if work_dir and Path(work_dir).exists():
             shutil.rmtree(work_dir, ignore_errors=True)

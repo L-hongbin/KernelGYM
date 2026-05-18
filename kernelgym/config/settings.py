@@ -136,6 +136,11 @@ class Settings(BaseSettings):
         env="MAX_TASKS_PER_WORKER",
         description="Max tasks a subprocess worker handles before restart. Set to 1 for per-task isolation.",
     )
+    cpu_compile_workers: int = Field(
+        default=2,
+        env="CPU_COMPILE_WORKERS",
+        description="Number of CPU workers that consume compile-stage tasks.",
+    )
 
     log_dir: str = Field(default="logs", env="LOG_DIR")
     log_to_file: bool = Field(default=True, env="LOG_TO_FILE")

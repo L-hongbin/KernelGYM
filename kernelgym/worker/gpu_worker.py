@@ -304,7 +304,7 @@ class GPUWorker:
                 # as errors are contained in subprocesses and don't affect the main worker
 
                 # Get next task
-                task_data = await self.task_manager.get_next_task(self.worker_id)
+                task_data = await self.task_manager.get_next_task(self.worker_id, resources=["gpu"])
 
                 if task_data:
                     await self._process_task(task_data)

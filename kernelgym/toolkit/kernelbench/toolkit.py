@@ -148,6 +148,10 @@ class KernelBenchToolkit(Toolkit):
                 enable_triton_detection=enable_triton_detection,
                 detect_decoy_kernel=detect_decoy_kernel,
                 backend_adapter=backend_adapter,
+                precompiled_artifact=task.compile_artifact,
+                enable_compile_artifact_cache=task.enable_compile_artifact_cache,
+                compile_only=str(task.task_stage or "").lower() == "compile" or bool(task.pure_compile_task),
+                return_internal_compile_artifact=task.return_internal_compile_artifact,
             )
             if result is None:
                 return EvaluationResult(
@@ -350,6 +354,10 @@ class KernelBenchToolkit(Toolkit):
                 enable_triton_detection=enable_triton_detection,
                 detect_decoy_kernel=detect_decoy_kernel,
                 backend_adapter=backend_adapter,
+                precompiled_artifact=task.compile_artifact,
+                enable_compile_artifact_cache=task.enable_compile_artifact_cache,
+                compile_only=str(task.task_stage or "").lower() == "compile" or bool(task.pure_compile_task),
+                return_internal_compile_artifact=task.return_internal_compile_artifact,
             )
             if result is None:
                 return KernelEvaluationResult(
@@ -363,6 +371,23 @@ class KernelBenchToolkit(Toolkit):
                     status="failed",
                     error_message="Kernel evaluation failed: empty evaluation result",
                     error_code=ErrorCode.RUNTIME_ERROR,
+                )
+
+            compile_only = str(task.task_stage or "").lower() == "compile" or bool(task.pure_compile_task)
+            if compile_only:
+                metadata = dict(result.metadata or {})
+                metadata["compile_only"] = True
+                return KernelEvaluationResult(
+                    task_id=task.task_id,
+                    base_task_id=task.base_task_id,
+                    compiled=result.compiled,
+                    correctness=False,
+                    decoy_kernel=False,
+                    kernel_runtime=-1.0,
+                    metadata=metadata,
+                    status="completed" if result.compiled else "failed",
+                    error_message=None if result.compiled else "Kernel compilation failed",
+                    error_code=None if result.compiled else ErrorCode.COMPILATION_ERROR,
                 )
 
             if not run_correctness:

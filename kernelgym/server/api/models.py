@@ -88,6 +88,22 @@ class EvaluationRequest(BaseModel):
         default=None,
         description="Resource requirements (e.g. {'gpus': 2})",
     )
+    split_compile_and_execute: bool = Field(
+        default=False,
+        description="Split CUDA-Agent compile and GPU execution into separate resource tasks",
+    )
+    pure_compile_task: bool = Field(
+        default=False,
+        description="Run only the compile stage and return compile artifact metadata",
+    )
+    enable_compile_artifact_cache: bool = Field(
+        default=False,
+        description="Enable complete compile artifact cache for exact payload reuse",
+    )
+    task_stage: Optional[str] = Field(default=None, description="Internal task stage: compile or execute")
+    required_resource: Optional[str] = Field(default=None, description="Internal resource target: cpu or gpu")
+    assigned_worker: Optional[str] = Field(default=None, description="Internal worker routing target")
+    compile_artifact: Optional[Dict[str, Any]] = Field(default=None, description="Internal compiled artifact handoff")
 
     @validator("task_id")
     def validate_task_id(cls, v):
