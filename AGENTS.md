@@ -14,9 +14,11 @@ Do not maintain a separate running-status log unless explicitly asked.
 
 ## Working Style
 
-- Inspect representative real examples (prompts, logs, outputs, scored samples), not only automated checks.- Dump reviewable evidence to files so the user can inspect the same data.
+- Inspect representative real examples (prompts, logs, outputs, scored samples), not only automated checks.
+- Dump reviewable evidence to files so the user can inspect the same data.
 - Treat `/nfs` and `/ms` as shared filesystems.
 - Keep bash files under 200 lines — use them only for parameter config and simple glue; put real logic in Python.
+- In Markdown prose, do not hard-wrap ordinary paragraphs at a fixed character count; keep natural paragraph lines unless structure such as lists, tables, or code blocks requires line breaks.
 
 ## Execution
 

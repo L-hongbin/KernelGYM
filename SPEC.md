@@ -5,10 +5,13 @@ This file records run-specific deployment details. Keep stable repo conventions 
 
 ## Reward Nodes
 
-| Profile | Host | SSH | Runtime | GPUs | Intended use |
+| Profile | Host | Host SSH | Runtime | GPUs | Intended use |
 | --- | --- | --- | --- | --- | --- |
-| `reward-39` | `192.168.16.39` | `ssh -p 23452 root@192.168.16.39` | External physical host | 8 | Existing reward node |
-| `reward-40` | `192.168.16.40` | `ssh -p 23452 root@192.168.16.40` | External physical host | 8 | New reward testing node |
+| `reward-39` | `192.168.16.39` | `ssh chenshuailin@192.168.16.39` | External physical host | 8 | Existing reward node |
+| `reward-40` | `192.168.16.40` | `ssh chenshuailin@192.168.16.40` | External physical host | 8 | New reward testing node |
+
+These are SSH commands for the external physical hosts. They land on the host, not inside the reward
+container. Port `23452` is not valid for these nodes.
 
 External physical hosts require GPU clock locking and container startup before
 the reward service starts. The current container image is:

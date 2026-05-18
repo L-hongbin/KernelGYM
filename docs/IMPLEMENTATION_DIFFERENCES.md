@@ -8,8 +8,7 @@ Same core reward behavior:
 
 - Keeps the `kernelgym/` implementation as the active reward service.
 - Keeps CUDA-Agent, Triton, CUDA, and TVM-FFI backend wiring.
-- Keeps current CUDA-Agent parser, validation, whole-extension compile cache, static checker, timing metadata,
-  and KernelBench workflow behavior.
+- Keeps current CUDA-Agent parser, validation, static checker, timing metadata, and KernelBench reward behavior.
 
 Removed scope:
 
@@ -18,45 +17,39 @@ Removed scope:
 - Removes run-specific project files such as progress logs, handoffs, and experiment specs.
 - Removes reward startup code that is coupled to `drkernel/kernel/scripts/rl/start_reward.sh`.
 
-Repository-level changes:
+Deployment/runtime changes:
 
-- Adds packaging metadata in `pyproject.toml`.
-- Adds focused extraction tests under `tests/`.
-- Adds Ruff-only formatting and linting through pre-commit.
-- Uses `ruff format`; Black is intentionally absent.
-- Refactors complex shell startup/stop logic into `kernelgym.cli.service`; shell scripts are compatibility
-  wrappers only.
+- Uses Python deployment profiles for the known reward hosts.
+- Keeps service orchestration in `kernelgym.cli.service`.
+- Keeps shell scripts only for shell-native host operations such as profile detection, GPU clock locking, container startup, and virtualenv creation.
 
 ## Difference From KernelGYM-lhb
 
-This repo does not adopt LHB's compile-optimization architecture as active code.
+This repo adopts the useful compile acceleration mechanics without adopting the LHB repository's code structure or reward-policy differences.
 
 Compile backend:
 
-- This repo uses the current CUDA-Agent `torch.utils.cpp_extension.load(...)` path.
-- It preserves whole-extension content-addressed compile cache metadata.
-- It uses one shared `KERNELGYM_NVCC_THREADS` setting for CUDA-Agent and TVM-FFI nvcc compilation.
-- CUDA-Agent and TVM-FFI temp/cache directories are hardcoded under `/dev/shm/kernelgym`.
-- LHB supports `CUDA_BUILD_BACKEND=manual_ninja|cpp_extension_load`, defaults operationally to
-  `manual_ninja`, and manually invokes PyTorch private ninja helpers.
+- This repo removes CUDA-Agent `torch.utils.cpp_extension.load(...)` from the active compile path.
+- CUDA-Agent compilation writes an explicit PyTorch-compatible ninja build graph, invokes ninja, and imports the built extension.
+- The backend identity is reported as `build_backend="manual_ninja"` for compatibility with existing metadata conventions.
 
 Cache model:
 
-- This repo caches complete compiled extensions.
-- LHB adds object-level cache for selected `.o` files and rewrites `build.ninja` to link cached objects.
+- This repo adds object-level cache for reusable `.o` files and rewrites `build.ninja` link inputs for cache hits.
+- Redis is used only as metadata/index coordination for object cache entries; compiled objects and artifacts stay on local fast storage.
+- Compile artifact cache is used for exact repeated payloads and split compile/execute handoff.
 
 Workflow and scheduling:
 
-- This repo submits one kernel-evaluation task per request.
-- LHB can split a request into CPU compile and GPU execute stages.
-- This repo's TaskManager uses priority queues.
-- LHB adds CPU/GPU resource queues and optional GPU fallback polling of CPU compile tasks.
+- This repo keeps the current reference-timing plus kernel-evaluation workflow.
+- CUDA-Agent requests can split kernel compilation and execution into CPU/GPU stages.
+- TaskManager routes work through CPU and GPU resource queues plus direct worker queues.
+- GPU workers consume GPU work; CPU compile workers consume compile-stage CPU work.
 
 API/schema:
 
 - This repo keeps current fields such as `num_warmup` and `perf_trim_count`.
-- LHB adds `split_compile_and_execute`, `pure_compile_task`, `enable_compile_artifact_cache`,
-  `task_stage`, `required_resource`, and `compile_artifact`.
+- It adds `split_compile_and_execute`, `pure_compile_task`, `enable_compile_artifact_cache`, `task_stage`, `required_resource`, `assigned_worker`, and `compile_artifact`.
 
 Validation and parsing:
 
@@ -73,14 +66,14 @@ Profiling and reward semantics:
 - It avoids automatically marking CUDA-Agent submissions as decoys when no custom kernel name can be extracted.
 - LHB has an additional CUDA detection precheck and a stricter CUDA-Agent decoy policy.
 
-## Migration Notes
+## Compile Acceleration Notes
 
-The safest future path for LHB compile optimizations is to add them behind explicit feature flags and benchmark:
+The active CUDA-Agent acceleration path has these components:
 
-1. Current `cpp_extension.load` plus whole-extension cache.
-2. LHB-style `manual_ninja` without object cache.
-3. LHB-style `manual_ninja` with object cache.
-4. Optional split compile/execute with CPU compile workers.
+- ninja-driven fine-grained compilation;
+- reusable object cache keyed by build graph, source/header content, toolchain, CUDA architecture, and flags;
+- complete compile artifact cache for exact repeats and compile/execute handoff;
+- CPU/GPU resource queues with dedicated CPU compile workers;
+- sanitized public compile artifact metadata and internal full-artifact handoff.
 
-Until those benchmarks exist, this repository preserves current reward correctness and observability over
-compile-path churn.
+See `docs/COMPILE_ACCELERATION_DESIGN.md` for the target design.
