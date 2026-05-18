@@ -7,10 +7,6 @@ and CUDA 12.9 virtualenv bootstrap are bash scripts because they are shell-nativ
 
 ## Shared Runtime Policy
 
-- Profile detection from `/ms` is available as an operator check only:
-  - `/ms` exists and is a real path: `internal`;
-  - `/ms` missing: `external`;
-  - `/ms` is a symlink: `external`.
 - External profiles are Python classes: `reward-39` and `reward-40`.
 - Service ports are fixed: API `20111`, Redis `20110`, metrics `20112`.
 - API workers/reload and Redis db/password/key-prefix are fixed.
@@ -35,12 +31,6 @@ source .venv/bin/activate
 The script validates both `torch.version.cuda == "12.9"` and `nvcc` from CUDA 12.9. Common overrides are
 not needed: it creates and activates `.venv` with Python 3.12, then checks `/usr/local/cuda-12.9/bin/nvcc`
 directly.
-
-Detect the current deployment profile:
-
-```bash
-bash scripts/detect_profile.sh
-```
 
 Select the profile explicitly, or use `auto` on the matching host:
 

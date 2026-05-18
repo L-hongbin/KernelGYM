@@ -20,7 +20,6 @@ Deployment is documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 - `kernelgym/`: reward API, scheduler, CPU/GPU workers, workflow, schema, backends, validation, and KernelBench toolkit.
 - `create_venv.sh`: CUDA 12.9 uv environment bootstrap.
-- `scripts/detect_profile.sh`: internal/external profile detection from the real `/ms` path.
 - `scripts/lock_gpu_clocks.sh`: host-level GPU persistence, clock, and power-limit setup.
 - `scripts/start_container.sh`: physical-host Docker container startup for external nodes.
 - `kernelgym/deployment_profiles.py`: Python deployment profiles for the external reward hosts.

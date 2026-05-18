@@ -494,10 +494,7 @@ def cmd_start_worker_node(args: argparse.Namespace) -> int:
     for required in ("API_HOST", "REDIS_HOST"):
         if not values.get(required):
             raise SystemExit(f"Missing required env var in {env_file}: {required}")
-    arch_values = _with_torch_cuda_arch_list(values)
-    if arch_values is not values:
-        _update_env_file(env_file, {TORCH_CUDA_ARCH_LIST_ENV: arch_values[TORCH_CUDA_ARCH_LIST_ENV]})
-        values = arch_values
+    values = _with_torch_cuda_arch_list(values)
     _check_worker_connectivity(values)
 
     api_base = _api_base(values)

@@ -48,5 +48,4 @@ CUDA 12.9 uv environment creation belongs in `create_venv.sh` because it is envi
 service orchestration. The script installs missing `uv` with `pip install uv`, creates and activates `.venv` with
 Python 3.12, and checks `/usr/local/cuda-12.9/bin/nvcc`. Deployment profiles are Python classes in
 `kernelgym/deployment_profiles.py`; do not add a CLI that generates env files. Direct host operations belong in bash:
-`scripts/detect_profile.sh`, `scripts/lock_gpu_clocks.sh`, and `scripts/start_container.sh`. Internal/external
-profile detection must only inspect `/ms`: a real path is internal, while missing `/ms` or a symlink is external.
+`scripts/lock_gpu_clocks.sh` and `scripts/start_container.sh`.

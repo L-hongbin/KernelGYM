@@ -15,7 +15,6 @@ def test_reward_only_entrypoints_are_present() -> None:
     assert (ROOT / "create_venv.sh").exists()
     assert (ROOT / "kernelgym" / "deployment_profiles.py").exists()
     assert (ROOT / "scripts" / "start_container.sh").exists()
-    assert (ROOT / "scripts" / "detect_profile.sh").exists()
     assert (ROOT / "scripts" / "lock_gpu_clocks.sh").exists()
     assert not (ROOT / "setup.sh").exists()
     assert not (ROOT / "start_all_with_monitor.sh").exists()
@@ -52,6 +51,7 @@ def test_no_pure_python_forwarder_shell_entrypoints_remain() -> None:
         ROOT / "start_worker_multinode.sh",
         ROOT / "stop_all.sh",
         ROOT / "scripts" / "auto_configure.sh",
+        ROOT / "scripts" / "detect_profile.sh",
     ]
     for wrapper in removed_wrappers:
         assert not wrapper.exists()

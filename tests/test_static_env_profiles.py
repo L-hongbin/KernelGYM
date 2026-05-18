@@ -1,5 +1,4 @@
 from pathlib import Path
-import subprocess
 
 from kernelgym import deployment_profiles as profiles
 
@@ -39,20 +38,3 @@ def test_reward_host_profiles_only_define_non_derivable_fields() -> None:
         assert set(profile.__dict__) & {"name", "node_id", "deployment_profile"} == set()
         assert profile.env()["NODE_ID"] == profile.profile_id()
         assert profile.env()["KERNELGYM_DEPLOYMENT_PROFILE"] == profile.profile_id()
-
-
-def test_detect_profile_bash_script_matches_ms_policy(tmp_path: Path) -> None:
-    script = ROOT / "scripts" / "detect_profile.sh"
-    missing = tmp_path / "missing-ms"
-    real_ms = tmp_path / "real-ms"
-    linked_ms = tmp_path / "linked-ms"
-    target = tmp_path / "target"
-
-    real_ms.mkdir()
-    target.mkdir()
-    linked_ms.symlink_to(target, target_is_directory=True)
-
-    subprocess.run(["bash", "-n", str(script)], check=True)
-    assert subprocess.check_output([str(script), str(missing)], text=True).strip() == "external"
-    assert subprocess.check_output([str(script), str(real_ms)], text=True).strip() == "internal"
-    assert subprocess.check_output([str(script), str(linked_ms)], text=True).strip() == "external"
