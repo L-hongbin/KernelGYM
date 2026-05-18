@@ -35,7 +35,8 @@ Compile backend:
 
 - This repo uses the current CUDA-Agent `torch.utils.cpp_extension.load(...)` path.
 - It preserves whole-extension content-addressed compile cache metadata.
-- It preserves `KERNELGYM_CUDA_AGENT_NVCC_THREADS` support.
+- It uses one shared `KERNELGYM_NVCC_THREADS` setting for CUDA-Agent and TVM-FFI nvcc compilation.
+- CUDA-Agent and TVM-FFI temp/cache directories are hardcoded under `/dev/shm/kernelgym`.
 - LHB supports `CUDA_BUILD_BACKEND=manual_ninja|cpp_extension_load`, defaults operationally to
   `manual_ninja`, and manually invokes PyTorch private ninja helpers.
 

@@ -3,7 +3,7 @@
 ## Environment
 
 ```bash
-bash scripts/create_venv.sh --recreate
+bash create_venv.sh --recreate
 source .venv/bin/activate
 pre-commit install
 ```
@@ -35,17 +35,18 @@ Black is intentionally not configured.
 
 ## Service CLI
 
-Operational logic belongs in Python, not long shell scripts. The root shell entrypoints are compatibility
-wrappers around:
+Operational service logic belongs in Python, not long shell scripts. Use the service CLI directly:
 
 ```bash
 python -m kernelgym.cli.service --help
 ```
 
-Add new startup, shutdown, or worker-node behavior in `kernelgym/cli/service.py`, then keep the shell wrapper
-small enough to only resolve the repository root and delegate to Python.
+Add new startup, shutdown, or worker-node behavior in `kernelgym/cli/service.py`. Do not add bash wrappers that
+only forward arguments without adding a real operator-facing behavior.
 
-CUDA 12.9 uv environment creation belongs in `scripts/create_venv.sh` because it is environment assembly, not
-service orchestration. Deployment profile/env generation, physical-host GPU clock locking, and Docker container
-preparation belong in `kernelgym/cli/deploy.py`. Internal/external profile detection must only inspect `/ms`: a
-real path is internal, while missing `/ms` or a symlink is external.
+CUDA 12.9 uv environment creation belongs in `create_venv.sh` because it is environment assembly, not
+service orchestration. The script installs missing `uv` with `pip install uv`, creates and activates `.venv` with
+Python 3.12, and checks `/usr/local/cuda-12.9/bin/nvcc`. Deployment profiles are Python classes in
+`kernelgym/deployment_profiles.py`; do not add a CLI that generates env files. Direct host operations belong in bash:
+`scripts/detect_profile.sh`, `scripts/lock_gpu_clocks.sh`, and `scripts/start_container.sh`. Internal/external
+profile detection must only inspect `/ms`: a real path is internal, while missing `/ms` or a symlink is external.

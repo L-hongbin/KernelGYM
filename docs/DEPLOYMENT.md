@@ -1,23 +1,25 @@
 # Deployment
 
-KernelGYM reward-only supports two deployment modes. Service orchestration and host/container deployment logic
-stay in Python. The CUDA 12.9 virtualenv bootstrap is intentionally a bash script because it is environment
-assembly around shell-native tools: Python, uv, pip, CUDA paths, and proxy environment variables.
+KernelGYM reward-only supports two deployment modes. Runtime env values come from Python profiles in
+`kernelgym/deployment_profiles.py`; there is no env-file generation CLI. GPU clock locking, container startup,
+and CUDA 12.9 virtualenv bootstrap are bash scripts because they are shell-native operations around
+`nvidia-smi`, Docker, Python, uv, pip, and proxy environment variables.
 
 ## Shared Runtime Policy
 
-- Deployment profile is detected from `/ms` only:
+- Profile detection from `/ms` is available as an operator check only:
   - `/ms` exists and is a real path: `internal`;
   - `/ms` missing: `external`;
   - `/ms` is a symlink: `external`.
-- The `/ms` check is unrelated to `CUDA_HOME`.
-- Generate env files through `kernelgym.cli.deploy write-env`; it auto-selects internal/external defaults.
+- External profiles are Python classes: `reward-39` and `reward-40`.
+- Service ports are fixed: API `20111`, Redis `20110`, metrics `20112`.
+- API workers/reload and Redis db/password/key-prefix are fixed.
 - Use a repo-local uv virtual environment: `.venv`.
+- If `uv` is missing, `create_venv.sh` installs it with `pip install uv`.
 - Use CUDA 12.9 explicitly:
   - PyTorch wheels are installed from `https://download.pytorch.org/whl/cu129`.
-  - `CUDA_HOME` should point at `/usr/local/cuda-12.9`.
-  - `nvcc --version` must report CUDA 12.9 before running CUDA-Agent compile tests.
-- If CUDA wheel dependencies cannot be fetched directly, `scripts/create_venv.sh` retries with
+  - `/usr/local/cuda-12.9/bin/nvcc --version` must report CUDA 12.9.
+- If CUDA wheel dependencies cannot be fetched directly, `create_venv.sh` retries with
   `http://192.168.28.186:7897` on external nodes. Override with `KERNELGYM_PROXY` or
   `KERNELGYM_FALLBACK_PROXY` only when needed.
 - Do not reuse older KernelGYM or drkernel virtual environments.
@@ -26,33 +28,24 @@ Create the environment in the runtime where reward will execute:
 
 ```bash
 cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
-bash scripts/create_venv.sh --recreate
+bash create_venv.sh --recreate
 source .venv/bin/activate
 ```
 
 The script validates both `torch.version.cuda == "12.9"` and `nvcc` from CUDA 12.9. Common overrides are
-environment variables, not long command lines:
-
-```bash
-KERNELGYM_PYTHON=python3.12 CUDA_HOME=/usr/local/cuda-12.9 bash scripts/create_venv.sh --recreate
-```
+not needed: it creates and activates `.venv` with Python 3.12, then checks `/usr/local/cuda-12.9/bin/nvcc`
+directly.
 
 Detect the current deployment profile:
 
 ```bash
-python -m kernelgym.cli.deploy detect-profile
+bash scripts/detect_profile.sh
 ```
 
-Write an API-node env using the detected profile:
+Select the profile explicitly, or use `auto` on the matching host:
 
 ```bash
-python -m kernelgym.cli.deploy write-env --role api --env-file .env --force
-```
-
-Write a worker-node env using the detected profile and a known API/Redis host:
-
-```bash
-python -m kernelgym.cli.deploy write-env --role worker --server-host 192.168.16.39 --env-file .env --force
+python -m kernelgym.cli.service start-local --profile reward-40
 ```
 
 ## Mode 1: Physical Host SSH, Then Docker
@@ -70,15 +63,8 @@ Host preparation example:
 
 ```bash
 cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
-python -m kernelgym.cli.deploy host-container \
-  --name kernelgym-reward-39 \
-  --replace \
-  --sudo \
-  --lock-gpu-clocks \
-  --gpu-clock 2700 \
-  --power-limit 400 \
-  --cuda-home /usr/local/cuda-12.9 \
-  --image 192.168.14.129:80/fm/llmc:v1.1
+bash scripts/lock_gpu_clocks.sh --sudo --gpu-clock 2700 --power-limit 400
+bash scripts/start_container.sh
 ```
 
 The generated container command uses:
@@ -88,29 +74,23 @@ The generated container command uses:
 - executable `/dev/shm` through `--tmpfs /dev/shm:rw,nosuid,nodev,exec,size=256g`;
 - `--privileged`;
 - `-v /nfs:/nfs`;
-- a read-only mount of `/usr/local/cuda-12.9`;
-- `CUDA_HOME=/usr/local/cuda-12.9`.
+- a read-only mount of `/usr/local/cuda-12.9`.
 
-If the image already has CUDA 12.9, the explicit CUDA mount is harmless. If the image has an older toolkit,
-the mount plus `CUDA_HOME` ensures CUDA-Agent compilation uses host CUDA 12.9.
+The default container image is `192.168.14.129:80/library/slime:nightly-dev-20260430b`.
+If the image already has CUDA 12.9, the explicit CUDA mount is harmless. The environment bootstrap still
+validates `/usr/local/cuda-12.9/bin/nvcc` inside the container before installing the CUDA 12.9 wheel set.
 
 Inside the container:
 
 ```bash
 cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
-bash scripts/create_venv.sh --recreate
+bash create_venv.sh --recreate
 source .venv/bin/activate
-python -m kernelgym.cli.deploy write-env --role api --env-file .env --force
-python -m kernelgym.cli.service start-local
+python -m kernelgym.cli.service start-local --profile reward-39
 ```
 
-For a second physical host that only runs workers, copy or mount the server env from the API node and run:
-
-```bash
-source .venv/bin/activate
-python -m kernelgym.cli.deploy write-env --role worker --server-host 192.168.16.39 --env-file .env --force
-python -m kernelgym.cli.service start-worker-node /path/to/server.env
-```
+Worker-only multi-node deployment should use an explicit Python profile for that topology. Do not generate it
+from a CLI; add the profile class in `kernelgym/deployment_profiles.py` when that topology is needed.
 
 ## Mode 2: SSH Already Lands Inside A Container
 
@@ -119,19 +99,12 @@ inside this container. Create `.venv` and start services directly:
 
 ```bash
 cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
-bash scripts/create_venv.sh --recreate
+bash create_venv.sh --recreate
 source .venv/bin/activate
-python -m kernelgym.cli.deploy write-env --role api --env-file .env --force
-python -m kernelgym.cli.service start-local
+python -m kernelgym.cli.service start-local --profile reward-40
 ```
 
-Worker-only containers use the same `.venv` creation step, then:
-
-```bash
-source .venv/bin/activate
-python -m kernelgym.cli.deploy write-env --role worker --server-host <api-host> --env-file .env --force
-python -m kernelgym.cli.service start-worker-node /path/to/server.env
-```
+Worker-only containers follow the same rule: use a checked-in Python profile for the concrete topology.
 
 ## Verification
 

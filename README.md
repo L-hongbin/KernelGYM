@@ -26,14 +26,13 @@ Deployment is documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 ## What Is Included
 
 - `kernelgym/`: reward API, scheduler, worker, workflow, schema, backends, validation, and KernelBench toolkit.
-- `scripts/auto_configure.sh`: local `.env` generation for reward service ports and GPU devices.
-- `start_all_with_monitor.sh`, `start_worker_node.sh`, `start_worker_multinode.sh`, `stop_all.sh`: local and
-  worker-node service entrypoints. These are thin wrappers; the real logic lives in
-  `kernelgym.cli.service`.
+- `create_venv.sh`: CUDA 12.9 uv environment bootstrap.
+- `scripts/detect_profile.sh`: internal/external profile detection from the real `/ms` path.
+- `scripts/lock_gpu_clocks.sh`: host-level GPU persistence, clock, and power-limit setup.
+- `scripts/start_container.sh`: physical-host Docker container startup for external nodes.
+- `kernelgym/deployment_profiles.py`: Python deployment profiles for the external reward hosts.
 - `tests/`: unit tests that verify extraction boundaries, source-lineage docs, pre-commit policy, schema
   behavior, CUDA-Agent parsing, validation behavior, and a GPU-gated CUDA-Agent compile/load/run smoke test.
-- `kernelgym.cli.deploy`: Python deployment helpers for CUDA 12.9 uv environments, physical-host GPU clock
-  locking, and Docker container preparation.
 - Ruff-only formatting and linting via `.pre-commit-config.yaml`.
 
 ## What Is Excluded
@@ -46,7 +45,7 @@ Deployment is documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 ## Quick Start
 
 ```bash
-bash scripts/create_venv.sh --recreate
+bash create_venv.sh --recreate
 source .venv/bin/activate
 pre-commit install
 pytest
@@ -54,31 +53,26 @@ ruff format .
 ruff check .
 ```
 
+`create_venv.sh` creates the repo-local uv `.venv` with Python 3.12 and validates CUDA 12.9 through
+`/usr/local/cuda-12.9/bin/nvcc`.
+
 Local reward service:
 
 ```bash
-bash scripts/auto_configure.sh --force
-bash start_all_with_monitor.sh
-```
-
-Equivalent Python CLI:
-
-```bash
-python -m kernelgym.cli.service auto-configure --force
-python -m kernelgym.cli.service start-local
+python -m kernelgym.cli.service start-local --profile reward-40
 ```
 
 Stop local service:
 
 ```bash
-bash stop_all.sh
+python -m kernelgym.cli.service stop
 ```
 
-Deployment profile is detected from `/ms`: a real `/ms` path means internal, while missing `/ms` or a symlink
-means external. Use `python -m kernelgym.cli.deploy write-env ...` to generate the matching `.env`.
-Physical-host deployment, such as external `192.168.16.39` / `192.168.16.40` reward nodes, then uses
-`python -m kernelgym.cli.deploy host-container ...` to lock GPU clocks and start a Docker container first.
-Internal deployments where SSH already lands inside a container skip Docker and run `scripts/create_venv.sh` plus
+Python deployment profiles live in `kernelgym/deployment_profiles.py`. Physical-host deployment, such as
+external `192.168.16.39` / `192.168.16.40` reward nodes, uses
+`scripts/lock_gpu_clocks.sh` for host GPU clocks and `scripts/start_container.sh` to start the Docker container
+first.
+Internal deployments where SSH already lands inside a container skip Docker and run `create_venv.sh` plus
 `kernelgym.cli.service` directly.
 
 ## Development Policy

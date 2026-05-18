@@ -19,7 +19,7 @@ Role in this extraction:
 - Current reward semantics are preserved:
   - CUDA-Agent and TVM-FFI backend dispatcher.
   - Whole-extension compile cache for CUDA-Agent.
-  - `/dev/shm`-oriented CUDA-Agent and TVM-FFI temp/cache environment support.
+  - `/dev/shm`-oriented CUDA-Agent and TVM-FFI temp/cache behavior.
   - CUDA-Agent section parsing with think-block stripping and last complete CUDA section group selection.
   - static checker and stricter binding validation.
   - stage timing metadata and performance warmup/trim controls.
