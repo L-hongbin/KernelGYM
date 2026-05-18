@@ -66,9 +66,9 @@ class Settings(BaseSettings):
         description="Enable torch.profiler for performance diagnostics. Default False to minimize overhead.",
     )
     profiling_activities: List[str] = Field(
-        default_factory=lambda: ["cpu", "cuda"],
+        default_factory=lambda: ["cuda"],
         env="PROFILING_ACTIVITIES",
-        description="Profiling activities: cpu, cuda. Use ['cpu', 'cuda'] for full profiling.",
+        description="Profiling activities. Defaults to CUDA/GPU only; use ['cpu', 'cuda'] for full profiling.",
     )
     profiling_record_shapes: bool = Field(
         default=True,

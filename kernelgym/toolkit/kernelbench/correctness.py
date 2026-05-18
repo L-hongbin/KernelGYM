@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from contextlib import contextmanager
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
 
 import torch
 import torch.nn as nn
@@ -22,6 +22,7 @@ _CORRECTNESS_MAX_WALL_S_ENV = "KERNELGYM_CORRECTNESS_MAX_WALL_S"
 _CORRECTNESS_PASS_ON_BUDGET_ENV = "KERNELGYM_CORRECTNESS_PASS_ON_BUDGET"
 _CORRECTNESS_BUDGET_MIN_PASS_TRIALS_ENV = "KERNELGYM_CORRECTNESS_BUDGET_MIN_PASS_TRIALS"
 _CORRECTNESS_GPU_INPUTS_ENV = "KERNELGYM_CORRECTNESS_GPU_INPUTS"
+T = TypeVar("T")
 
 
 def get_tolerance_for_dtype(dtype: torch.dtype) -> float:
@@ -42,55 +43,57 @@ def get_tolerance_for_dtype(dtype: torch.dtype) -> float:
     return tolerances[dtype]
 
 
-def _env_flag(name: str, *, default: bool) -> bool:
+def _env_optional_str(name: str) -> str | None:
     value = os.environ.get(name)
+    if value is None or value.strip() == "":
+        return None
+    return value
+
+
+def _env_flag(name: str, *, default: bool) -> bool:
+    value = _env_optional_str(name)
     if value is None:
         return default
     return value.strip().lower() not in {"0", "false", "no", "off", ""}
 
 
-def _env_positive_float(name: str) -> float | None:
-    value = os.environ.get(name)
-    if value is None or value.strip() == "":
+def _env_parsed(name: str, parser: Callable[[str], T]) -> T | None:
+    value = _env_optional_str(name)
+    if value is None:
         return None
     try:
-        parsed = float(value)
-    except ValueError:
+        return parser(value)
+    except (TypeError, ValueError):
         return None
-    return parsed if parsed > 0 else None
+
+
+def _env_positive_float(name: str) -> float | None:
+    parsed = _env_parsed(name, float)
+    return parsed if parsed is not None and parsed > 0 else None
 
 
 def _env_positive_int(name: str) -> int | None:
-    value = os.environ.get(name)
-    if value is None or value.strip() == "":
-        return None
-    try:
-        parsed = int(value)
-    except ValueError:
-        return None
-    return parsed if parsed > 0 else None
-
-
-def _input_generation_device(device: Any) -> torch.device | None:
-    if device is None:
-        return None
-    if isinstance(device, int):
-        return torch.device("cuda", device)
-    target = torch.device(device)
-    if target.type != "cuda":
-        return None
-    return target
+    parsed = _env_parsed(name, int)
+    return parsed if parsed is not None and parsed > 0 else None
 
 
 @contextmanager
-def _default_device_context(device: torch.device | None):
-    if device is None:
+def _input_generation_device_context(device: Any, *, enabled: bool = True):
+    if not enabled or device is None:
         yield
         return
+    if isinstance(device, int):
+        cuda_device = torch.device("cuda", device)
+    else:
+        target = torch.device(device)
+        if target.type != "cuda":
+            yield
+            return
+        cuda_device = target
     previous_device = None
     if hasattr(torch, "get_default_device"):
         previous_device = torch.get_default_device()
-    torch.set_default_device(device)
+    torch.set_default_device(cuda_device)
     try:
         yield
     finally:
@@ -216,7 +219,7 @@ def register_and_format_exception(
 def run_and_check_correctness(
     original_model_instance: nn.Module,
     new_model_instance: nn.Module,
-    get_inputs_fn: callable,
+    get_inputs_fn: Callable[[], Any],
     metadata: dict,
     num_correct_trials: int,
     verbose: bool = False,
@@ -256,13 +259,10 @@ def run_and_check_correctness(
         budget_min_pass_trials = _env_positive_int(_CORRECTNESS_BUDGET_MIN_PASS_TRIALS_ENV) or 1
     budget_min_pass_trials = max(1, min(int(budget_min_pass_trials), num_correct_trials))
     generate_inputs_on_gpu = _env_flag(_CORRECTNESS_GPU_INPUTS_ENV, default=True)
-    input_device = _input_generation_device(device) if generate_inputs_on_gpu else None
 
     metadata["correctness_early_stop_enabled"] = bool(stop_on_first_failure)
     metadata["correctness_budget_pass_on_success_enabled"] = bool(pass_on_time_budget)
     metadata["correctness_budget_min_pass_trials"] = budget_min_pass_trials
-    metadata["correctness_gpu_input_generation_enabled"] = bool(generate_inputs_on_gpu)
-    metadata["correctness_gpu_input_generation_device"] = str(input_device) if input_device is not None else ""
     metadata["correctness_inplace_compare_enabled"] = True
     metadata["correctness_reference_alias_clone_trials"] = []
     metadata["correctness_reference_cache_poison_enabled"] = True
@@ -309,7 +309,7 @@ def run_and_check_correctness(
         return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
 
     torch.manual_seed(seed)
-    correctness_trial_seeds = [torch.randint(0, 2**32 - 1, (1,)).item() for _ in range(num_correct_trials)]
+    correctness_trial_seeds = [int(torch.randint(0, 2**32 - 1, (1,)).item()) for _ in range(num_correct_trials)]
 
     set_seed(seed)
     model = original_model_instance.cuda(device=device)
@@ -349,7 +349,7 @@ def run_and_check_correctness(
             set_seed(trial_seed)
             _set_substage("input_generation", trial=trial)
             input_generation_start = perf_counter()
-            with _default_device_context(input_device):
+            with _input_generation_device_context(device, enabled=generate_inputs_on_gpu):
                 inputs = get_inputs_fn()
             input_generation_durations.append(perf_counter() - input_generation_start)
 

@@ -117,7 +117,7 @@ def profiling_context(enabled: bool = True):
             except Exception as e:
                 device_info = f"cuda:unknown (error={e})"
             try:
-                test = torch.ones((1024,), device="cuda")
+                test = torch.ones((256,), device="cuda")
                 _ = test.sum()
                 torch.cuda.synchronize()
                 print("[Profiler] Preflight CUDA op executed")
