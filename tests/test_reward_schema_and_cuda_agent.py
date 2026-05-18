@@ -10,13 +10,16 @@ def _model_fields(model_cls: type) -> set[str]:
     return set(fields)
 
 
-def test_schema_matches_current_reward_api_not_lhb_split_api() -> None:
+def test_schema_exposes_compile_acceleration_fields() -> None:
     fields = _model_fields(EvaluationRequest)
     assert "num_warmup" in fields
     assert "perf_trim_count" in fields
-    assert "split_compile_and_execute" not in fields
-    assert "pure_compile_task" not in fields
-    assert "enable_compile_artifact_cache" not in fields
+    assert "split_compile_and_execute" in fields
+    assert "pure_compile_task" in fields
+    assert "enable_compile_artifact_cache" in fields
+    assert "task_stage" in fields
+    assert "required_resource" in fields
+    assert "compile_artifact" in fields
 
 
 def test_cuda_agent_parser_strips_think_blocks_and_uses_last_complete_group() -> None:
@@ -132,3 +135,68 @@ REGISTER_BINDING(identity, bind_identity)
     assert "without a trailing ';'" in error
     assert error_code is not None
     assert info["passed"] is False
+
+
+def test_cuda_agent_ninja_object_edge_parser() -> None:
+    build_text = """
+ninja_required_version = 1.3
+cxx = c++
+
+build generated.cuda.o: cuda_compile /tmp/work/kernels/generated.cu
+build generated_binding.o: compile /tmp/work/kernels/generated_binding.cpp
+build extension.so: link generated.cuda.o generated_binding.o
+"""
+
+    _header, edges = KernelBenchCudaAgentBackend._ninja_header_and_object_edges(build_text)
+
+    assert edges == [
+        {
+            "output": "generated.cuda.o",
+            "rule": "cuda_compile",
+            "source": "/tmp/work/kernels/generated.cu",
+        },
+        {
+            "output": "generated_binding.o",
+            "rule": "compile",
+            "source": "/tmp/work/kernels/generated_binding.cpp",
+        },
+    ]
+
+
+def test_cuda_agent_object_reuse_skips_module_bound_sources(tmp_path) -> None:
+    source = tmp_path / "binding.cpp"
+    source.write_text(
+        """
+#include <torch/extension.h>
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {}
+""",
+        encoding="utf-8",
+    )
+
+    reusable, reason = KernelBenchCudaAgentBackend._source_is_reusable_object(source)
+
+    assert reusable is False
+    assert "module name" in str(reason)
+
+
+def test_cuda_agent_rewrites_ninja_link_inputs_for_cached_objects(tmp_path) -> None:
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
+    build_ninja = build_dir / "build.ninja"
+    build_ninja.write_text(
+        """
+build generated.cuda.o: cuda_compile /tmp/work/generated.cu
+build generated_binding.o: compile /tmp/work/generated_binding.cpp
+build extension.so: link generated.cuda.o generated_binding.o binding.o
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    KernelBenchCudaAgentBackend._rewrite_manual_ninja_for_cached_objects(
+        build_dir,
+        {"generated_binding.o": "/cache/generated_binding.o"},
+    )
+
+    rewritten = build_ninja.read_text(encoding="utf-8")
+    assert "build generated_binding.o:" not in rewritten
+    assert "generated.cuda.o /cache/generated_binding.o binding.o" in rewritten
