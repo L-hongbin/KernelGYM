@@ -8,17 +8,17 @@ def _require_cuda_runtime():
     return torch
 
 
-def _get_run_and_check_correctness():
+def _get_correctness_module():
     pytest.importorskip("torch")
-    from kernelgym.toolkit.kernelbench.correctness import run_and_check_correctness
+    from kernelgym.toolkit.kernelbench import correctness
 
-    return run_and_check_correctness
+    return correctness
 
 
 @pytest.mark.gpu
 def test_correctness_runs_zero_like_cache_poison_before_custom_forward() -> None:
     torch = _require_cuda_runtime()
-    run_and_check_correctness = _get_run_and_check_correctness()
+    correctness = _get_correctness_module()
 
     class Reference(torch.nn.Module):
         def forward(self, x):
@@ -34,7 +34,7 @@ def test_correctness_runs_zero_like_cache_poison_before_custom_forward() -> None
     def get_inputs():
         return [torch.randn((256, 256), device=device)]
 
-    result = run_and_check_correctness(
+    result = correctness.run_and_check_correctness(
         Reference(),
         EmptyOutput(),
         get_inputs,
@@ -49,9 +49,42 @@ def test_correctness_runs_zero_like_cache_poison_before_custom_forward() -> None
 
 
 @pytest.mark.gpu
+def test_without_cache_poison_empty_output_can_reuse_reference_intermediate(monkeypatch) -> None:
+    torch = _require_cuda_runtime()
+    correctness = _get_correctness_module()
+    monkeypatch.setattr(correctness, "_zero_poison_like", lambda value: None)
+
+    class Reference(torch.nn.Module):
+        def forward(self, x):
+            intermediate = x + 1
+            return intermediate.clone()
+
+    class EmptyOutput(torch.nn.Module):
+        def forward(self, x):
+            return torch.empty_like(x)
+
+    device = torch.device("cuda:0")
+
+    def get_inputs():
+        return [torch.randn((256, 256), device=device)]
+
+    result = correctness.run_and_check_correctness(
+        Reference(),
+        EmptyOutput(),
+        get_inputs,
+        metadata={},
+        num_correct_trials=2,
+        device=device,
+    )
+
+    assert result.correctness is True
+    assert result.metadata["correctness_trials"] == "(2 / 2)"
+
+
+@pytest.mark.gpu
 def test_correctness_accepts_matching_cuda_model_with_cache_poison() -> None:
     torch = _require_cuda_runtime()
-    run_and_check_correctness = _get_run_and_check_correctness()
+    correctness = _get_correctness_module()
 
     class Reference(torch.nn.Module):
         def forward(self, x):
@@ -66,7 +99,7 @@ def test_correctness_accepts_matching_cuda_model_with_cache_poison() -> None:
     def get_inputs():
         return [torch.randn((128, 128), device=device)]
 
-    result = run_and_check_correctness(
+    result = correctness.run_and_check_correctness(
         Reference(),
         Matching(),
         get_inputs,
