@@ -123,6 +123,20 @@ def _clone_output_on_device(value: Any) -> Any:
     return value
 
 
+def _zero_poison_like(value: Any) -> Any:
+    if isinstance(value, torch.Tensor):
+        if value.numel() == 0:
+            return None
+        return torch.zeros_like(value, memory_format=torch.preserve_format)
+    if isinstance(value, list):
+        return [_zero_poison_like(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_zero_poison_like(item) for item in value)
+    if isinstance(value, dict):
+        return {key: _zero_poison_like(item) for key, item in value.items()}
+    return None
+
+
 def _iter_tensors(value: Any):
     if isinstance(value, torch.Tensor):
         yield value
@@ -251,6 +265,7 @@ def run_and_check_correctness(
     metadata["correctness_gpu_input_generation_device"] = str(input_device) if input_device is not None else ""
     metadata["correctness_inplace_compare_enabled"] = True
     metadata["correctness_reference_alias_clone_trials"] = []
+    metadata["correctness_reference_cache_poison_enabled"] = True
     metadata["correctness_tolerance_source"] = "kernelbench_precision_or_fp32_integral"
     if max_wall_time_s is not None:
         metadata["correctness_max_wall_s"] = max_wall_time_s
@@ -362,6 +377,11 @@ def run_and_check_correctness(
                 reference_alias_clone_durations.append(perf_counter() - alias_clone_start)
             else:
                 reference_alias_clone_durations.append(0.0)
+
+            poison_scratch = _zero_poison_like(output)
+            if any(True for _ in _iter_tensors(poison_scratch)):
+                torch.cuda.synchronize(device=device)
+            del poison_scratch
 
             try:
                 _set_substage("custom_forward", trial=trial)
