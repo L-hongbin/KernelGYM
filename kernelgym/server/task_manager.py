@@ -345,7 +345,9 @@ class TaskManager:
         )
 
         submitted_at = datetime.now()
-        assigned_worker = task_data.get("assigned_worker", "")
+        assigned_worker = task_data.get("assigned_worker") or ""
+        if "assigned_worker" in task_data:
+            task_data["assigned_worker"] = assigned_worker
         assigned_at = submitted_at.isoformat() if assigned_worker else ""
         await self.redis.hset(
             f"{self.task_prefix}{task_id}",

@@ -113,3 +113,24 @@ def test_task_manager_preserves_direct_worker_queue(monkeypatch) -> None:
         assert stored_payload["assigned_worker"] == "gpu-worker"
 
     asyncio.run(scenario())
+
+
+def test_task_manager_normalizes_none_assigned_worker(monkeypatch) -> None:
+    async def scenario() -> None:
+        _patch_registry(monkeypatch)
+        redis = FakeRedis()
+        manager = TaskManager(redis)  # type: ignore[arg-type]
+
+        await manager.submit_task({**_base_payload("none-worker-task"), "assigned_worker": None})
+
+        assert await manager.get_queue_status() == {
+            "pending": 1,
+            "pending_by_prefix": {"kernelgym": 1, "kernelserver": 0},
+            "worker_queues": {},
+        }
+        stored = await redis.hgetall(f"{manager.task_prefix}none-worker-task")
+        assert stored[b"assigned_worker"] == b""
+        stored_payload = json.loads(stored[b"data"].decode())
+        assert stored_payload["assigned_worker"] == ""
+
+    asyncio.run(scenario())

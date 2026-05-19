@@ -329,6 +329,9 @@ class WorkerMonitor:
         Args:
             device: Device string (e.g., "cuda:0")
         """
+        if not device.startswith("cuda:"):
+            logger.info(f"Skipping GPU reset for non-CUDA device {device}")
+            return
         try:
             device_id = int(device.split(":")[-1])
             logger.info(f"Attempting to reset GPU device {device_id}")
@@ -400,7 +403,7 @@ except Exception as e:
             # Kill existing worker process if any
             await self._kill_worker_process(worker_id)
 
-            # Reset GPU device to clear CUDA error state
+            # Reset GPU state only for CUDA workers.
             await self._reset_gpu_device(device)
 
             # Wait a bit for cleanup
@@ -409,17 +412,25 @@ except Exception as e:
             # Start new worker process
             import subprocess
 
-            # Build command to start single worker
-            cmd = [
-                sys.executable,
-                "-m",
-                "kernelgym.worker.single_worker",
-                "--worker-id",
-                worker_id,
-                "--device",
-                device,
-                "--persistent",
-            ]
+            if device == "cpu":
+                cmd = [
+                    sys.executable,
+                    "-m",
+                    "kernelgym.worker.cpu_worker",
+                    "--worker-id",
+                    worker_id,
+                ]
+            else:
+                cmd = [
+                    sys.executable,
+                    "-m",
+                    "kernelgym.worker.single_worker",
+                    "--worker-id",
+                    worker_id,
+                    "--device",
+                    device,
+                    "--persistent",
+                ]
 
             # Ensure logs directory exists and append logs to the same pattern as manual start
             logs_dir = Path("logs")
