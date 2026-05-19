@@ -33,7 +33,7 @@ dev = [
     "pytest-mock>=3.12",
     "ruff>=0.14.7",
 ]
-tvm-ffi = ["tvm-ffi"]
+tvm-ffi = ["apache-tvm-ffi"]
 cuda129 = [
     "torch==2.11.0+cu129",
     "torchvision==0.26.0+cu129",
