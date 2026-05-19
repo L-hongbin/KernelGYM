@@ -5,6 +5,7 @@ from typing import Any
 
 from kernelgym.server import task_manager as task_manager_module
 from kernelgym.server.task_manager import TaskManager
+from kernelgym.server.request_hash import request_hash
 from kernelgym.common import TaskStatus
 
 
@@ -134,3 +135,60 @@ def test_task_manager_normalizes_none_assigned_worker(monkeypatch) -> None:
         assert stored_payload["assigned_worker"] == ""
 
     asyncio.run(scenario())
+
+
+def test_task_result_cache_checks_request_hash(monkeypatch) -> None:
+    async def scenario() -> None:
+        _patch_registry(monkeypatch)
+        redis = FakeRedis()
+        manager = TaskManager(redis)  # type: ignore[arg-type]
+
+        await manager.complete_task(
+            "same-task",
+            {"task_id": "same-task", "compiled": True, "correctness": True},
+            request_hash="hash-a",
+        )
+
+        assert await manager.get_task_result("same-task", expected_request_hash="hash-b") is None
+        cached = await manager.get_task_result("same-task", expected_request_hash="hash-a")
+        assert cached is not None
+        assert cached["compiled"] is True
+
+    asyncio.run(scenario())
+
+
+def test_task_result_cache_rejects_legacy_result_without_request_hash(monkeypatch) -> None:
+    async def scenario() -> None:
+        _patch_registry(monkeypatch)
+        redis = FakeRedis()
+        manager = TaskManager(redis)  # type: ignore[arg-type]
+
+        await manager.complete_task("legacy-task", {"task_id": "legacy-task", "compiled": True})
+
+        assert await manager.get_task_result("legacy-task", expected_request_hash="hash-a") is None
+        assert await manager.get_task_result("legacy-task") is not None
+
+    asyncio.run(scenario())
+
+
+def test_request_hash_ignores_identity_and_provenance_fields() -> None:
+    base = {
+        "task_id": "task-a",
+        "reference_code": "reference",
+        "kernel_code": "kernel",
+        "force_refresh": False,
+        "metadata": {"turn_id": 1, "line_index": 10, "model_id": "model-a"},
+    }
+    same_semantics = {
+        **base,
+        "task_id": "task-b",
+        "force_refresh": True,
+        "turn_id": 2,
+        "line_index": 20,
+        "model_id": "model-b",
+        "metadata": {"turn_id": 9, "line_index": 99, "model_id": "model-c"},
+    }
+    changed_payload = {**base, "kernel_code": "different kernel"}
+
+    assert request_hash("kernelbench", base) == request_hash("kernelbench", same_semantics)
+    assert request_hash("kernelbench", base) != request_hash("kernelbench", changed_payload)
