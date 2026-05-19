@@ -19,10 +19,10 @@ Deployment is documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 ## What Is Included
 
 - `kernelgym/`: reward API, scheduler, CPU/GPU workers, workflow, schema, backends, validation, and KernelBench toolkit.
-- `create_venv.sh`: CUDA 12.9 uv environment bootstrap.
+- `ensure_venv.sh`: idempotent CUDA 12.9 uv environment and Redis server bootstrap.
 - `scripts/lock_gpu_clocks.sh`: host-level GPU persistence, clock, and power-limit setup.
 - `scripts/start_container.sh`: physical-host Docker container startup for external nodes.
-- `kernelgym/deployment_profiles.py`: Python deployment profiles for the external reward hosts.
+- `kernelgym/deployment_profiles.py`: Python reward runtime profile definitions.
 - `tests/`: unit tests that verify extraction boundaries, source-lineage docs, pre-commit policy, schema behavior, CUDA-Agent parsing, validation behavior, resource queue routing, and a GPU-gated CUDA-Agent compile/load/run smoke test.
 - Ruff-only formatting and linting via `.pre-commit-config.yaml`.
 
@@ -35,7 +35,7 @@ Deployment is documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 ## Quick Start
 
 ```bash
-bash create_venv.sh --recreate
+bash ensure_venv.sh --recreate
 source .venv/bin/activate
 pre-commit install
 pytest
@@ -43,12 +43,12 @@ ruff format .
 ruff check .
 ```
 
-`create_venv.sh` creates the repo-local uv `.venv` with Python 3.12 and validates CUDA 12.9 through `/usr/local/cuda-12.9/bin/nvcc`.
+`ensure_venv.sh` installs/checks `redis-server`, creates the repo-local uv `.venv` with Python 3.12 when missing, installs Python dependencies when needed, and validates CUDA 12.9 through `/usr/local/cuda-12.9/bin/nvcc`.
 
 Local reward service:
 
 ```bash
-python -m kernelgym.cli.service start-local --profile reward-40
+python -m kernelgym.cli.service start-local --profile v1
 ```
 
 Stop local service:
@@ -57,8 +57,27 @@ Stop local service:
 python -m kernelgym.cli.service stop
 ```
 
-Python deployment profiles live in `kernelgym/deployment_profiles.py`. Physical-host deployment, such as external `192.168.16.39` / `192.168.16.40` reward nodes, uses `scripts/lock_gpu_clocks.sh` for host GPU clocks and `scripts/start_container.sh` to start the Docker container first.
-Internal deployments where SSH already lands inside a container skip Docker and run `create_venv.sh` plus `kernelgym.cli.service` directly.
+The default deployment profile is `v1` in `kernelgym/deployment_profiles.py`; `auto` is an alias for it. Physical-host deployment, such as external `192.168.16.39` / `192.168.16.40` reward nodes, uses `scripts/lock_gpu_clocks.sh` for host GPU clocks and `scripts/start_container.sh` to start the Docker container first.
+Deployments that are already inside a container skip Docker and run `ensure_venv.sh` plus `kernelgym.cli.service` directly.
+
+Physical-host setup before container-only deployment:
+
+```bash
+cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
+bash scripts/lock_gpu_clocks.sh --sudo --gpu-clock 2700 --power-limit 400
+bash scripts/start_container.sh
+```
+
+Then enter the container printed by `scripts/start_container.sh`, create `.venv` if needed, and run the container-only deployment script:
+
+```bash
+bash ensure_venv.sh --recreate
+bash scripts/deploy_node.sh --nnodes 1
+bash scripts/deploy_node.sh --nnodes 2 --node-rank 0 --master-addr 192.168.16.40
+bash scripts/deploy_node.sh --nnodes 2 --node-rank 1 --master-addr 192.168.16.40
+```
+
+For multi-node deployment, run the command manually on every container node with that node's `--node-rank`. The node matching `--master-addr` must use rank `0` and becomes the primary API/Redis node; other ranks become worker-only nodes.
 
 ## Development Policy
 

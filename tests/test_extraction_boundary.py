@@ -12,7 +12,7 @@ def test_drkernel_tree_is_not_present() -> None:
 def test_reward_only_entrypoints_are_present() -> None:
     assert (ROOT / "kernelgym" / "server" / "api" / "server.py").exists()
     assert (ROOT / "kernelgym" / "worker" / "single_worker.py").exists()
-    assert (ROOT / "create_venv.sh").exists()
+    assert (ROOT / "ensure_venv.sh").exists()
     assert (ROOT / "kernelgym" / "deployment_profiles.py").exists()
     assert (ROOT / "scripts" / "start_container.sh").exists()
     assert (ROOT / "scripts" / "lock_gpu_clocks.sh").exists()

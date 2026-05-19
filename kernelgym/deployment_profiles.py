@@ -1,8 +1,8 @@
-"""Python deployment profiles and shared runtime constants."""
+"""Functional deployment profiles and shared runtime constants."""
 
 from __future__ import annotations
 
-from typing import ClassVar
+from dataclasses import dataclass
 
 
 API_PORT = 20111
@@ -14,38 +14,31 @@ REDIS_PASSWORD = ""
 REDIS_KEY_PREFIX = "kernelgym"
 REDIS_KEY_PREFIX_LEGACY = "kernelserver"
 METRICS_PORT = 20112
+DEFAULT_PROFILE_NAME = "v1"
 
 
 def bool_env(value: bool) -> str:
     return "true" if value else "false"
 
 
-class BaseRewardProfile:
-    host: ClassVar[str]
-    ssh_runtime: ClassVar[str] = "physical_host"
-    container_required: ClassVar[bool] = True
-    lock_gpu_clocks: ClassVar[bool] = True
-    gpu_devices: ClassVar[tuple[int, ...]] = (0, 1, 2, 3, 4, 5, 6, 7)
+@dataclass(frozen=True)
+class RewardProfile:
+    name: str
+    api_host: str = "0.0.0.0"
+    redis_host: str = "localhost"
+    gpu_devices: tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6, 7)
 
-    @classmethod
-    def profile_id(cls) -> str:
-        return f"reward-{cls.host.rsplit('.', 1)[-1]}"
-
-    @classmethod
-    def env(cls) -> dict[str, str]:
-        profile_id = cls.profile_id()
+    def env(self) -> dict[str, str]:
         return {
-            "KERNELGYM_DEPLOYMENT_PROFILE": profile_id,
-            "KERNELGYM_SSH_RUNTIME": cls.ssh_runtime,
-            "KERNELGYM_CONTAINER_REQUIRED": bool_env(cls.container_required),
-            "KERNELGYM_LOCK_GPU_CLOCKS": bool_env(cls.lock_gpu_clocks),
-            "API_HOST": cls.host,
+            "KERNELGYM_DEPLOYMENT_PROFILE": self.name,
+            "KERNELGYM_CONTAINER_REQUIRED": "true",
+            "API_HOST": self.api_host,
             "API_PORT": str(API_PORT),
             "API_WORKERS": str(API_WORKERS),
             "API_RELOAD": bool_env(API_RELOAD),
-            "GPU_DEVICES": "[" + ",".join(str(device) for device in cls.gpu_devices) + "]",
-            "NODE_ID": profile_id,
-            "REDIS_HOST": "localhost",
+            "GPU_DEVICES": "[" + ",".join(str(device) for device in self.gpu_devices) + "]",
+            "NODE_ID": self.name,
+            "REDIS_HOST": self.redis_host,
             "REDIS_PORT": str(REDIS_PORT),
             "REDIS_DB": str(REDIS_DB),
             "REDIS_PASSWORD": REDIS_PASSWORD,
@@ -55,44 +48,40 @@ class BaseRewardProfile:
             "CPU_COMPILE_WORKERS": "2",
             "DEFAULT_TOOLKIT": "kernelbench",
             "DEFAULT_BACKEND_ADAPTER": "kernelbench",
-            "DEFAULT_BACKEND": "triton",
+            "DEFAULT_BACKEND": "auto",
             "LOG_LEVEL": "INFO",
-            "LOG_DIR": f"logs/{profile_id}",
-            "PY_LOG_DIR": f"py_logs/{profile_id}",
+            "LOG_DIR": f"logs/{self.name}",
+            "PY_LOG_DIR": f"py_logs/{self.name}",
             "ENABLE_METRICS": "true",
             "METRICS_PORT": str(METRICS_PORT),
             "ENABLE_PROFILING": "true",
             "VERBOSE_ERROR_TRACEBACK": "true",
             "SAVE_EVAL_RESULTS": "false",
-            "EVAL_RESULTS_PATH": f"logs/{profile_id}/eval_results.jsonl",
+            "EVAL_RESULTS_PATH": f"logs/{self.name}/eval_results.jsonl",
             "KERNELGYM_NVCC_THREADS": "4",
             "KERNELGYM_MANUAL_NINJA_OBJECT_CACHE": "true",
             "KERNELGYM_MANUAL_NINJA_OBJECT_CACHE_INDEX": "redis",
             "KERNELGYM_COMPILE_ARTIFACT_CACHE": "true",
+            "KERNELGYM_CORRECTNESS_GPU_INPUTS": "true",
+            "KERNELGYM_CORRECTNESS_MAX_WALL_S": "20",
+            "KERNELGYM_CORRECTNESS_PASS_ON_BUDGET": "true",
+            "KERNELGYM_CORRECTNESS_BUDGET_MIN_PASS_TRIALS": "2",
         }
 
 
-class Reward39Profile(BaseRewardProfile):
-    host = "192.168.16.39"
-
-
-class Reward40Profile(BaseRewardProfile):
-    host = "192.168.16.40"
-
-
-PROFILE_CLASSES: dict[str, type[BaseRewardProfile]] = {
-    Reward39Profile.profile_id(): Reward39Profile,
-    Reward40Profile.profile_id(): Reward40Profile,
+PROFILE_REGISTRY: dict[str, RewardProfile] = {
+    DEFAULT_PROFILE_NAME: RewardProfile(name=DEFAULT_PROFILE_NAME),
 }
 
 
 def profile_names() -> tuple[str, ...]:
-    return tuple(PROFILE_CLASSES)
+    return tuple(PROFILE_REGISTRY)
 
 
-def get_profile(name: str) -> type[BaseRewardProfile]:
+def get_profile(name: str) -> RewardProfile:
+    profile_name = DEFAULT_PROFILE_NAME if name == "auto" else name
     try:
-        return PROFILE_CLASSES[name]
+        return PROFILE_REGISTRY[profile_name]
     except KeyError as exc:
-        choices = ", ".join(profile_names())
+        choices = ", ".join(("auto", *profile_names()))
         raise ValueError(f"Unknown reward profile: {name}. Choices: {choices}") from exc

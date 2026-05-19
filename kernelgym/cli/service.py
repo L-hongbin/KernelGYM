@@ -45,36 +45,30 @@ def _hostname() -> str:
     return os.environ.get("HOSTNAME") or socket.gethostname() or "local"
 
 
-def _local_host_addresses() -> set[str]:
-    addresses = {"localhost", "127.0.0.1", _hostname(), socket.gethostname()}
-    try:
-        addresses.update(socket.gethostbyname_ex(socket.gethostname())[2])
-    except OSError:
-        pass
-    try:
-        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        probe.connect(("8.8.8.8", 80))
-        addresses.add(probe.getsockname()[0])
-        probe.close()
-    except OSError:
-        pass
-    return {address for address in addresses if address}
-
-
 def _profile_values(profile_name: str) -> dict[str, str]:
-    if profile_name != "auto":
-        try:
-            return get_profile(profile_name).env()
-        except ValueError as exc:
-            raise SystemExit(str(exc)) from exc
+    try:
+        return get_profile(profile_name).env()
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
-    addresses = _local_host_addresses()
-    for name in profile_names():
-        profile = get_profile(name)
-        if profile.host in addresses:
-            return profile.env()
-    choices = ", ".join(("auto", *profile_names()))
-    raise SystemExit(f"Could not auto-detect reward profile from local addresses {sorted(addresses)}. Use: {choices}")
+
+def _worker_profile_values(profile_name: str, master_addr: str, node_rank: str | None = None) -> dict[str, str]:
+    values = _profile_values(profile_name)
+    base_node_id = values["NODE_ID"]
+    node_id = f"{base_node_id}-worker-{node_rank}" if node_rank is not None else f"{base_node_id}-worker"
+    values.update(
+        {
+            "API_HOST": master_addr,
+            "REDIS_HOST": master_addr,
+            "NODE_ID": node_id,
+            "WORKER_NAME_PREFIX": node_id,
+            "LOG_DIR": f"logs/{node_id}-worker",
+            "PY_LOG_DIR": f"py_logs/{node_id}-worker",
+        }
+    )
+    if node_rank is not None:
+        values["KERNELGYM_NODE_RANK"] = str(node_rank)
+    return values
 
 
 def _default_env_file() -> Path:
@@ -386,6 +380,14 @@ def cmd_start_local(args: argparse.Namespace) -> int:
     log_dir.mkdir(parents=True, exist_ok=True)
 
     _ensure_redis(values)
+    client = _redis_client(values)
+    prefix = REDIS_KEY_PREFIX
+    if client is not None:
+        try:
+            client.delete(f"{prefix}:expected_workers")
+        except Exception:
+            pass
+
     api_pid = _launch_background(
         [sys.executable, "-m", "kernelgym.server.api.server"], log_dir / "api_server.log", env
     )
@@ -396,14 +398,6 @@ def cmd_start_local(args: argparse.Namespace) -> int:
         env,
     )
     print(f"Worker monitor PID: {monitor_pid}")
-
-    client = _redis_client(values)
-    prefix = REDIS_KEY_PREFIX
-    if client is not None:
-        try:
-            client.delete(f"{prefix}:expected_workers")
-        except Exception:
-            pass
 
     for gpu in _parse_gpu_devices(values.get("GPU_DEVICES")):
         worker_id = f"worker_gpu_{gpu}"
@@ -483,17 +477,21 @@ def _check_worker_connectivity(values: dict[str, str]) -> None:
 
 
 def cmd_start_worker_node(args: argparse.Namespace) -> int:
-    server_env = Path(args.server_env)
-    env_file = ROOT_DIR / ".env"
-    if not server_env.exists():
-        raise SystemExit(f"server.env not found: {server_env}")
-    if not env_file.exists():
-        shutil.copyfile(server_env, env_file)
-
-    values = _read_env_file(env_file)
-    for required in ("API_HOST", "REDIS_HOST"):
-        if not values.get(required):
-            raise SystemExit(f"Missing required env var in {env_file}: {required}")
+    server_env = Path(args.server_env) if getattr(args, "server_env", None) else None
+    if server_env is not None:
+        if not server_env.exists():
+            raise SystemExit(f"server.env not found: {server_env}")
+        values = _read_env_file(server_env)
+        for required in ("API_HOST", "REDIS_HOST"):
+            if not values.get(required):
+                raise SystemExit(f"Missing required env var in {server_env}: {required}")
+    else:
+        master_addr = getattr(args, "master_addr", None)
+        if not master_addr:
+            raise SystemExit("--master-addr is required when server_env is not provided")
+        values = _worker_profile_values(
+            getattr(args, "profile", "auto"), master_addr, getattr(args, "node_rank", None)
+        )
     values = _with_torch_cuda_arch_list(values)
     _check_worker_connectivity(values)
 
@@ -514,8 +512,9 @@ def cmd_start_worker_node(args: argparse.Namespace) -> int:
         updates["NODE_ID"] = str(allocation["node_id"])
     if allocation.get("hostname"):
         updates["WORKER_NAME_PREFIX"] = str(allocation["hostname"])
+    if updates and server_env is not None:
+        _update_env_file(server_env, updates)
     if updates:
-        _update_env_file(env_file, updates)
         values.update(updates)
 
     env = _service_env(values)
@@ -555,18 +554,21 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     start_local = subparsers.add_parser("start-local", help="start local API, monitor, and GPU workers")
-    start_local.add_argument("--profile", choices=("auto", *profile_names()), default="auto")
+    start_local.add_argument("--profile", default="auto", help=f"auto or known profile: {', '.join(profile_names())}")
     start_local.add_argument("--log-dir", default=None)
     start_local.add_argument("--eval-results-path", default=None)
     start_local.add_argument("--no-stop-first", action="store_true")
     start_local.set_defaults(func=cmd_start_local)
 
     worker_node = subparsers.add_parser("start-worker-node", help="start a worker-only node")
-    worker_node.add_argument("server_env", nargs="?", default=str(ROOT_DIR / "server.env"))
+    worker_node.add_argument("server_env", nargs="?")
+    worker_node.add_argument("--profile", default="auto", help=f"auto or known profile: {', '.join(profile_names())}")
+    worker_node.add_argument("--master-addr", default=None)
+    worker_node.add_argument("--node-rank", default=None)
     worker_node.set_defaults(func=cmd_start_worker_node)
 
     stop = subparsers.add_parser("stop", help="stop local KernelGym processes and clear Redis keys")
-    stop.add_argument("--profile", choices=("auto", *profile_names()), default="auto")
+    stop.add_argument("--profile", default="auto", help=f"auto or known profile: {', '.join(profile_names())}")
     stop.set_defaults(func=cmd_stop)
 
     return parser

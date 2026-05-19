@@ -3,7 +3,7 @@
 ## Environment
 
 ```bash
-bash create_venv.sh --recreate
+bash ensure_venv.sh --recreate
 source .venv/bin/activate
 pre-commit install
 ```
@@ -44,8 +44,8 @@ python -m kernelgym.cli.service --help
 Add new startup, shutdown, or worker-node behavior in `kernelgym/cli/service.py`. Do not add bash wrappers that
 only forward arguments without adding a real operator-facing behavior.
 
-CUDA 12.9 uv environment creation belongs in `create_venv.sh` because it is environment assembly, not
-service orchestration. The script installs missing `uv` with `pip install uv`, creates and activates `.venv` with
+CUDA 12.9 uv environment and Redis bootstrap belongs in `ensure_venv.sh` because it is environment assembly, not
+service orchestration. The script installs missing `redis-server` with apt, installs missing `uv` with `pip install uv`, creates and activates `.venv` with
 Python 3.12, and checks `/usr/local/cuda-12.9/bin/nvcc`. Deployment profiles are Python classes in
 `kernelgym/deployment_profiles.py`; do not add a CLI that generates env files. Direct host operations belong in bash:
 `scripts/lock_gpu_clocks.sh` and `scripts/start_container.sh`.
