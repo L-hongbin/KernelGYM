@@ -15,6 +15,7 @@ This file indexes stable repository docs and evidence locations.
 | `docs/design-doc/COMPILE_ACCELERATION.md` | CUDA-Agent compile acceleration design. |
 | `docs/design-doc/REWARD_HACKING_DEFENSES.md` | Current reward-hacking defense design notes. |
 | `docs/design-doc/TWO_WORKER_WARM_POOL.md` | Current two-worker GPU subprocess warm-pool design. |
+| `docs/server-result-cache-guard.md` | Server result cache hash guard design for safe `/evaluate` reuse. |
 
 ## Important Code Areas
 

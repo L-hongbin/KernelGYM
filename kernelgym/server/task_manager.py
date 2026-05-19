@@ -417,7 +417,7 @@ class TaskManager:
         await self.redis.hset(task_key, mapping={"status": TaskStatus.PROCESSING.value, "started_at": started_at})
         return task_json
 
-    async def complete_task(self, task_id: str, result: Dict[str, Any]):
+    async def complete_task(self, task_id: str, result: Dict[str, Any], request_hash: Optional[str] = None):
         timing_start = time.time()
         timing_start_mono_ns = time.monotonic_ns()
         completed_at = datetime.now().isoformat()
@@ -444,10 +444,10 @@ class TaskManager:
         json_dumps_s = time.time() - json_start
 
         result_hset_start = time.time()
-        await self.redis.hset(
-            f"{self.result_prefix}{task_id}",
-            mapping={"result": payload, "completed_at": completed_at},
-        )
+        result_mapping: Dict[str, Any] = {"result": payload, "completed_at": completed_at}
+        if request_hash:
+            result_mapping["request_hash"] = request_hash
+        await self.redis.hset(f"{self.result_prefix}{task_id}", mapping=result_mapping)
         result_hset_s = time.time() - result_hset_start
 
         metadata["tm_json_dumps_s"] = json_dumps_s
@@ -533,11 +533,32 @@ class TaskManager:
 
         return None
 
-    async def get_task_result(self, task_id: str) -> Optional[Dict[str, Any]]:
+    async def get_task_result(
+        self,
+        task_id: str,
+        expected_request_hash: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         for prefix in self._prefixes_for_read():
             result_data = await self.redis.hgetall(f"{prefix}:result:{task_id}")
             if not result_data:
                 continue
+
+            stored_request_hash = result_data.get(b"request_hash")
+            if expected_request_hash is not None:
+                if not stored_request_hash:
+                    logger.info(
+                        "Ignoring cached result for task=%s because it has no request_hash",
+                        task_id,
+                    )
+                    return None
+                if stored_request_hash.decode() != expected_request_hash:
+                    logger.warning(
+                        "Ignoring cached result for task=%s due to request_hash mismatch stored=%s expected=%s",
+                        task_id,
+                        stored_request_hash.decode(),
+                        expected_request_hash,
+                    )
+                    return None
 
             if b"result" in result_data:
                 result = json.loads(result_data[b"result"].decode())

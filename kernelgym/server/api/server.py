@@ -29,6 +29,7 @@ from .models import (
 )
 from .utils import get_system_health, get_system_metrics, format_timestamp
 from kernelgym.server.task_manager import TaskManager
+from kernelgym.server.request_hash import request_hash
 from kernelgym.server.scheduler import TaskManagerScheduler
 from kernelgym.workflow import get_workflow_controller
 from kernelgym.workflow.kernelbench_helpers import set_reference_cache
@@ -346,9 +347,10 @@ async def _execute_workflow(
     task_id = task_id or payload.get("task_id")
     if not task_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_id is required")
+    request_hash_value = request_hash(workflow_name or "kernelbench", payload)
 
     if not force_refresh:
-        existing = await task_mgr.get_task_result(task_id)
+        existing = await task_mgr.get_task_result(task_id, expected_request_hash=request_hash_value)
         if existing:
             existing = dict(existing)
             existing.setdefault("task_id", task_id)
@@ -363,7 +365,7 @@ async def _execute_workflow(
     result = await controller.handle_request(payload, scheduler)
     if isinstance(result, dict):
         result.setdefault("task_id", task_id)
-    await task_mgr.complete_task(task_id, result)
+    await task_mgr.complete_task(task_id, result, request_hash=request_hash_value)
     return task_id, result, _result_status(result)
 
 
