@@ -15,7 +15,7 @@ class EvaluationRequest(BaseModel):
     kernel_code: str = Field(..., description="Custom kernel implementation")
     toolkit: str = Field(default="kernelbench", description="Toolkit adapter name")
     backend_adapter: str = Field(default="kernelbench", description="Backend adapter name")
-    backend: Backend = Field(default=Backend.TRITON, description="Backend type")
+    backend: Backend = Field(default=Backend.AUTO, description="Backend type")
     num_correct_trials: int = Field(default=5, ge=1, le=20, description="Number of correctness trials")
     num_perf_trials: int = Field(default=100, ge=1, le=1000, description="Number of performance trials")
     num_warmup: int = Field(default=3, ge=0, le=100, description="Number of warmup iterations")

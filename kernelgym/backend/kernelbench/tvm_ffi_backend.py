@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
 import importlib.util
+import hashlib
 import json
 import os
 import re
@@ -25,8 +27,9 @@ _TVM_FFI_DEFAULT_TMPDIR = "/dev/shm/kernelgym/work/tvm_ffi"
 _TVM_FFI_MIN_TMPDIR_FREE_BYTES = 512 * 1024 * 1024
 _NVCC_THREADS_ENV = "KERNELGYM_NVCC_THREADS"
 _TVM_FFI_DEFAULT_NVCC_THREADS = "4"
-_TVM_FFI_COMPILE_CACHE_DISABLE_ENV = "KERNELGYM_TVM_FFI_COMPILE_CACHE_DISABLE"
-_TVM_FFI_DEFAULT_COMPILE_CACHE_DIR = "/dev/shm/kernelgym/compile_cache/tvm_ffi"
+_COMPILE_ARTIFACT_CACHE_ENV = "KERNELGYM_COMPILE_ARTIFACT_CACHE"
+_TVM_FFI_COMPILE_ARTIFACT_CACHE_DIR_ENV = "KERNELGYM_TVM_FFI_COMPILE_ARTIFACT_CACHE_DIR"
+_TVM_FFI_DEFAULT_ARTIFACT_CACHE_DIR = "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts"
 
 
 class _TvmFfiExtensionModule(types.ModuleType):
@@ -143,6 +146,104 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
         return tvm_ffi_api, tvm_ffi_cpp
 
     @staticmethod
+    def _tvm_ffi_version() -> str:
+        for package_name in ("apache-tvm-ffi", "tvm-ffi"):
+            try:
+                return importlib.metadata.version(package_name)
+            except importlib.metadata.PackageNotFoundError:
+                continue
+        return "unknown"
+
+    @staticmethod
+    def _compile_artifact_cache_enabled(kwargs: dict[str, Any]) -> bool:
+        if kwargs.get("enable_compile_artifact_cache") is not None:
+            return bool(kwargs.get("enable_compile_artifact_cache"))
+        return KernelBenchCudaAgentBackend._env_flag(_COMPILE_ARTIFACT_CACHE_ENV, default=False)
+
+    @staticmethod
+    def _compile_artifact_cache_root() -> Path:
+        root = Path(os.environ.get(_TVM_FFI_COMPILE_ARTIFACT_CACHE_DIR_ENV, _TVM_FFI_DEFAULT_ARTIFACT_CACHE_DIR))
+        KernelBenchCudaAgentBackend._require_fast_rw_path(root, label="TVM-FFI compile artifact cache")
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    @staticmethod
+    def _artifact_cache_key(
+        *,
+        model_code: str,
+        cuda_sources: dict[str, str],
+        entry_point: str,
+    ) -> str:
+        payload = {
+            "backend": "tvm_ffi",
+            "entry_point": entry_point,
+            "model_code": model_code,
+            "cuda_sources": {key: cuda_sources[key] for key in sorted(cuda_sources)},
+            "tvm_ffi_version": KernelBenchTvmFfiBackend._tvm_ffi_version(),
+            "python": sys.version,
+            "cuda_arch": KernelBenchCudaAgentBackend._cuda_arch_fingerprint(),
+            "nvcc_threads": os.environ.get(_NVCC_THREADS_ENV, _TVM_FFI_DEFAULT_NVCC_THREADS),
+            "extra_cflags": ["-O3"],
+            "extra_cuda_cflags": ["-O3", "--use_fast_math"],
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _load_cached_artifact(ready_path: Path) -> dict[str, Any] | None:
+        try:
+            payload = json.loads(ready_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+
+        work_dir = payload.get("work_dir")
+        so_path = payload.get("so_path")
+        module_name = payload.get("module_name")
+        code = payload.get("code")
+        profiling_hints = payload.get("profiling_hints")
+        if not work_dir or not so_path or not module_name or not code or not isinstance(profiling_hints, dict):
+            return None
+        if not Path(str(work_dir)).is_dir() or not Path(str(so_path)).is_file():
+            return None
+
+        payload["compiled"] = True
+        payload["compile_artifact_cache_hit"] = True
+        payload["compile_cache_hit"] = True
+        payload["persistent_work_dir"] = True
+        return payload
+
+    @staticmethod
+    def _write_cached_artifact(ready_path: Path, artifact: dict[str, Any]) -> None:
+        ready_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            key: value
+            for key, value in artifact.items()
+            if key
+            in {
+                "compiled",
+                "device",
+                "entry_point",
+                "backend",
+                "work_dir",
+                "so_path",
+                "module_name",
+                "code",
+                "precheck",
+                "profiling_hints",
+                "build_backend",
+                "compile_artifact_cache_key",
+                "compile_cache_key",
+                "compile_artifact_cache_dir",
+                "compile_cache_dir",
+            }
+        }
+        payload["persistent_work_dir"] = True
+        tmp_path = ready_path.with_suffix(ready_path.suffix + ".tmp")
+        tmp_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        tmp_path.replace(ready_path)
+
+    @staticmethod
     def _build_extension(work_dir: Path, cpp_files: list[str], cuda_files: list[str]) -> Dict[str, Any]:
         if not cpp_files:
             return {
@@ -165,87 +266,6 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
         nvcc_threads = os.environ.get(_NVCC_THREADS_ENV, _TVM_FFI_DEFAULT_NVCC_THREADS)
         extra_cflags = ["-O3"]
         extra_cuda_cflags = ["-O3", "--use_fast_math", "--threads", nvcc_threads]
-        all_sources = sorted(set(cpp_files + cuda_files))
-        cache_root = KernelBenchCudaAgentBackend._compile_cache_root(
-            label="TVM-FFI compile cache",
-            disable_env=_TVM_FFI_COMPILE_CACHE_DISABLE_ENV,
-            default_dir=_TVM_FFI_DEFAULT_COMPILE_CACHE_DIR,
-        )
-        cache_key = ""
-        if cache_root is not None:
-            cache_inputs = KernelBenchCudaAgentBackend._collect_cache_inputs_excluding(
-                work_dir,
-                all_sources,
-                exclude_roots=[cache_root],
-            )
-            cache_metadata = {
-                "backend": "tvm_ffi",
-                "cuda_arch": KernelBenchCudaAgentBackend._cuda_arch_fingerprint(),
-                "extra_cflags": extra_cflags,
-                "extra_cuda_cflags": extra_cuda_cflags,
-            }
-            cache_key = KernelBenchCudaAgentBackend._source_digest(
-                work_dir=work_dir,
-                sources=cache_inputs,
-                metadata=cache_metadata,
-            )
-            cache_entry = cache_root / cache_key
-            ready_path = cache_entry / "ready.json"
-            cached = KernelBenchCudaAgentBackend._load_cached_compile_result(ready_path)
-            if cached is not None:
-                return {
-                    **cached,
-                    "backend": "tvm_ffi",
-                }
-            with KernelBenchCudaAgentBackend._file_lock(cache_entry / "compile.lock"):
-                cached = KernelBenchCudaAgentBackend._load_cached_compile_result(ready_path)
-                if cached is not None:
-                    return {
-                        **cached,
-                        "backend": "tvm_ffi",
-                    }
-                cached_sources = KernelBenchCudaAgentBackend._copy_sources_to_cache(
-                    work_dir=work_dir,
-                    sources=cache_inputs,
-                    src_dir=cache_entry / "src",
-                )
-                cached_cpp_files = [
-                    source for source in cached_sources if Path(source).suffix.lower() in {".cpp", ".cc", ".cxx"}
-                ]
-                cached_cuda_files = [source for source in cached_sources if Path(source).suffix.lower() == ".cu"]
-                build_dir = cache_entry / "build"
-                if build_dir.exists():
-                    shutil.rmtree(build_dir)
-                build_dir.mkdir(parents=True, exist_ok=True)
-                ext_name = f"kernelgym_tvm_ffi_{cache_key[:16]}"
-                so_path = tvm_ffi_cpp.build(
-                    name=ext_name,
-                    cpp_files=cached_cpp_files,
-                    cuda_files=cached_cuda_files,
-                    build_directory=str(build_dir),
-                    backend="cuda",
-                    extra_cflags=extra_cflags,
-                    extra_cuda_cflags=extra_cuda_cflags,
-                )
-                ready_payload = {
-                    "compiled": True,
-                    "so_path": str(so_path),
-                    "module_name": ext_name,
-                    "compile_cache_key": cache_key,
-                }
-                ready_path.write_text(
-                    json.dumps(ready_payload, sort_keys=True),
-                    encoding="utf-8",
-                )
-                return {
-                    "compiled": True,
-                    "so_path": str(so_path),
-                    "module_name": ext_name,
-                    "compile_cache_hit": False,
-                    "compile_cache_key": cache_key,
-                    "compile_cache_dir": str(cache_entry),
-                }
-
         so_path = tvm_ffi_cpp.build(
             name=ext_name,
             cpp_files=cpp_files,
@@ -259,15 +279,14 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
             "compiled": True,
             "so_path": str(so_path),
             "module_name": ext_name,
-            "compile_cache_hit": False,
-            "compile_cache_key": cache_key,
-            "compile_cache_dir": "",
+            "build_backend": "tvm_ffi.cpp.build",
         }
 
     def compile(self, code: str, **kwargs: Any) -> Dict[str, Any]:
         device = self._normalize_device(kwargs.get("device"))
         entry_point = kwargs.get("entry_point", "ModelNew")
         explicit_sources = self._normalize_cuda_sources_input(kwargs.get("cuda_sources"))
+        enable_compile_artifact_cache = self._compile_artifact_cache_enabled(kwargs)
 
         try:
             embedded_sources, python_code = self._parse_embedded_sources(code)
@@ -298,18 +317,68 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
                 "precheck": precheck_info,
             }
 
-        work_dir = self._create_work_dir()
-        work_dir.mkdir(parents=True, exist_ok=True)
-        self._write_runtime_scaffold(work_dir, model_code)
-        self._materialize_sources(work_dir, cuda_sources)
-        cpp_files, cuda_files = self._collect_compile_sources(work_dir)
+        profiling_hints = {
+            "backend": "tvm_ffi",
+            "custom_kernel_names": self._extract_custom_kernel_names(cuda_sources),
+            "detected_extension_calls": list(precheck_info.get("detected_extension_calls", [])),
+            "exported_functions": self._extract_tvm_ffi_exports(cuda_sources),
+            "source_files": sorted(cuda_sources.keys()),
+        }
 
-        try:
-            result = self._build_extension(work_dir, cpp_files, cuda_files)
-        except Exception as exc:
-            result = {"compiled": False, "error": str(exc)}
+        work_dir: Path
+        cache_key = ""
+        cache_dir = ""
+        ready_path: Path | None = None
+        if enable_compile_artifact_cache:
+            cache_key = self._artifact_cache_key(
+                model_code=model_code,
+                cuda_sources=cuda_sources,
+                entry_point=entry_point,
+            )
+            cache_entry = self._compile_artifact_cache_root() / cache_key
+            cache_dir = str(cache_entry)
+            ready_path = cache_entry / "ready.json"
+            cached_artifact = self._load_cached_artifact(ready_path)
+            if cached_artifact is not None:
+                cached_artifact["device"] = str(device)
+                cached_artifact["compile_artifact_cache_enabled"] = True
+                cached_artifact["compile_artifact_cache_key"] = cache_key
+                cached_artifact["compile_artifact_cache_dir"] = cache_dir
+                cached_artifact["compile_cache_key"] = cache_key
+                cached_artifact["compile_cache_dir"] = cache_dir
+                return cached_artifact
+            work_dir = cache_entry / f"kernelgym_tvm_ffi_{cache_key[:16]}"
+        else:
+            work_dir = self._create_work_dir()
 
-        return {
+        def _compile_in_work_dir() -> dict[str, Any]:
+            if work_dir.exists():
+                shutil.rmtree(work_dir)
+            work_dir.mkdir(parents=True, exist_ok=True)
+            self._write_runtime_scaffold(work_dir, model_code)
+            self._materialize_sources(work_dir, cuda_sources)
+            cpp_files, cuda_files = self._collect_compile_sources(work_dir)
+            try:
+                return self._build_extension(work_dir, cpp_files, cuda_files)
+            except Exception as exc:
+                return {"compiled": False, "error": str(exc)}
+
+        if enable_compile_artifact_cache and ready_path is not None:
+            with KernelBenchCudaAgentBackend._file_lock(ready_path.parent / "compile.lock"):
+                cached_artifact = self._load_cached_artifact(ready_path)
+                if cached_artifact is not None:
+                    cached_artifact["device"] = str(device)
+                    cached_artifact["compile_artifact_cache_enabled"] = True
+                    cached_artifact["compile_artifact_cache_key"] = cache_key
+                    cached_artifact["compile_artifact_cache_dir"] = cache_dir
+                    cached_artifact["compile_cache_key"] = cache_key
+                    cached_artifact["compile_cache_dir"] = cache_dir
+                    return cached_artifact
+                result = _compile_in_work_dir()
+        else:
+            result = _compile_in_work_dir()
+
+        artifact = {
             "compiled": bool(result.get("compiled")),
             "error": result.get("error"),
             "device": str(device),
@@ -318,19 +387,22 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
             "work_dir": str(work_dir),
             "so_path": result.get("so_path"),
             "module_name": result.get("module_name"),
-            "compile_cache_hit": result.get("compile_cache_hit"),
-            "compile_cache_key": result.get("compile_cache_key"),
-            "compile_cache_dir": result.get("compile_cache_dir"),
+            "build_backend": result.get("build_backend", "tvm_ffi.cpp.build"),
+            "compile_artifact_cache_enabled": enable_compile_artifact_cache,
+            "compile_artifact_cache_hit": False,
+            "compile_artifact_cache_key": cache_key or None,
+            "compile_artifact_cache_dir": cache_dir or None,
+            "compile_cache_hit": False,
+            "compile_cache_key": cache_key or None,
+            "compile_cache_dir": cache_dir or None,
+            "persistent_work_dir": enable_compile_artifact_cache,
             "code": model_code,
             "precheck": precheck_info,
-            "profiling_hints": {
-                "backend": "tvm_ffi",
-                "custom_kernel_names": self._extract_custom_kernel_names(cuda_sources),
-                "detected_extension_calls": list(precheck_info.get("detected_extension_calls", [])),
-                "exported_functions": self._extract_tvm_ffi_exports(cuda_sources),
-                "source_files": sorted(cuda_sources.keys()),
-            },
+            "profiling_hints": profiling_hints,
         }
+        if enable_compile_artifact_cache and ready_path is not None and artifact["compiled"]:
+            self._write_cached_artifact(ready_path, artifact)
+        return artifact
 
     def load(self, artifact: Dict[str, Any], **kwargs: Any) -> Any:
         code = artifact.get("code")
@@ -405,6 +477,7 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
             "tempfile_handle": None,
             "tvm_module": tvm_module,
             "profiling_hints": artifact.get("profiling_hints", {}),
+            "persistent_work_dir": bool(artifact.get("persistent_work_dir")),
         }
 
     def cleanup(self, handle: Any, **kwargs: Any) -> None:
@@ -416,5 +489,7 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
             sys.modules.pop(module_name, None)
 
         work_dir = handle.get("work_dir")
+        if handle.get("persistent_work_dir"):
+            return
         if work_dir and Path(work_dir).exists():
             shutil.rmtree(work_dir, ignore_errors=True)
