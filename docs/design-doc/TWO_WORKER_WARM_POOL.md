@@ -1,9 +1,11 @@
 # Two-Worker Warm Pool
 
 Status: current design
-Date: 2026-05-18
+Date: 2026-05-20
 
 This document describes the current GPU subprocess warm-pool design used by the reward worker. The default configuration is a two-worker pool per GPU: one subprocess can run the current task while one already-initialized subprocess remains available as a warm spare. This is not two-task GPU concurrency; the current `GPUWorker` consumes tasks serially, and the spare exists to hide worker recycle latency.
+
+`WORKER_POOL_SIZE=2` is now the deployed `v1` profile setting and matches the documented default. The race that previously grew the pool past its configured size during concurrent recycle and emergency paths is closed by the `pending_replacements` bookkeeping described under [Recycling](#recycling).
 
 ## Goals
 
@@ -45,11 +47,27 @@ Because the outer `GPUWorker` processes tasks serially, this design is a latency
 
 Subprocess recycling is deliberately split into a fast path and a slow path.
 
-The fast path runs under the pool lock. It removes the old subprocess from `workers`, `idle_workers`, and `busy_workers` immediately. After this removal, any already-idle spare can be handed to the next task without waiting for the old process to exit.
+The fast path runs under the pool lock. It removes the old subprocess from `workers`, `idle_workers`, and `busy_workers` immediately, then bumps `pending_replacements` only if `len(workers) + pending_replacements < pool_size`. After this removal, any already-idle spare can be handed to the next task without waiting for the old process to exit.
 
-The slow path runs in a daemon background thread. It sends graceful shutdown commands, escalates through terminate and kill if needed, reaps the old process, waits briefly for the GPU driver to reclaim resources, creates a replacement `PersistentWorker`, and registers the replacement back into `idle_workers` through the asyncio event loop.
+The slow path runs in a daemon background thread. It sends graceful shutdown commands, escalates through terminate and kill if needed, reaps the old process, waits briefly for the GPU driver to reclaim resources, creates a replacement `PersistentWorker`, and registers the replacement back into `idle_workers` through the asyncio event loop. `_register` decrements `pending_replacements` and refuses to append the new worker if the pool has meanwhile been filled — the extra worker is shut down instead.
 
 This is the reason for the two-worker default. With only one subprocess, every recycle would put the GPU worker on the cold replacement path. With two subprocesses, the pool can promote the warm spare while replacement happens in the background.
+
+### Capacity invariant
+
+The single invariant that every recycle, register, and emergency path preserves is:
+
+```
+len(workers) + pending_replacements <= pool_size
+```
+
+Concretely:
+
+- `_restart_worker` increments `pending_replacements` only when the inequality would still hold afterwards; otherwise it shuts down the recycled worker synchronously and schedules no background thread.
+- The background `_register` decrements `pending_replacements`; if the pool reached `pool_size` while the replacement was in flight, the newly created worker is shut down rather than appended.
+- Emergency recovery in `_get_idle_worker` starts only when `len(workers) == 0` and `pending_replacements == 0`; it reuses the same accounting and discards itself if capacity is no longer needed.
+
+Tests in `tests/test_subprocess_pool.py` pin this invariant under all the recycle interleavings that previously grew the pool.
 
 ## Failure Handling
 
@@ -86,9 +104,17 @@ Increasing `WORKER_POOL_SIZE` above `2` only helps if the outer scheduling path 
 
 Increasing `MAX_TASKS_PER_WORKER` reduces recycle overhead but weakens per-task isolation and can allow allocator, extension, profiler, or CUDA state to survive across submissions. The current reward-only default keeps this at `1`.
 
+## Verification
+
+The deployed `v1` setup has been verified on the 8x4090 `.40` node:
+
+- Idle steady state shows exactly two Python CUDA contexts per GPU and no `Pool has no workers!`, `Emergency worker`, or `workers > 2` entries across multi-hour replays.
+- A 706-row Qwen3.6 27B turn-2 replay and a 704-row turn-3 replay both completed end-to-end with the pool absorbing roughly 1500 total worker recycles, all bounded at `pool_size=2`.
+- On the turn-3 replay with `--run-performance`, the per-row `replay_speedup / original_score` ratio has geometric mean `0.997` and median `1.000` across the rows where the original rollout also measured a positive speedup, so the warm-pool deployment reproduces the original acceleration ratios faithfully.
+
 ## Known Gaps
 
 - The design does not provide intra-GPU task parallelism in the current worker loop.
 - Replacement creation still has a cold-start cost; it is just moved off the critical path when a spare is available.
 - If both subprocesses become unavailable before a replacement is ready, the next task can still wait for emergency or background recovery.
-- GPU memory pressure depends on the resident cost of multiple initialized CUDA contexts.
+- GPU memory pressure depends on the resident cost of multiple initialized CUDA contexts. On the 24 GiB 4090s in the `v1` node this manifests as a small number of additional kernel timeouts (~12 of 706 turn-2 rows) versus the prior single-worker deployment.
