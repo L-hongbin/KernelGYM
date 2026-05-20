@@ -114,33 +114,6 @@ ensure_uv() {
     fi
 }
 
-scrub_env_for_venv() {
-    # Some host images (e.g. NVIDIA NGC) ship a system Python with its own
-    # torch tree at /usr/local/lib/python3.12/dist-packages/torch and push that
-    # directory onto LD_LIBRARY_PATH plus PYTHONPATH. When our venv-bundled
-    # torch then runs, the dynamic linker resolves libnvJitLink/libnccl/etc
-    # against the system torch's vendored copies (causing
-    # `undefined symbol: __nvJitLinkGetErrorLogSize_12_9` /
-    # `ncclDevCommCreate`) and the import path can even land on a stray torch
-    # entirely.  Scrub both vars defensively, keeping driver-side entries
-    # (/usr/local/nvidia/lib*, /usr/local/cuda/compat/*) intact.
-    if [[ -n "${LD_LIBRARY_PATH:-}" ]]; then
-        local _clean=""
-        local _part
-        IFS=":" read -ra _PARTS <<< "${LD_LIBRARY_PATH}"
-        for _part in "${_PARTS[@]}"; do
-            case "${_part}" in
-                ""|*/dist-packages/torch|*/dist-packages/torch/*|*/dist-packages/torch_tensorrt|*/dist-packages/torch_tensorrt/*|*/site-packages/torch|*/site-packages/torch/*)
-                    continue
-                    ;;
-            esac
-            _clean="${_clean:+${_clean}:}${_part}"
-        done
-        export LD_LIBRARY_PATH="${_clean}"
-    fi
-    unset PYTHONPATH
-}
-
 ensure_python_env() {
     # Drop UV_PROJECT_ENVIRONMENT so a host-wide override (e.g. /opt/venv on
     # some shared images) cannot redirect either `uv venv` or `uv pip install`
@@ -158,7 +131,8 @@ ensure_python_env() {
     fi
     # shellcheck disable=SC1091
     source .venv/bin/activate
-    scrub_env_for_venv
+    # shellcheck disable=SC1091
+    source "${ROOT_DIR}/scripts/scrub_venv_env.sh"
 
     # Split the install into two independent steps so a broken third-party
     # import doesn't force a re-install of the editable package, and a missing
