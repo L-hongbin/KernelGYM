@@ -21,10 +21,9 @@ KernelGYM reward-only supports two deployment modes. Runtime env values come fro
   `KERNELGYM_FALLBACK_PROXY` only when needed.
 - Do not reuse older KernelGYM or drkernel virtual environments.
 
-Create the environment in the runtime where reward will execute:
+Create the environment in the runtime where reward will execute (run from the repo root):
 
 ```bash
-cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
 bash ensure_venv.sh --recreate
 source .venv/bin/activate
 ```
@@ -64,10 +63,9 @@ from the physical host. Host-level duties happen before starting the container:
 4. Enter the container and ensure `.venv` plus Redis there with CUDA 12.9.
 5. Start the reward API/workers from inside the container.
 
-Host preparation example:
+Host preparation example (run from the repo root):
 
 ```bash
-cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
 bash scripts/lock_gpu_clocks.sh --sudo --gpu-clock 2700 --power-limit 400
 bash scripts/start_container.sh
 ```
@@ -85,10 +83,9 @@ The default container image is `192.168.14.129:80/library/slime:nightly-dev-2026
 If the image already has CUDA 12.9, the explicit CUDA mount is harmless. The environment bootstrap still
 validates `/usr/local/cuda-12.9/bin/nvcc` inside the container before installing the CUDA 12.9 wheel set.
 
-Inside the container:
+Inside the container (run from the repo root):
 
 ```bash
-cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
 bash ensure_venv.sh --recreate
 source .venv/bin/activate
 python -m kernelgym.cli.service start-local --profile v1
@@ -105,10 +102,9 @@ Worker-only multi-node deployment uses `deploy_node.sh` from inside each contain
 ## Mode 2: Already Inside A Container
 
 Use this mode when the operator is already in the runtime container. Do not start Docker from inside this
-container. Create `.venv` and start services directly:
+container. From the repo root, create `.venv` and start services directly:
 
 ```bash
-cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
 bash ensure_venv.sh --recreate
 source .venv/bin/activate
 python -m kernelgym.cli.service start-local --profile v1

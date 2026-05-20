@@ -6,10 +6,9 @@ The shortest path from a fresh host to a running reward service on `127.0.0.1:20
 
 ### 0. (Optional) Start the runtime container
 
-Skip this step if you are already inside the runtime container. Use it only when starting from a physical host (e.g. `192.168.16.39` / `192.168.16.40`): it locks GPU clocks and launches the Docker container that everything else runs inside.
+Skip this step if you are already inside the runtime container. Use it only when starting from a physical host (e.g. `192.168.16.39` / `192.168.16.40`): it locks GPU clocks and launches the Docker container that everything else runs inside. All commands assume the repo root as cwd.
 
 ```bash
-cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
 bash scripts/lock_gpu_clocks.sh --sudo --gpu-clock 2700 --power-limit 400
 bash scripts/start_container.sh
 # then docker exec / docker attach into the container printed by start_container.sh
@@ -20,7 +19,6 @@ bash scripts/start_container.sh
 `ensure_venv.sh` is idempotent. It validates CUDA 12.9, installs `redis-server` (via apt when missing), creates the repo-local `.venv` with Python 3.12, and installs torch / torchvision / apache-tvm-ffi (preferring local `./wheels/*.whl` over the configured index).
 
 ```bash
-cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
 bash ensure_venv.sh
 ```
 
