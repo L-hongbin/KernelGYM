@@ -45,11 +45,11 @@ To stop the running service (kills the API, monitor, GPU/CPU workers, and clears
 python -m kernelgym.cli.service stop --profile v1
 # or with the installed entrypoint:
 kernelgym-service stop --profile v1
-# or the convenience wrapper (mirrors scripts/deploy_node.sh):
-bash scripts/stop_node.sh
+# or the convenience wrapper (mirrors deploy_node.sh):
+bash stop_node.sh
 ```
 
-A typical restart cycle inside the container is `bash scripts/stop_node.sh && bash scripts/deploy_node.sh --nnodes 1`.
+A typical restart cycle inside the container is `bash stop_node.sh && bash deploy_node.sh --nnodes 1`.
 
 The deployment convenience script is container-only. It runs `ensure_venv.sh`, sources `.venv/bin/activate`, and always stops existing KernelGym worker processes before starting worker-only nodes.
 
@@ -97,10 +97,10 @@ python -m kernelgym.cli.service start-local --profile v1
 The same startup can be run with:
 
 ```bash
-bash scripts/deploy_node.sh --nnodes 1
+bash deploy_node.sh --nnodes 1
 ```
 
-Worker-only multi-node deployment uses `scripts/deploy_node.sh` from inside each container after `.venv` exists.
+Worker-only multi-node deployment uses `deploy_node.sh` from inside each container after `.venv` exists.
 
 ## Mode 2: Already Inside A Container
 
@@ -117,7 +117,7 @@ python -m kernelgym.cli.service start-local --profile v1
 After `.venv` exists, the single-node convenience entrypoint is:
 
 ```bash
-bash scripts/deploy_node.sh --nnodes 1
+bash deploy_node.sh --nnodes 1
 ```
 
 Worker-only containers follow the same rule: use `scripts/deploy_node.sh --nnodes N` from inside each container.
@@ -127,14 +127,14 @@ Worker-only containers follow the same rule: use `scripts/deploy_node.sh --nnode
 Single node:
 
 ```bash
-bash scripts/deploy_node.sh --nnodes 1
+bash deploy_node.sh --nnodes 1
 ```
 
 Multiple nodes:
 
 ```bash
-bash scripts/deploy_node.sh --nnodes 2 --node-rank 0 --master-addr 192.168.16.40
-bash scripts/deploy_node.sh --nnodes 2 --node-rank 1 --master-addr 192.168.16.40
+bash deploy_node.sh --nnodes 2 --node-rank 0 --master-addr 192.168.16.40
+bash deploy_node.sh --nnodes 2 --node-rank 1 --master-addr 192.168.16.40
 ```
 
 The script is intended to run from inside containers. For multi-node deployment, run it manually on every node with that node's `--node-rank`. The node matching `--master-addr` must use rank `0` and becomes primary; other ranks become worker-only.

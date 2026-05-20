@@ -72,9 +72,9 @@ Then enter the container printed by `scripts/start_container.sh`, create `.venv`
 
 ```bash
 bash ensure_venv.sh --recreate
-bash scripts/deploy_node.sh --nnodes 1
-bash scripts/deploy_node.sh --nnodes 2 --node-rank 0 --master-addr 192.168.16.40
-bash scripts/deploy_node.sh --nnodes 2 --node-rank 1 --master-addr 192.168.16.40
+bash deploy_node.sh --nnodes 1
+bash deploy_node.sh --nnodes 2 --node-rank 0 --master-addr 192.168.16.40
+bash deploy_node.sh --nnodes 2 --node-rank 1 --master-addr 192.168.16.40
 ```
 
 For multi-node deployment, run the command manually on every container node with that node's `--node-rank`. The node matching `--master-addr` must use rank `0` and becomes the primary API/Redis node; other ranks become worker-only nodes.
