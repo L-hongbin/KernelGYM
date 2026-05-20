@@ -35,8 +35,8 @@ dev = [
 ]
 tvm-ffi = ["apache-tvm-ffi"]
 cuda129 = [
-    "torch==2.11.0",
-    "torchvision==0.26.0",
+    "torch==2.11.0+cu129",
+    "torchvision==0.26.0+cu129",
 ]
 
 [project.scripts]
