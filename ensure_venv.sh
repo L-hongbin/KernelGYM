@@ -107,12 +107,18 @@ ensure_uv() {
 }
 
 ensure_python_env() {
+    # Drop UV_PROJECT_ENVIRONMENT so a host-wide override (e.g. /opt/venv on
+    # some shared images) cannot redirect either `uv venv` or `uv pip install`
+    # away from the repo-local .venv we want.
+    unset UV_PROJECT_ENVIRONMENT
     local install_deps=0
     if [[ "${RECREATE}" == "1" && -e .venv ]]; then
         rm -rf .venv
     fi
     if [[ ! -e .venv ]]; then
-        uv venv -p 3.12
+        # Pass the path explicitly so uv writes to ./.venv even on hosts that
+        # tried to coerce a different location through env or config.
+        uv venv .venv -p 3.12
         install_deps=1
     fi
     # shellcheck disable=SC1091
