@@ -119,7 +119,7 @@ ensure_python_env() {
     # some shared images) cannot redirect either `uv venv` or `uv pip install`
     # away from the repo-local .venv we want.
     unset UV_PROJECT_ENVIRONMENT
-    local install_deps=0
+    local venv_created=0
     if [[ "${RECREATE}" == "1" && -e .venv ]]; then
         rm -rf .venv
     fi
@@ -127,20 +127,43 @@ ensure_python_env() {
         # Pass the path explicitly so uv writes to ./.venv even on hosts that
         # tried to coerce a different location through env or config.
         uv venv .venv -p 3.12
-        install_deps=1
+        venv_created=1
     fi
     # shellcheck disable=SC1091
     source .venv/bin/activate
-    if ! python - <<'PY' >/dev/null 2>&1
+
+    # Split the install into two independent steps so a broken third-party
+    # import doesn't force a re-install of the editable package, and a missing
+    # editable install doesn't force a reinstall of the heavy CUDA wheels.
+    local needs_editable=${venv_created}
+    local needs_thirdparty=${venv_created}
+    if [[ "${needs_editable}" == "0" ]]; then
+        if ! python -c "import kernelgym" >/dev/null 2>&1; then
+            needs_editable=1
+        fi
+    fi
+    if [[ "${needs_thirdparty}" == "0" ]]; then
+        if ! python - <<'PY' >/dev/null 2>&1
 import redis
 import torch
 import tvm_ffi
 PY
-    then
-        install_deps=1
+        then
+            needs_thirdparty=1
+        fi
     fi
-    if [[ "${install_deps}" == "1" ]]; then
+
+    if [[ "${needs_editable}" == "1" ]]; then
+        echo
+        echo "=== Install editable kernelgym + dev/tvm-ffi extras ==="
         network uv pip install -e ".[dev,tvm-ffi]"
+    else
+        echo "kernelgym already installed (editable), skipping reinstall"
+    fi
+
+    if [[ "${needs_thirdparty}" == "1" ]]; then
+        echo
+        echo "=== Install CUDA 12.9 runtime deps (torch, torchvision, apache-tvm-ffi) ==="
         # Prefer the locally-staged +cu129 wheels (./wheels/*.whl) over the
         # configured index when they exist. uv resolves --find-links before
         # the index, so an intranet that only has the standard PyPI mirror
@@ -148,18 +171,38 @@ PY
         # uv just falls through to the configured index.
         local find_links_arg=()
         if compgen -G "${ROOT_DIR}/wheels/*.whl" >/dev/null; then
-            echo "Installing torch/torchvision from local wheels under ${ROOT_DIR}/wheels"
+            echo "Using local wheels under ${ROOT_DIR}/wheels"
             find_links_arg=(--find-links "${ROOT_DIR}/wheels")
         fi
         network uv pip install "${find_links_arg[@]}" -r requirements-cuda129.txt
+    else
+        echo "torch/redis/tvm_ffi already importable, skipping requirements-cuda129.txt install"
     fi
 }
 
 cd "${ROOT_DIR}"
+
+echo "=== Environment ==="
 echo "profile=${PROFILE}"
+echo "root=${ROOT_DIR}"
+
+echo
+echo "=== CUDA toolchain ==="
 echo "nvcc=${NVCC}"
 check_cuda129
+
+echo
+echo "=== redis-server ==="
 ensure_redis_server
+
+echo
+echo "=== uv ==="
 ensure_uv
+
+echo
+echo "=== Python venv ==="
 ensure_python_env
+
+echo
+echo "=== Validate CUDA 12.9 + torch ==="
 python scripts/validate_cuda129.py
