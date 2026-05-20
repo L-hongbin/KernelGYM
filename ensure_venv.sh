@@ -46,22 +46,29 @@ network() {
 check_cuda129() {
     # Prefer the canonical CUDA 12.9 install; fall back to whatever nvcc is on
     # PATH so machines that symlink /usr/local/cuda or only expose nvcc through
-    # the environment still pass. We only care that the resolved binary
-    # reports release 12.9.
+    # the environment still pass. We accept release 12.9 or newer (e.g. 12.10,
+    # 13.x) — the repo name is historical, the actual requirement is "12.9+".
     local candidate=""
     if [[ -x "${NVCC}" ]]; then
         candidate="${NVCC}"
     elif command -v nvcc >/dev/null 2>&1; then
         candidate="$(command -v nvcc)"
     else
-        echo "CUDA 12.9 nvcc not found (tried ${NVCC} and \$PATH)" >&2
+        echo "nvcc not found (tried ${NVCC} and \$PATH)" >&2
         exit 1
     fi
-    local version
+    local version major minor
     version="$("${candidate}" --version)"
     echo "${version}" | tail -n 1
-    if [[ "${version}" != *"release 12.9"* && "${version}" != *"V12.9"* ]]; then
-        echo "Expected CUDA 12.9 nvcc at ${candidate}" >&2
+    # Extract "release X.Y" from nvcc --version output.
+    if [[ ! "${version}" =~ release[[:space:]]+([0-9]+)\.([0-9]+) ]]; then
+        echo "Could not parse nvcc release from output of ${candidate}" >&2
+        exit 1
+    fi
+    major="${BASH_REMATCH[1]}"
+    minor="${BASH_REMATCH[2]}"
+    if (( major < 12 || ( major == 12 && minor < 9 ) )); then
+        echo "Expected nvcc release >= 12.9, got ${major}.${minor} at ${candidate}" >&2
         exit 1
     fi
     NVCC="${candidate}"
