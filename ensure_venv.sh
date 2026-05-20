@@ -75,35 +75,6 @@ check_cuda129() {
     NVCC="${candidate}"
 }
 
-run_apt_get() {
-    if [[ "$(id -u)" == "0" ]]; then
-        network env DEBIAN_FRONTEND=noninteractive apt-get "$@"
-        return
-    fi
-    if ! command -v sudo >/dev/null 2>&1; then
-        echo "redis-server is missing and sudo is not available for apt-get install" >&2
-        exit 1
-    fi
-    network sudo -E env DEBIAN_FRONTEND=noninteractive apt-get "$@"
-}
-
-ensure_redis_server() {
-    if ! command -v redis-server >/dev/null 2>&1; then
-        if ! command -v apt-get >/dev/null 2>&1; then
-            echo "redis-server is missing and apt-get is not available" >&2
-            exit 1
-        fi
-        echo "Installing redis-server"
-        run_apt_get update
-        run_apt_get install -y --no-install-recommends redis-server
-    fi
-    if ! command -v redis-server >/dev/null 2>&1; then
-        echo "redis-server is still not available after installation" >&2
-        exit 1
-    fi
-    redis-server --version
-}
-
 ensure_uv() {
     if ! command -v uv >/dev/null 2>&1; then
         network pip install uv
@@ -201,7 +172,7 @@ check_cuda129
 
 echo
 echo "=== redis-server ==="
-ensure_redis_server
+bash "${ROOT_DIR}/scripts/ensure_redis.sh"
 
 echo
 echo "=== uv ==="
@@ -212,5 +183,5 @@ echo "=== Python venv ==="
 ensure_python_env
 
 echo
-echo "=== Validate CUDA 12.9 + torch ==="
-python scripts/validate_cuda129.py
+echo "=== Validate runtime (CUDA + torch + redis) ==="
+python scripts/validate_runtime.py
