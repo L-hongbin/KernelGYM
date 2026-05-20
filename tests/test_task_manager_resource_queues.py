@@ -7,6 +7,8 @@ from kernelgym.server import task_manager as task_manager_module
 from kernelgym.server.task_manager import TaskManager
 from kernelgym.server.request_hash import request_hash
 from kernelgym.common import TaskStatus
+from kernelgym.schema.task import EvaluationTask
+from kernelgym.workflow.kernelbench_helpers import _create_paired_tasks
 
 
 class FakeRedis:
@@ -44,6 +46,26 @@ class FakeRedis:
 
     async def llen(self, key: str) -> int:
         return len(self.lists[key])
+
+    async def lrem(self, key: str, count: int, value: str) -> int:
+        removed = 0
+        values = self.lists[key]
+        kept = []
+        for item in values:
+            if item == value and (count == 0 or removed < abs(count)):
+                removed += 1
+                continue
+            kept.append(item)
+        self.lists[key] = kept
+        return removed
+
+    async def delete(self, *keys: str) -> int:
+        removed = 0
+        for key in keys:
+            if key in self.hashes:
+                removed += 1
+                del self.hashes[key]
+        return removed
 
 
 def _patch_registry(monkeypatch) -> None:
@@ -137,6 +159,30 @@ def test_task_manager_normalizes_none_assigned_worker(monkeypatch) -> None:
     asyncio.run(scenario())
 
 
+def test_task_manager_force_refresh_resubmits_existing_task(monkeypatch) -> None:
+    async def scenario() -> None:
+        _patch_registry(monkeypatch)
+        redis = FakeRedis()
+        manager = TaskManager(redis)  # type: ignore[arg-type]
+
+        await manager.submit_task({**_base_payload("refresh-task"), "kernel_code": "old"})
+        await manager.complete_task("refresh-task", {"task_id": "refresh-task", "compiled": False})
+
+        await manager.submit_task({**_base_payload("refresh-task"), "kernel_code": "new", "force_refresh": True})
+
+        stored = await redis.hgetall(f"{manager.task_prefix}refresh-task")
+        stored_payload = json.loads(stored[b"data"].decode())
+        assert stored_payload["kernel_code"] == "new"
+        assert await manager.get_task_result("refresh-task") is None
+        assert await manager.get_queue_status() == {
+            "pending": 1,
+            "pending_by_prefix": {"kernelgym": 1, "kernelserver": 0},
+            "worker_queues": {},
+        }
+
+    asyncio.run(scenario())
+
+
 def test_task_result_cache_checks_request_hash(monkeypatch) -> None:
     async def scenario() -> None:
         _patch_registry(monkeypatch)
@@ -192,3 +238,17 @@ def test_request_hash_ignores_identity_and_provenance_fields() -> None:
 
     assert request_hash("kernelbench", base) == request_hash("kernelbench", same_semantics)
     assert request_hash("kernelbench", base) != request_hash("kernelbench", changed_payload)
+
+
+def test_kernelbench_child_task_preserves_force_refresh() -> None:
+    _, kernel_task = _create_paired_tasks(
+        EvaluationTask(
+            task_id="parent",
+            reference_code="class Model: pass",
+            kernel_code="class Model: pass",
+            force_refresh=True,
+        )
+    )
+
+    assert kernel_task.force_refresh is True
+    assert kernel_task.to_dict()["force_refresh"] is True

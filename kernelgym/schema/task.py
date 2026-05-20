@@ -108,6 +108,7 @@ class KernelEvaluationTask:
     task_stage: Optional[str] = None
     assigned_worker: Optional[str] = None
     device_preference: Optional[str] = None
+    force_refresh: bool = False
     enable_profiling: Optional[bool] = None
     enable_triton_detection: Optional[bool] = None
     detect_decoy_kernel: Optional[bool] = None

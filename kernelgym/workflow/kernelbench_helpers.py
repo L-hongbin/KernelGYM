@@ -127,6 +127,7 @@ def _create_paired_tasks(
         task_stage=task.task_stage,
         assigned_worker=task.assigned_worker,
         device_preference=task.device_preference,
+        force_refresh=task.force_refresh,
         enable_profiling=task.enable_profiling,
         enable_triton_detection=task.enable_triton_detection,
         detect_decoy_kernel=task.detect_decoy_kernel,

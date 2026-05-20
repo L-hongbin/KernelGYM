@@ -332,6 +332,15 @@ class TaskManager:
         priority = Priority(task_data.get("priority", Priority.NORMAL))
         required_resource = self._resolve_required_resource(task_data)
         task_data["required_resource"] = required_resource
+        force_refresh = bool(task_data.get("force_refresh"))
+
+        if await self.redis.exists(f"{self.task_prefix}{task_id}"):
+            if force_refresh:
+                logger.info("Task %s already exists; force_refresh requested, resubmitting", task_id)
+                await self._clear_task_for_refresh(task_id)
+            else:
+                logger.info(f"Task {task_id} already exists, returning existing task")
+                return task_id
 
         if await self.redis.exists(f"{self.task_prefix}{task_id}"):
             logger.info(f"Task {task_id} already exists, returning existing task")
@@ -372,6 +381,16 @@ class TaskManager:
         self.active_tasks[task_id] = task_info
         logger.info(f"Task {task_id} submitted with resource {required_resource}")
         return task_id
+
+    async def _clear_task_for_refresh(self, task_id: str) -> None:
+        """Remove completed or queued state so force_refresh can submit fresh work."""
+        for queue_key in [*self.resource_queues.values(), *self.worker_queues.values()]:
+            try:
+                await self.redis.lrem(queue_key, 0, task_id)
+            except AttributeError:
+                pass
+        await self.redis.delete(f"{self.task_prefix}{task_id}", f"{self.result_prefix}{task_id}")
+        self.active_tasks.pop(task_id, None)
 
     async def get_next_task(self, worker_id: str, resources: Optional[list[str]] = None) -> Optional[Dict[str, Any]]:
         resources = resources or ["gpu"]
