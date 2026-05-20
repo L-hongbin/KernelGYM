@@ -45,9 +45,11 @@ To stop the running service (kills the API, monitor, GPU/CPU workers, and clears
 python -m kernelgym.cli.service stop --profile v1
 # or with the installed entrypoint:
 kernelgym-service stop --profile v1
+# or the convenience wrapper (mirrors scripts/deploy_node.sh):
+bash scripts/stop_node.sh
 ```
 
-A typical restart cycle inside the container is `kernelgym-service stop --profile v1 && kernelgym-service start-local --profile v1`.
+A typical restart cycle inside the container is `bash scripts/stop_node.sh && bash scripts/deploy_node.sh --nnodes 1`.
 
 The deployment convenience script is container-only. It runs `ensure_venv.sh`, sources `.venv/bin/activate`, and always stops existing KernelGym worker processes before starting worker-only nodes.
 
