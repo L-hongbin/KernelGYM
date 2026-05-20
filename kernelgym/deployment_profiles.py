@@ -43,7 +43,7 @@ class RewardProfile:
             "REDIS_DB": str(REDIS_DB),
             "REDIS_PASSWORD": REDIS_PASSWORD,
             "REDIS_KEY_PREFIX": REDIS_KEY_PREFIX,
-            "WORKER_POOL_SIZE": "1",
+            "WORKER_POOL_SIZE": "2",
             "MAX_TASKS_PER_WORKER": "1",
             "CPU_COMPILE_WORKERS": "2",
             "DEFAULT_TOOLKIT": "kernelbench",
