@@ -1,3 +1,8 @@
+# The `+cu129` wheels live only on PyTorch's index and are not mirrored on
+# standard PyPI or typical internal proxies. Keep this line in the file so
+# every fresh install picks them up automatically.
+--extra-index-url https://download.pytorch.org/whl/cu129
+
 apache-tvm-ffi==0.1.11
 torch==2.11.0+cu129
 torchvision==0.26.0+cu129
