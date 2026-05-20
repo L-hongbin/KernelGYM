@@ -78,6 +78,10 @@ def main() -> int:
     print(f"torch_cuda_device_count={device_count}")
     if device_count <= 0:
         raise SystemExit("torch.cuda reports zero devices after init")
+    print(
+        f"validate_cuda129: OK — torch {torch.__version__} (cuda {torch.version.cuda}), "
+        f"nvcc {nvcc_version[0]}.{nvcc_version[1]} at {nvcc}, {device_count} cuda device(s)"
+    )
     return 0
 
 
