@@ -64,6 +64,20 @@ def main() -> int:
         raise SystemExit(
             f"expected nvcc release >= {MIN_VERSION[0]}.{MIN_VERSION[1]}, got {nvcc_version[0]}.{nvcc_version[1]} at {nvcc}"
         )
+
+    # Driver vs torch-bundled-runtime mismatch only surfaces when something
+    # actually touches CUDA. Force lazy init here so the validator fails fast
+    # with the real driver error instead of letting a broken install pass.
+    try:
+        torch.cuda.init()
+    except RuntimeError as exc:
+        raise SystemExit(
+            f"torch cannot initialize CUDA (torch built for {torch.version.cuda}, likely driver too old): {exc}"
+        )
+    device_count = torch.cuda.device_count()
+    print(f"torch_cuda_device_count={device_count}")
+    if device_count <= 0:
+        raise SystemExit("torch.cuda reports zero devices after init")
     return 0
 
 
