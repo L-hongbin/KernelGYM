@@ -14,7 +14,7 @@ This file indexes stable repository docs and evidence locations.
 | `docs/IMPLEMENTATION_DIFFERENCES.md` | Current implementation differences from source repositories. |
 | `docs/design-doc/COMPILE_ACCELERATION.md` | CUDA-Agent compile acceleration design. |
 | `docs/design-doc/REWARD_HACKING_DEFENSES.md` | Current reward-hacking defense design notes. |
-| `docs/design-doc/TWO_WORKER_WARM_POOL.md` | Current two-worker GPU subprocess warm-pool design. |
+| `docs/design-doc/TWO_WORKER_WARM_POOL.md` | Two-worker GPU subprocess warm-pool design, capacity invariant, and `v1` verification. |
 | `docs/server-result-cache-guard.md` | Server result cache hash guard design for safe `/evaluate` reuse. |
 
 ## Important Code Areas
@@ -22,12 +22,14 @@ This file indexes stable repository docs and evidence locations.
 | Path | Purpose |
 | --- | --- |
 | `scripts/deploy_node.sh` | Container-only single/multi-node startup with `--nnodes`, `--node-rank`, and `--master-addr`. |
+| `scripts/debug_line451_rmsnorm_nondeterminism.py` | Standalone reproduction for line 451 RMSNorm CUDA-Agent nondeterministic correctness. |
 | `kernelgym/backend/kernelbench/cuda_agent_backend.py` | CUDA-Agent parsing, validation scaffold, compile/load backend. |
 | `kernelgym/backend/kernelbench/tvm_ffi_backend.py` | TVM-FFI compile/load backend and compile artifact cache. |
 | `kernelgym/toolkit/kernelbench/pipeline.py` | KernelBench compile/load/correctness/performance pipeline. |
 | `kernelgym/workflow/kernelbench.py` | Server-side KernelBench workflow orchestration. |
 | `kernelgym/server/task_manager.py` | Redis task queue and worker coordination. |
 | `kernelgym/worker/gpu_worker.py` | Worker-side task execution and failure handling. |
+| `kernelgym/worker/subprocess_pool.py` | Persistent GPU subprocess pool, recycle, timeout, and pool-size enforcement. |
 
 ## External Source References
 
@@ -41,11 +43,4 @@ This file indexes stable repository docs and evidence locations.
 | Path | Purpose |
 | --- | --- |
 | `logs/compile_acceleration/` | Planned benchmark results for compile acceleration work. |
-| `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-vllm018-cuda-agent/drkernel/logs/cuda-qwen35-9b-l1fullset-mixedauto-orphanclose-t60-n8-tp1-seqs16-32k-24-r1.run.20260512-012142/eval_results/step_0/reward40_replay_results.jsonl` | `.40` reward-only full replay results after the `assigned_worker=None` queue fix. |
-| `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-vllm018-cuda-agent/drkernel/logs/cuda-qwen35-9b-l1fullset-mixedauto-orphanclose-t60-n8-tp1-seqs16-32k-24-r1.run.20260512-012142/eval_results/step_0/reward40_replay_compare_*.json` | Response-hash-aligned comparison of `.40` replay vs original reward results. |
-| `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-vllm018-cuda-agent/drkernel/logs/cuda-qwen35-9b-l1fullset-mixedauto-orphanclose-t60-n8-tp1-seqs16-32k-24-r1.run.20260512-012142/eval_results/step_0/reward40_replay_turn1_results.jsonl` | Corrected raw-response `.40` replay for turn 1 only; request backend omitted and API defaulted to `auto`. |
-| `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-vllm018-cuda-agent/drkernel/logs/cuda-qwen35-9b-l1fullset-mixedauto-orphanclose-t60-n8-tp1-seqs16-32k-24-r1.run.20260512-012142/eval_results/step_0/reward40_replay_turn1_compare_summary.json` | Turn-1 comparison summary: original `26/800`, replay `19/800`, 793 correctness matches, 7 original-true/replay-false mismatches, 20 validation 400s. |
-| `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-vllm018-cuda-agent/drkernel/logs/cuda-qwen35-9b-l1fullset-mixedauto-orphanclose-t60-n8-tp1-seqs16-32k-24-r1.run.20260512-012142/eval_results/step_0/reward40_replay_turn1_results.tvmfix.jsonl` | Seven TVM-FFI mismatch lines rerun successfully on `.40` after installing `apache-tvm-ffi` and fixing TVM-FFI compile. |
-| `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-vllm018-cuda-agent/drkernel/logs/cuda-qwen35-9b-l1fullset-mixedauto-orphanclose-t60-n8-tp1-seqs16-32k-24-r1.run.20260512-012142/eval_results/step_0/reward40_replay_turn1_compare_summary.final_overlay.json` | Turn-1 final overlay summary: 800/800 compile matches and 800/800 correctness matches after TVM-FFI, compile, and reference-extraction reruns. |
-| `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-vllm018-cuda-agent/drkernel/logs/cuda-qwen35-9b-l1fullset-mixedauto-orphanclose-t60-n8-tp1-seqs16-32k-24-r1.run.20260512-012142/eval_results/step_0/reward40_replay_turn2_compare_summary.json` | Turn-2 comparison summary: 783 comparable rows, 780 correctness matches, 3 stable mismatches after retry. |
-| `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-vllm018-cuda-agent/drkernel/logs/cuda-qwen35-9b-l1fullset-mixedauto-orphanclose-t60-n8-tp1-seqs16-32k-24-r1.run.20260512-012142/eval_results/step_0/reward40_replay_turn3_compare_summary.json` | Turn-3 comparison summary: 781 comparable HTTP-200 rows, 0 compile mismatches, 3 stable original-true/replay-false correctness mismatches after retry. |
+| `artifacts/line451_rmsnorm_debug/repeat50_trial0_result.jsonl` | Standalone `.40` evidence: line 451 fixed-input RMSNorm custom kernel failed 6/50 repeats with exactly 32 mismatched elements per failure. |
