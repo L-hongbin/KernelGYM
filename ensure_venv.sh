@@ -141,7 +141,17 @@ PY
     fi
     if [[ "${install_deps}" == "1" ]]; then
         network uv pip install -e ".[dev,tvm-ffi]"
-        network uv pip install -r requirements-cuda129.txt
+        # Prefer the locally-staged +cu129 wheels (./wheels/*.whl) over the
+        # configured index when they exist. uv resolves --find-links before
+        # the index, so an intranet that only has the standard PyPI mirror
+        # can still satisfy the cu129 pins. If ./wheels/ is empty or absent,
+        # uv just falls through to the configured index.
+        local find_links_arg=()
+        if compgen -G "${ROOT_DIR}/wheels/*.whl" >/dev/null; then
+            echo "Installing torch/torchvision from local wheels under ${ROOT_DIR}/wheels"
+            find_links_arg=(--find-links "${ROOT_DIR}/wheels")
+        fi
+        network uv pip install "${find_links_arg[@]}" -r requirements-cuda129.txt
     fi
 }
 
