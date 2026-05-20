@@ -42,7 +42,10 @@ def render_summary(base: str, health: dict, workers: dict) -> int:
     """Print vertical key:value summary; return the process exit code."""
     status = health.get("status", "?")
     gpus = health.get("gpu_status", {}) or {}
-    gpus_ok = sum(1 for v in gpus.values() if v.get("available"))
+    # /health.gpu_status entries are dicts on a healthy node but degrade to a
+    # plain error string when torch.cuda fails to query the device. Guard the
+    # .get() call so a degraded node still renders instead of crashing.
+    gpus_ok = sum(1 for v in gpus.values() if isinstance(v, dict) and v.get("available"))
     queue = health.get("queue_status", {}) or {}
     online = sum(1 for w in workers.values() if isinstance(w, dict) and w.get("status") == "online")
     top = "UP" if status == "healthy" else "WARN"
@@ -68,16 +71,22 @@ def render_verbose(health: dict, workers: dict) -> None:
     gpus = health.get("gpu_status", {}) or {}
     gpu_rows: list[list[str]] = []
     for dev in sorted(gpus, key=_device_key):
-        g = gpus[dev] or {}
-        gpu_rows.append(
-            [
-                dev,
-                g.get("name", "?"),
-                g.get("memory_total", "?"),
-                g.get("memory_used_percent", "?"),
-                "yes" if g.get("available") else "no",
-            ]
-        )
+        raw = gpus[dev]
+        if isinstance(raw, dict):
+            gpu_rows.append(
+                [
+                    dev,
+                    raw.get("name", "?"),
+                    raw.get("memory_total", "?"),
+                    raw.get("memory_used_percent", "?"),
+                    "yes" if raw.get("available") else "no",
+                ]
+            )
+        else:
+            # Degraded entries (typically an error string from the server when
+            # torch.cuda can't query the device) — surface as ERROR with the
+            # raw message in the name column so it's still visible.
+            gpu_rows.append([dev, str(raw), "?", "?", "ERROR"])
     render_table(
         "/health gpus",
         ["device", "name", "memory_total", "memory_used", "available"],
@@ -86,17 +95,19 @@ def render_verbose(health: dict, workers: dict) -> None:
 
     worker_rows: list[list[str]] = []
     for wid, info in sorted(workers.items(), key=lambda item: _device_key(item[0])):
-        info = info or {}
-        worker_rows.append(
-            [
-                wid,
-                info.get("device", "?"),
-                info.get("status", "?"),
-                info.get("last_heartbeat", "?"),
-                info.get("node_id", "?"),
-                info.get("hostname", "?"),
-            ]
-        )
+        if isinstance(info, dict):
+            worker_rows.append(
+                [
+                    wid,
+                    info.get("device", "?"),
+                    info.get("status", "?"),
+                    info.get("last_heartbeat", "?"),
+                    info.get("node_id", "?"),
+                    info.get("hostname", "?"),
+                ]
+            )
+        else:
+            worker_rows.append([wid, "?", "ERROR", str(info), "?", "?"])
     render_table(
         "/workers/status",
         ["worker_id", "device", "status", "last_heartbeat", "node_id", "hostname"],
