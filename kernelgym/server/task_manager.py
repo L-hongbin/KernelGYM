@@ -342,10 +342,6 @@ class TaskManager:
                 logger.info(f"Task {task_id} already exists, returning existing task")
                 return task_id
 
-        if await self.redis.exists(f"{self.task_prefix}{task_id}"):
-            logger.info(f"Task {task_id} already exists, returning existing task")
-            return task_id
-
         task_info = TaskInfo(
             task_id=task_id,
             status=TaskStatus.PENDING,
