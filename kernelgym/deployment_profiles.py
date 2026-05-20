@@ -46,6 +46,7 @@ class RewardProfile:
             "WORKER_POOL_SIZE": "2",
             "MAX_TASKS_PER_WORKER": "1",
             "CPU_COMPILE_WORKERS": "2",
+            "DEFAULT_TIMEOUT": "90",
             "DEFAULT_TOOLKIT": "kernelbench",
             "DEFAULT_BACKEND_ADAPTER": "kernelbench",
             "DEFAULT_BACKEND": "auto",

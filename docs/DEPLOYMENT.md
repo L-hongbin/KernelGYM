@@ -39,6 +39,16 @@ Use `--profile v1`:
 python -m kernelgym.cli.service start-local --profile v1
 ```
 
+To stop the running service (kills the API, monitor, GPU/CPU workers, and clears Redis state with the `kernelgym:` prefix):
+
+```bash
+python -m kernelgym.cli.service stop --profile v1
+# or with the installed entrypoint:
+kernelgym-service stop --profile v1
+```
+
+A typical restart cycle inside the container is `kernelgym-service stop --profile v1 && kernelgym-service start-local --profile v1`.
+
 The deployment convenience script is container-only. It runs `ensure_venv.sh`, sources `.venv/bin/activate`, and always stops existing KernelGym worker processes before starting worker-only nodes.
 
 ## Mode 1: Physical Host, Then Docker

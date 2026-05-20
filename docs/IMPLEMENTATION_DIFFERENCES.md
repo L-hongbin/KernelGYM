@@ -23,6 +23,15 @@ Deployment/runtime changes:
 - Keeps service orchestration in `kernelgym.cli.service`.
 - Keeps shell scripts only for shell-native host operations such as profile detection, GPU clock locking, container startup, and virtualenv creation.
 
+Env-var name mapping from `start_reward.sh`:
+
+| CUDA-Agent env var | Reward-only env var | Setting | `v1` default |
+| --- | --- | --- | --- |
+| `REWARD_TASK_TIMEOUT` | `DEFAULT_TIMEOUT` | `settings.default_timeout` | `90` (pinned in `deployment_profiles.py`) |
+| `REWARD_TASK_TIMEOUT_CLIENT` | n/a | client-side; sent in the `/evaluate` request body | — |
+
+`REWARD_TASK_TIMEOUT` is the per-evaluation task budget enforced by the GPU worker; `start_reward.sh` previously defaulted it to `60`, so any deployment launched through that script would shadow the reward-only `90` default. The `v1` profile now sets `DEFAULT_TIMEOUT=90` explicitly so the timeout matches across both launch paths.
+
 ## Difference From KernelGYM-lhb
 
 This repo adopts the useful compile acceleration mechanics without adopting the LHB repository's code structure or reward-policy differences.
