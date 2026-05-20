@@ -164,16 +164,22 @@ PY
     if [[ "${needs_thirdparty}" == "1" ]]; then
         echo
         echo "=== Install CUDA 12.9 runtime deps (torch, torchvision, apache-tvm-ffi) ==="
-        # Prefer the locally-staged +cu129 wheels (./wheels/*.whl) over the
-        # configured index when they exist. uv resolves --find-links before
-        # the index, so an intranet that only has the standard PyPI mirror
-        # can still satisfy the cu129 pins. If ./wheels/ is empty or absent,
-        # uv just falls through to the configured index.
+        # When ./wheels/ is staged, reconcile against it first using
+        # --no-deps. uv with explicit wheel paths is idempotent: packages
+        # already at the wheel's version are no-ops, only mismatched ones
+        # (e.g. an old nvidia-nvjitlink-cu12 dragged in earlier from the
+        # intranet) get replaced. This avoids redundantly reinstalling a
+        # correct torch wheel just to fix a broken transitive dep.
         local find_links_arg=()
         if compgen -G "${ROOT_DIR}/wheels/*.whl" >/dev/null; then
-            echo "Using local wheels under ${ROOT_DIR}/wheels"
+            echo "Reconciling local wheels under ${ROOT_DIR}/wheels"
+            network uv pip install --no-deps "${ROOT_DIR}"/wheels/*.whl
             find_links_arg=(--find-links "${ROOT_DIR}/wheels")
         fi
+        # Run the requirements file too so apache-tvm-ffi (not in ./wheels/)
+        # is fetched from the configured index. Anything that was reconciled
+        # from local wheels above already satisfies the pins, so uv only
+        # touches what's missing.
         network uv pip install "${find_links_arg[@]}" -r requirements-cuda129.txt
     else
         echo "torch/redis/tvm_ffi already importable, skipping requirements-cuda129.txt install"
