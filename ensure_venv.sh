@@ -44,17 +44,27 @@ network() {
 }
 
 check_cuda129() {
-    if [[ ! -x "${NVCC}" ]]; then
-        echo "CUDA 12.9 nvcc not found at ${NVCC}" >&2
+    # Prefer the canonical CUDA 12.9 install; fall back to whatever nvcc is on
+    # PATH so machines that symlink /usr/local/cuda or only expose nvcc through
+    # the environment still pass. We only care that the resolved binary
+    # reports release 12.9.
+    local candidate=""
+    if [[ -x "${NVCC}" ]]; then
+        candidate="${NVCC}"
+    elif command -v nvcc >/dev/null 2>&1; then
+        candidate="$(command -v nvcc)"
+    else
+        echo "CUDA 12.9 nvcc not found (tried ${NVCC} and \$PATH)" >&2
         exit 1
     fi
     local version
-    version="$("${NVCC}" --version)"
+    version="$("${candidate}" --version)"
     echo "${version}" | tail -n 1
     if [[ "${version}" != *"release 12.9"* && "${version}" != *"V12.9"* ]]; then
-        echo "Expected CUDA 12.9 nvcc at ${NVCC}" >&2
+        echo "Expected CUDA 12.9 nvcc at ${candidate}" >&2
         exit 1
     fi
+    NVCC="${candidate}"
 }
 
 run_apt_get() {
