@@ -46,8 +46,9 @@ network() {
 check_cuda129() {
     # Prefer the canonical CUDA 12.9 install; fall back to whatever nvcc is on
     # PATH so machines that symlink /usr/local/cuda or only expose nvcc through
-    # the environment still pass. We accept release 12.9 or newer (e.g. 12.10,
-    # 13.x) — the repo name is historical, the actual requirement is "12.9+".
+    # the environment still pass. The resolved binary must report release 12.9
+    # exactly — torch is pinned to the +cu129 wheel and the deployed driver
+    # line is sized for 12.9, so any other release breaks runtime linkage.
     local candidate=""
     if [[ -x "${NVCC}" ]]; then
         candidate="${NVCC}"
@@ -67,8 +68,8 @@ check_cuda129() {
     fi
     major="${BASH_REMATCH[1]}"
     minor="${BASH_REMATCH[2]}"
-    if (( major < 12 || ( major == 12 && minor < 9 ) )); then
-        echo "Expected nvcc release >= 12.9, got ${major}.${minor} at ${candidate}" >&2
+    if (( major != 12 || minor != 9 )); then
+        echo "Expected nvcc release 12.9, got ${major}.${minor} at ${candidate}" >&2
         exit 1
     fi
     NVCC="${candidate}"

@@ -21,3 +21,4 @@ venv/
 *.ninja_deps
 .claude
 artifacts/
+wheels/

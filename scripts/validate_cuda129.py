@@ -1,10 +1,10 @@
-"""Validate that the active Python environment uses CUDA 12.9 or higher.
+"""Validate that the active Python environment uses CUDA 12.9 exactly.
 
-The repo name is historical; the requirement is now "CUDA 12.9 or newer" for
-both the system toolchain (nvcc, used for compiling CUDA C++ extensions) and
-the bundled CUDA runtime that torch ships with. This allows the internal
-mirror to serve a plain `torch==2.11.0` wheel whose bundled CUDA happens to
-be 12.9+, instead of forcing the cu129-suffixed wheel from pytorch.org.
+Both the system toolchain (nvcc, used for compiling CUDA C++ extensions) and
+the bundled CUDA runtime that torch ships with must be CUDA 12.9. The intranet
+mirror serves the cu129-suffixed wheel, and the deployed GPU driver line is
+sized for CUDA 12.9; mixing in a 13.x torch wheel against this driver
+silently breaks at first CUDA touch, so the version check is strict.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pathlib import Path
 import torch
 
 
-MIN_VERSION = (12, 9)
+REQUIRED_VERSION = (12, 9)
 PREFERRED_NVCC = Path("/usr/local/cuda-12.9/bin/nvcc")
 _RELEASE_RE = re.compile(r"release (\d+)\.(\d+)")
 
@@ -41,9 +41,9 @@ def main() -> int:
     torch_cuda = _parse_version(torch.version.cuda or "")
     if torch_cuda is None:
         raise SystemExit(f"could not parse torch.version.cuda={torch.version.cuda!r}")
-    if torch_cuda < MIN_VERSION:
+    if torch_cuda != REQUIRED_VERSION:
         raise SystemExit(
-            f"expected torch.version.cuda >= {MIN_VERSION[0]}.{MIN_VERSION[1]}, got {torch.version.cuda!r}"
+            f"expected torch.version.cuda == {REQUIRED_VERSION[0]}.{REQUIRED_VERSION[1]}, got {torch.version.cuda!r}"
         )
 
     if PREFERRED_NVCC.exists():
@@ -60,9 +60,9 @@ def main() -> int:
     nvcc_version = _parse_version(out)
     if nvcc_version is None:
         raise SystemExit(f"could not parse nvcc release from:\n{out}")
-    if nvcc_version < MIN_VERSION:
+    if nvcc_version != REQUIRED_VERSION:
         raise SystemExit(
-            f"expected nvcc release >= {MIN_VERSION[0]}.{MIN_VERSION[1]}, got {nvcc_version[0]}.{nvcc_version[1]} at {nvcc}"
+            f"expected nvcc release == {REQUIRED_VERSION[0]}.{REQUIRED_VERSION[1]}, got {nvcc_version[0]}.{nvcc_version[1]} at {nvcc}"
         )
 
     # Driver vs torch-bundled-runtime mismatch only surfaces when something
