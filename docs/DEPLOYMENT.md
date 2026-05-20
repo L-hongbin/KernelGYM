@@ -13,13 +13,9 @@ KernelGYM reward-only supports two deployment modes. Runtime env values come fro
 - If `redis-server` is missing, `ensure_venv.sh` installs it with apt.
 - If `uv` is missing, `ensure_venv.sh` installs it with `pip install uv`.
 - Use CUDA 12.9 explicitly:
-  - `requirements-cuda129.txt` pins package versions and carries one
-    `--extra-index-url https://download.pytorch.org/whl/cu129` line because the
-    `+cu129` torch wheels live only on PyTorch's index and are not mirrored on
-    PyPI or typical internal proxies. All other index/mirror selection still
-    comes from container image, pip config, uv config, or environment.
-  - `/usr/local/cuda-12.9/bin/nvcc --version` must report CUDA 12.9, or any
-    `nvcc` on PATH that reports release 12.9 is accepted.
+  - `requirements-cuda129.txt` only pins package versions; pip/uv index or mirror selection must come from the
+    container image, pip config, uv config, or environment, not from the requirements file.
+  - `/usr/local/cuda-12.9/bin/nvcc --version` must report CUDA 12.9.
 - If CUDA wheel dependencies cannot be fetched directly, `ensure_venv.sh` retries with
   `http://192.168.28.186:7897` on external nodes. Override with `KERNELGYM_PROXY` or
   `KERNELGYM_FALLBACK_PROXY` only when needed.
