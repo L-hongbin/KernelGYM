@@ -354,6 +354,7 @@ class SubprocessWorkerPool:
         self.workers: List[PersistentWorker] = []
         self.idle_workers: List[PersistentWorker] = []
         self.busy_workers: List[PersistentWorker] = []
+        self.pending_replacements = 0
 
         # 统计
         self.total_tasks_processed = 0
@@ -557,29 +558,52 @@ class SubprocessWorkerPool:
                 # 清理已死亡的 workers
                 self.idle_workers = [w for w in self.idle_workers if w.is_alive()]
 
-                # Emergency recovery: if pool has no workers at all, try to create one
-                if not self.workers and not self.idle_workers and not self.busy_workers:
-                    logger.warning(f"[GPU {self.device_id}] Pool has no workers! Attempting emergency recovery...")
-                    try:
-                        # Wait a bit for GPU resources to be released
-                        await asyncio.sleep(3.0)
-
-                        emergency_worker = PersistentWorker(
-                            f"worker_gpu_{self.device_id}_pool_{self.device_id}_emergency",
-                            self.device_id,
-                            "(emergency recovery)",
-                            max_tasks_per_worker=self.max_tasks_per_worker,
-                        )
-                        self.workers.append(emergency_worker)
-                        self.idle_workers.append(emergency_worker)
-                        logger.info(f"[GPU {self.device_id}] Emergency worker created successfully")
-                    except Exception as e:
-                        logger.error(f"[GPU {self.device_id}] Emergency recovery failed: {e}")
-
                 if self.idle_workers:
                     worker = self.idle_workers.pop(0)
                     self.busy_workers.append(worker)
                     return worker
+
+                needs_emergency_worker = (
+                    not self.workers
+                    and not self.idle_workers
+                    and not self.busy_workers
+                    and self.pending_replacements == 0
+                )
+                if needs_emergency_worker:
+                    # Only one emergency start may be in flight; otherwise
+                    # it races with normal replacement and grows the pool.
+                    self.pending_replacements += 1
+
+            if needs_emergency_worker:
+                logger.warning(f"[GPU {self.device_id}] Pool has no workers; starting emergency recovery")
+                await asyncio.sleep(3.0)
+                emergency_worker: Optional[PersistentWorker] = None
+                try:
+                    emergency_worker = PersistentWorker(
+                        f"worker_gpu_{self.device_id}_pool_{self.device_id}_emergency",
+                        self.device_id,
+                        "(emergency recovery)",
+                        max_tasks_per_worker=self.max_tasks_per_worker,
+                    )
+                except Exception as e:
+                    logger.error(f"[GPU {self.device_id}] Emergency recovery failed: {e}")
+
+                shutdown_extra_worker = False
+                async with self.lock:
+                    self.pending_replacements = max(0, self.pending_replacements - 1)
+                    if emergency_worker is not None:
+                        if len(self.workers) < self.pool_size:
+                            self.workers.append(emergency_worker)
+                            self.idle_workers.append(emergency_worker)
+                            logger.info(f"[GPU {self.device_id}] Emergency worker created successfully")
+                        else:
+                            logger.warning(
+                                f"[GPU {self.device_id}] Emergency worker no longer needed "
+                                f"(workers={len(self.workers)}, pool_size={self.pool_size}); shutting it down"
+                            )
+                            shutdown_extra_worker = True
+                if shutdown_extra_worker and emergency_worker is not None:
+                    await asyncio.to_thread(emergency_worker.shutdown, 10)
 
             # 没有空闲 worker，等待一下
             await asyncio.sleep(0.1)
@@ -633,8 +657,18 @@ class SubprocessWorkerPool:
             logger.info(
                 f"[{worker.worker_id}] Pool state after removal: "
                 f"workers={len(self.workers)} idle={spare_count} "
-                f"busy={len(self.busy_workers)}"
+                f"busy={len(self.busy_workers)} pending={self.pending_replacements}"
             )
+
+            should_replenish = len(self.workers) + self.pending_replacements < self.pool_size
+            if should_replenish:
+                self.pending_replacements += 1
+            else:
+                logger.info(
+                    f"[{worker.worker_id}] Skipping replacement because pool already has capacity "
+                    f"(workers={len(self.workers)}, pending={self.pending_replacements}, "
+                    f"pool_size={self.pool_size})"
+                )
 
         # --- slow: fire-and-forget background replenishment ------------
         # CRITICAL: capture the actual Process object and PID eagerly,
@@ -817,24 +851,45 @@ class SubprocessWorkerPool:
                 logger.error(
                     f"[{old_wid}] Failed to create replacement spare: {e}. Pool now has {len(self.workers)} workers"
                 )
+
+                async def _mark_replacement_failed():
+                    async with self.lock:
+                        self.pending_replacements = max(0, self.pending_replacements - 1)
+
+                asyncio.run_coroutine_threadsafe(_mark_replacement_failed(), _loop)
                 return
 
             # 5. Register the new spare back into the pool (thread-safe
             #    via the asyncio event-loop).
             async def _register():
+                shutdown_new_worker = False
                 async with self.lock:
-                    self.workers.append(new_worker)
-                    self.idle_workers.append(new_worker)
-                    self.total_workers_restarted += 1
-                    logger.info(
-                        f"[{new_worker.worker_id}] Background spare ready — "
-                        f"pool: workers={len(self.workers)} idle={len(self.idle_workers)} "
-                        f"busy={len(self.busy_workers)} "
-                        f"(total restarts: {self.total_workers_restarted})"
-                    )
+                    self.pending_replacements = max(0, self.pending_replacements - 1)
+                    if len(self.workers) < self.pool_size:
+                        self.workers.append(new_worker)
+                        self.idle_workers.append(new_worker)
+                        self.total_workers_restarted += 1
+                        logger.info(
+                            f"[{new_worker.worker_id}] Background spare ready — "
+                            f"pool: workers={len(self.workers)} idle={len(self.idle_workers)} "
+                            f"busy={len(self.busy_workers)} pending={self.pending_replacements} "
+                            f"(total restarts: {self.total_workers_restarted})"
+                        )
+                    else:
+                        shutdown_new_worker = True
+                        logger.warning(
+                            f"[{new_worker.worker_id}] Replacement no longer needed "
+                            f"(workers={len(self.workers)}, pool_size={self.pool_size}); shutting it down"
+                        )
+                if shutdown_new_worker:
+                    await asyncio.to_thread(new_worker.shutdown, 10)
 
             # Schedule the coroutine on the event loop from this thread.
             asyncio.run_coroutine_threadsafe(_register(), _loop)
+
+        if not should_replenish:
+            await asyncio.to_thread(worker.shutdown, 10)
+            return
 
         t = threading.Thread(target=_background_replenish, daemon=True)
 
