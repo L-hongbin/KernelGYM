@@ -1,30 +1,37 @@
 #!/usr/bin/env python3
-"""Aggregate the 27B-breakdown JSONL into a per-binding table.
+"""Aggregate the 27B-breakdown JSONL into a per-binding comparison.
 
-Reads ``benchmarks/results/<tag>_27b_breakdown_<binding>.jsonl`` files,
-emits a comparison table covering:
+Reads ``benchmarks/results/<tag>_27b_breakdown_<binding>.jsonl`` for
+each binding and emits:
 
-  * status distribution (completed / failed / timeout / runner-exception)
-  * outcome rates (compiled, correctness, positive-speedup)
-  * timing percentiles (p50/p90/p99) and mean for each of:
-        elapsed_s
-        kg_kernel_total_s
-        kg_kernel_backend_compile_s
-        kg_kernel_performance_step_s
-        kg_kernel_correctness_s
-        kg_reference_total_s
-        wg_pool_total_s
-        manual_ninja_build_wall_sec
+  * Outcome distribution table (counts per status, plus
+    compiled/correctness/decoy/positive-speedup rates).
+  * Two percentile tables per timing field:
+      - "completed-only" — over samples with status==completed
+      - "all-attempts (censored at server timeout)" — every sample is
+        counted; timeouts use the timeout value, runner exceptions
+        and pure failures use their elapsed_s, all clamped at
+        ``--censor-at`` seconds. Headlining "mean elapsed per
+        attempt" should always reference THIS table.
+  * Per-binding residual:
+      kernel_residual_s = kg_kernel_total_s
+                          - (backend_compile + backend_load
+                             + correctness + performance)
+    A non-trivial residual means the breakdown is missing a phase.
+  * Backend-specific diagnostics section (manual_ninja_*) — these
+    only apply to cuda_agent / pybind11 (manual ninja path), not
+    tvm_ffi (uses ``tvm_ffi.cpp.build``). Reported separately so they
+    are not mistaken for a cross-binding comparison metric.
 
-The aggregation runs on COMPLETED samples only when computing timing
-percentiles (a fail/timeout/runner-exception sample has no meaningful
-``kg_*`` breakdown). Status counts cover every row.
+Dedupes rows by (binding, uid) keeping the last occurrence — so a
+crashed-and-resumed run with the same tag does not double-count.
 
 Usage:
 
     python benchmarks/aggregate_27b.py --tag fullrun
     python benchmarks/aggregate_27b.py --tag fullrun --markdown > table.md
     python benchmarks/aggregate_27b.py --tag fullrun --json > table.json
+    python benchmarks/aggregate_27b.py --tag fullrun --censor-at 240
 """
 
 from __future__ import annotations
@@ -40,15 +47,22 @@ RESULTS_DIR = ROOT / "results"
 
 ALL_BINDINGS = ("cuda_agent", "pybind11", "tvm_ffi")
 
-TIMING_FIELDS = (
+# Cross-binding-safe metrics: present on every backend.
+CROSS_BINDING_FIELDS = (
     "elapsed_s",
     "kg_kernel_total_s",
     "kg_kernel_backend_compile_s",
+    "kg_kernel_backend_load_s",
     "kg_kernel_performance_step_s",
     "kg_kernel_correctness_s",
     "kg_reference_total_s",
     "wg_pool_total_s",
+)
+
+# Backend-specific (manual ninja only — absent for tvm_ffi).
+BACKEND_SPECIFIC_FIELDS = (
     "manual_ninja_build_wall_sec",
+    "manual_ninja_import_wall_sec",
 )
 
 
@@ -63,31 +77,68 @@ def _percentile(values: list[float], pct: float) -> float | None:
     c = min(f + 1, len(s) - 1)
     if f == c:
         return s[f]
-    d0 = s[f] * (c - k)
-    d1 = s[c] * (k - f)
-    return d0 + d1
+    return s[f] * (c - k) + s[c] * (k - f)
+
+
+def _stats(values: list[float]) -> dict:
+    if not values:
+        return {"n": 0, "p50": None, "p90": None, "p99": None, "mean": None}
+    return {
+        "n": len(values),
+        "p50": _percentile(values, 0.50),
+        "p90": _percentile(values, 0.90),
+        "p99": _percentile(values, 0.99),
+        "mean": statistics.fmean(values),
+    }
 
 
 def _load(path: Path) -> list[dict]:
     if not path.is_file():
         return []
-    rows: list[dict] = []
+    by_uid: dict[str, dict] = {}
     with path.open(encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-            rows.append(json.loads(line))
-    return rows
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            uid = rec.get("uid")
+            if not isinstance(uid, str):
+                continue
+            # Dedupe by uid keeping the LAST seen row (so a resumed
+            # run with the same tag overrides earlier partial rows).
+            by_uid[uid] = rec
+    return list(by_uid.values())
 
 
-def _summarize_binding(rows: list[dict]) -> dict:
+def _kernel_residual(rec: dict) -> float | None:
+    total = rec.get("kg_kernel_total_s")
+    parts = [
+        rec.get("kg_kernel_backend_compile_s"),
+        rec.get("kg_kernel_backend_load_s"),
+        rec.get("kg_kernel_correctness_s"),
+        rec.get("kg_kernel_performance_step_s"),
+    ]
+    if not isinstance(total, (int, float)):
+        return None
+    if not all(isinstance(p, (int, float)) for p in parts):
+        return None
+    return float(total) - sum(parts)  # type: ignore[arg-type]
+
+
+def _summarize(rows: list[dict], *, censor_at: float) -> dict:
     total = len(rows)
     status_counts: dict[str, int] = {}
     compiled = 0
     correctness = 0
+    decoy = 0
     speedup_pos = 0
     speedups_compiled: list[float] = []
+
+    completed_rows: list[dict] = []
 
     for r in rows:
         st = r.get("status") or "unknown"
@@ -96,76 +147,158 @@ def _summarize_binding(rows: list[dict]) -> dict:
             compiled += 1
         if r.get("correctness"):
             correctness += 1
+        if r.get("decoy_kernel"):
+            decoy += 1
         sp = r.get("speedup")
         if isinstance(sp, (int, float)):
             if sp > 0:
                 speedup_pos += 1
             if r.get("compiled"):
                 speedups_compiled.append(float(sp))
+        if st == "completed":
+            completed_rows.append(r)
 
-    completed_rows = [r for r in rows if r.get("status") == "completed"]
-    n_completed = len(completed_rows)
+    timing_completed: dict[str, dict] = {}
+    timing_censored: dict[str, dict] = {}
+    for fld in CROSS_BINDING_FIELDS:
+        # Completed-only: values from rows where status == completed.
+        completed_vals = [r[fld] for r in completed_rows if isinstance(r.get(fld), (int, float))]
+        timing_completed[fld] = _stats(completed_vals)
 
-    timing: dict[str, dict] = {}
-    for fld in TIMING_FIELDS:
+        # All-attempts censored: every row contributes. Missing field
+        # in a non-completed row is imputed from elapsed_s (since for
+        # failures the request still consumed elapsed_s wall time at
+        # the reward layer; per-phase fields are not meaningful, but
+        # we fall back to elapsed_s for elapsed_s itself and skip for
+        # phase fields).
+        censored_vals: list[float] = []
+        for r in rows:
+            v = r.get(fld)
+            if isinstance(v, (int, float)):
+                censored_vals.append(min(float(v), censor_at))
+            elif fld == "elapsed_s":
+                # Use elapsed_s when present even on failures; final
+                # ceiling at censor_at.
+                ev = r.get("elapsed_s")
+                if isinstance(ev, (int, float)):
+                    censored_vals.append(min(float(ev), censor_at))
+        timing_censored[fld] = _stats(censored_vals)
+
+    timing_backend_specific: dict[str, dict] = {}
+    for fld in BACKEND_SPECIFIC_FIELDS:
         vals = [r[fld] for r in completed_rows if isinstance(r.get(fld), (int, float))]
-        if not vals:
-            timing[fld] = {"n": 0, "p50": None, "p90": None, "p99": None, "mean": None}
-            continue
-        timing[fld] = {
-            "n": len(vals),
-            "p50": _percentile(vals, 0.50),
-            "p90": _percentile(vals, 0.90),
-            "p99": _percentile(vals, 0.99),
-            "mean": statistics.fmean(vals),
-        }
+        timing_backend_specific[fld] = _stats(vals)
+
+    residuals = [r for r in (_kernel_residual(rec) for rec in completed_rows) if r is not None]
 
     return {
         "total": total,
-        "completed": n_completed,
+        "completed": len(completed_rows),
         "status_counts": status_counts,
         "compiled": compiled,
         "correctness": correctness,
+        "decoy_kernel": decoy,
         "speedup_positive": speedup_pos,
         "speedup_compiled_mean": (statistics.fmean(speedups_compiled) if speedups_compiled else None),
         "speedup_compiled_p50": _percentile(speedups_compiled, 0.50) if speedups_compiled else None,
-        "timing": timing,
+        "timing_completed": timing_completed,
+        "timing_censored": timing_censored,
+        "timing_backend_specific": timing_backend_specific,
+        "kernel_residual_stats": _stats(residuals),
     }
 
 
-def _fmt_secs(x: float | None) -> str:
+def _fmt(x: float | None) -> str:
     if x is None:
         return "—"
     return f"{x:.2f}s"
 
 
-def _render_markdown(summaries: dict[str, dict], tag: str) -> str:
+def _render_markdown(summaries: dict[str, dict], *, tag: str, censor_at: float) -> str:
     lines: list[str] = []
-    lines.append(f"# 27B breakdown — tag `{tag}`")
+    lines.append(f"# 27B 3-binding breakdown — tag `{tag}`")
     lines.append("")
+    lines.append(
+        f"Per binding: paired by problem_id (same KernelBench Level 1 "
+        f"problems across all three). Censored timing percentiles "
+        f"clamp at {censor_at:.0f}s (the server-side per-task timeout)."
+    )
+    lines.append("")
+
     lines.append("## Outcome distribution")
     lines.append("")
     lines.append(
-        "| Binding | Total | Completed | Failed | Timeout | Runner-exc | Compiled | Correct | Speedup>1 | Mean speedup (compiled) |"
+        "| Binding | Total | Completed | Failed | Timeout | Runner-exc | "
+        "Compiled | Correct | Decoy | Speedup>1 | Mean speedup (compiled) |"
     )
-    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for b in ALL_BINDINGS:
         s = summaries.get(b)
         if not s:
-            lines.append(f"| `{b}` | (no data) | | | | | | | | |")
+            lines.append(f"| `{b}` | (no data) | | | | | | | | | |")
             continue
         sc = s["status_counts"]
         ms = s["speedup_compiled_mean"]
         lines.append(
             f"| `{b}` | {s['total']} | {s['completed']} | {sc.get('failed', 0)} "
             f"| {sc.get('timeout', 0)} | {sc.get('runner-exception', 0)} "
-            f"| {s['compiled']} | {s['correctness']} | {s['speedup_positive']} "
+            f"| {s['compiled']} | {s['correctness']} | {s['decoy_kernel']} "
+            f"| {s['speedup_positive']} "
             f"| {'%.3f' % ms if ms is not None else '—'} |"
         )
     lines.append("")
-    lines.append("## Reward-time breakdown (completed samples only, p50 / mean / p90 / p99)")
+
+    for header, key in (
+        ("All-attempts (censored at server timeout)", "timing_censored"),
+        ("Completed-only", "timing_completed"),
+    ):
+        lines.append(f"## {header}")
+        lines.append("")
+        for fld in CROSS_BINDING_FIELDS:
+            lines.append(f"### `{fld}`")
+            lines.append("")
+            lines.append("| Binding | n | p50 | mean | p90 | p99 |")
+            lines.append("|---|---:|---:|---:|---:|---:|")
+            for b in ALL_BINDINGS:
+                s = summaries.get(b)
+                if not s:
+                    continue
+                t = s[key][fld]
+                lines.append(
+                    f"| `{b}` | {t['n']} | {_fmt(t['p50'])} | {_fmt(t['mean'])} "
+                    f"| {_fmt(t['p90'])} | {_fmt(t['p99'])} |"
+                )
+            lines.append("")
+
+    lines.append("## Kernel-phase residual")
     lines.append("")
-    for fld in TIMING_FIELDS:
+    lines.append(
+        "`kg_kernel_total_s − (backend_compile + backend_load + correctness "
+        "+ performance)`. A non-zero residual means kg_kernel_total includes "
+        "work not surfaced by the per-phase fields."
+    )
+    lines.append("")
+    lines.append("| Binding | n | p50 | mean | p90 | p99 |")
+    lines.append("|---|---:|---:|---:|---:|---:|")
+    for b in ALL_BINDINGS:
+        s = summaries.get(b)
+        if not s:
+            continue
+        t = s["kernel_residual_stats"]
+        lines.append(
+            f"| `{b}` | {t['n']} | {_fmt(t['p50'])} | {_fmt(t['mean'])} | {_fmt(t['p90'])} | {_fmt(t['p99'])} |"
+        )
+    lines.append("")
+
+    lines.append("## Backend-specific diagnostics (manual ninja path only)")
+    lines.append("")
+    lines.append(
+        "These fields exist for the cuda_agent + pybind11 manual-ninja "
+        "compile path; tvm_ffi compiles via `tvm_ffi.cpp.build` and "
+        "exposes neither. Do NOT use these to compare against tvm_ffi."
+    )
+    lines.append("")
+    for fld in BACKEND_SPECIFIC_FIELDS:
         lines.append(f"### `{fld}`")
         lines.append("")
         lines.append("| Binding | n | p50 | mean | p90 | p99 |")
@@ -174,21 +307,31 @@ def _render_markdown(summaries: dict[str, dict], tag: str) -> str:
             s = summaries.get(b)
             if not s:
                 continue
-            t = s["timing"][fld]
-            lines.append(
-                f"| `{b}` | {t['n']} | {_fmt_secs(t['p50'])} | {_fmt_secs(t['mean'])} "
-                f"| {_fmt_secs(t['p90'])} | {_fmt_secs(t['p99'])} |"
-            )
+            t = s["timing_backend_specific"][fld]
+            if t["n"] == 0:
+                lines.append(f"| `{b}` | 0 | — | — | — | — |")
+            else:
+                lines.append(
+                    f"| `{b}` | {t['n']} | {_fmt(t['p50'])} | {_fmt(t['mean'])} "
+                    f"| {_fmt(t['p90'])} | {_fmt(t['p99'])} |"
+                )
         lines.append("")
+
     return "\n".join(lines)
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--tag", required=True, help="filename prefix used by run_27b_breakdown.py --tag")
+    p.add_argument("--tag", required=True)
     p.add_argument("--results-dir", type=Path, default=RESULTS_DIR)
-    p.add_argument("--markdown", action="store_true", help="emit a markdown table")
-    p.add_argument("--json", action="store_true", help="emit the raw aggregated JSON")
+    p.add_argument(
+        "--censor-at",
+        type=float,
+        default=240.0,
+        help="server-side timeout used by the runner; censors the all-attempts table",
+    )
+    p.add_argument("--markdown", action="store_true")
+    p.add_argument("--json", action="store_true")
     args = p.parse_args()
 
     summaries: dict[str, dict] = {}
@@ -196,7 +339,7 @@ def main() -> int:
         path = args.results_dir / f"{args.tag}_27b_breakdown_{b}.jsonl"
         rows = _load(path)
         if rows:
-            summaries[b] = _summarize_binding(rows)
+            summaries[b] = _summarize(rows, censor_at=args.censor_at)
 
     if not summaries:
         print(f"# no input found for tag={args.tag} in {args.results_dir}", file=sys.stderr)
@@ -206,10 +349,8 @@ def main() -> int:
         print(json.dumps(summaries, indent=2, sort_keys=True, default=str))
         return 0
 
-    if args.markdown or not (args.json or args.markdown):
-        # default to markdown
-        print(_render_markdown(summaries, tag=args.tag))
-        return 0
+    print(_render_markdown(summaries, tag=args.tag, censor_at=args.censor_at))
+    return 0
 
 
 if __name__ == "__main__":

@@ -1,11 +1,15 @@
 # Compile-speed benchmarks
 
-End-to-end measurements of the reward service's `/evaluate` path, used to
-investigate compile-time regressions and validate compile-acceleration
-changes (object cache, stable ext_name, artifact cache, future PCH).
+End-to-end measurements of the reward service's `/evaluate` path.
 
-Created during the `KernelGYM-vllm018-cuda-agent` → `KernelGYM-reward-only`
-investigation (May 2026); see commits around the same date in
+| Experiment | Doc | Scope |
+|---|---|---|
+| 27B 3-binding reward-time breakdown | [`27b_breakdown_report.md`](27b_breakdown_report.md) | 74 paired problems × {cuda_agent, pybind11, tvm_ffi} × {conc=3, conc=8}, real 27B rollouts. **Read this for the cuda_agent vs pybind11 vs tvm_ffi comparison.** |
+| Vector-add compile-acceleration scaffold (below) | this file | Synthetic vector-add fixture used during PCH / object-cache / stable-ext_name investigation. |
+
+The vector-add scaffold was created during the
+`KernelGYM-vllm018-cuda-agent` → `KernelGYM-reward-only` investigation
+(May 2026); see commits around the same date in
 `docs/design-doc/COMPILE_ACCELERATION.md`.
 
 ## Layout

@@ -44,3 +44,8 @@ This file indexes stable repository docs and evidence locations.
 | --- | --- |
 | `logs/compile_acceleration/` | Planned benchmark results for compile acceleration work. |
 | `artifacts/line451_rmsnorm_debug/repeat50_trial0_result.jsonl` | Standalone `.40` evidence: line 451 fixed-input RMSNorm custom kernel failed 6/50 repeats with exactly 32 mismatched elements per failure. |
+| `artifacts/reviews/7aac366_experiment_design_evidence.json` | Evidence for review of commit `7aac366`: upstream ordering, binding/skipped sample distributions, committed sample hashes, overlap, and partial-run timing contrast. |
+| `artifacts/reviews/concurrency_tvm_ffi_integrity_evidence.json` | Calibration audit evidence for `calib_c{3,8,16}` 27B breakdown rows plus latest `.40` Redis metadata for completed TVM-FFI tasks. |
+| `artifacts/reviews/official_27b_3binding_adversarial_review/` | Evidence bundle for official 27B three-binding paired benchmark review: paired timing CSVs, c3/c8 comparison, timeout details, and code snippets. |
+| `benchmarks/review_evidence/official_27b_review_evidence.json` | Adversarial review evidence for official 27B 3-binding c3/c8 runs: pairing, sample IDs, coverage, statuses, queue deltas, residuals, and c3/c8 consistency. |
+| `benchmarks/review_evidence/official_27b_perf_step_correctness_summary.json` | Perf-step breakdown split by completed, correct-only, and incorrect-completed rows for official 27B c3/c8 runs. |

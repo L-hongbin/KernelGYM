@@ -1,0 +1,1080 @@
+{
+  "official_c3": {
+    "cuda_agent": {
+      "completed": {
+        "examples": [
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": 2.32,
+            "kg_kernel_backend_compile_s": 24.734367677010596,
+            "kg_kernel_performance_step_s": 3.936308573000133,
+            "line": 5,
+            "problem_id": 14,
+            "uid": "test_example_d76979569b914be8af167e4b9981cca6"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 26.34186272788793,
+            "kg_kernel_performance_step_s": 0.00020038383081555367,
+            "line": 9,
+            "problem_id": 49,
+            "uid": "test_example_9fb6840d1dca4f0c9ef2a1f4137b7f46"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 31.072625482920557,
+            "kg_kernel_performance_step_s": 0.00020406674593687057,
+            "line": 10,
+            "problem_id": 80,
+            "uid": "test_example_fa96cc0864e5468ab26b4dd77de1e77d"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 41.16539344191551,
+            "kg_kernel_performance_step_s": 0.00019449228420853615,
+            "line": 11,
+            "problem_id": 44,
+            "uid": "test_example_05f4d6ca6d584d3dbc068a43fcda56b0"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 28.943427755963057,
+            "kg_kernel_performance_step_s": 0.00020030606538057327,
+            "line": 12,
+            "problem_id": 75,
+            "uid": "test_example_9e5e6fb5daf04b8ba49487b0a7ec5c7d"
+          }
+        ],
+        "max": 24.730394259095192,
+        "mean": 7.702119916949111,
+        "min": 0.00019449228420853615,
+        "n": 48,
+        "p50": 7.670182450907305
+      },
+      "correct_only": {
+        "examples": [
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": 2.32,
+            "kg_kernel_backend_compile_s": 24.734367677010596,
+            "kg_kernel_performance_step_s": 3.936308573000133,
+            "line": 5,
+            "problem_id": 14,
+            "uid": "test_example_d76979569b914be8af167e4b9981cca6"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": 21.8,
+            "kg_kernel_backend_compile_s": 36.03479406191036,
+            "kg_kernel_performance_step_s": 9.222669277805835,
+            "line": 14,
+            "problem_id": 12,
+            "uid": "test_example_4a35fa7fc8ae47788ea67f765b158cac"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": 9.83,
+            "kg_kernel_backend_compile_s": 24.77917041676119,
+            "kg_kernel_performance_step_s": 13.595356935169548,
+            "line": 20,
+            "problem_id": 4,
+            "uid": "test_example_3a914af5f8704df693cd5c51b6f01b22"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": 27.1,
+            "kg_kernel_backend_compile_s": 33.46732013858855,
+            "kg_kernel_performance_step_s": 16.43701340118423,
+            "line": 22,
+            "problem_id": 23,
+            "uid": "test_example_0cff809666f247f78e17e2c5763998a4"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": 25.2,
+            "kg_kernel_backend_compile_s": 32.05064822686836,
+            "kg_kernel_performance_step_s": 12.111419330816716,
+            "line": 25,
+            "problem_id": 17,
+            "uid": "test_example_cd9e098b793942d59434ffca3f93e61e"
+          }
+        ],
+        "max": 24.730394259095192,
+        "mean": 14.219123665780689,
+        "min": 3.936308573000133,
+        "n": 26,
+        "p50": 15.041658475995064
+      },
+      "incorrect_completed": {
+        "examples": [
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 26.34186272788793,
+            "kg_kernel_performance_step_s": 0.00020038383081555367,
+            "line": 9,
+            "problem_id": 49,
+            "uid": "test_example_9fb6840d1dca4f0c9ef2a1f4137b7f46"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 31.072625482920557,
+            "kg_kernel_performance_step_s": 0.00020406674593687057,
+            "line": 10,
+            "problem_id": 80,
+            "uid": "test_example_fa96cc0864e5468ab26b4dd77de1e77d"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 41.16539344191551,
+            "kg_kernel_performance_step_s": 0.00019449228420853615,
+            "line": 11,
+            "problem_id": 44,
+            "uid": "test_example_05f4d6ca6d584d3dbc068a43fcda56b0"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 28.943427755963057,
+            "kg_kernel_performance_step_s": 0.00020030606538057327,
+            "line": 12,
+            "problem_id": 75,
+            "uid": "test_example_9e5e6fb5daf04b8ba49487b0a7ec5c7d"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 36.12408513016999,
+            "kg_kernel_performance_step_s": 0.00021187309175729752,
+            "line": 18,
+            "problem_id": 61,
+            "uid": "test_example_e8481e20a347433dbe32e2b49ca73984"
+          }
+        ],
+        "max": 0.0002365591935813427,
+        "mean": 0.00020639560270038518,
+        "min": 0.00019449228420853615,
+        "n": 22,
+        "p50": 0.00020437873899936676
+      }
+    },
+    "pybind11": {
+      "completed": {
+        "examples": [
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": 58.6,
+            "kg_kernel_backend_compile_s": 35.57345128012821,
+            "kg_kernel_performance_step_s": 9.107597885187715,
+            "line": 2,
+            "problem_id": 66,
+            "uid": "test_example_0d7bfd9997104db9a7e252b1128bed37"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": 2.27,
+            "kg_kernel_backend_compile_s": 24.549305996857584,
+            "kg_kernel_performance_step_s": 2.94748322898522,
+            "line": 5,
+            "problem_id": 14,
+            "uid": "test_example_1e2c16eb57ff4f7884e80ab84377c2b0"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 27.351137780118734,
+            "kg_kernel_performance_step_s": 0.00019549299031496048,
+            "line": 7,
+            "problem_id": 54,
+            "uid": "test_example_c6e0ecc798534b2bbec1636d5b7d16b0"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 42.61413294589147,
+            "kg_kernel_performance_step_s": 0.00019995030015707016,
+            "line": 10,
+            "problem_id": 80,
+            "uid": "test_example_905d309b46f54716b0f8c2bb590e0a27"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 28.230052449274808,
+            "kg_kernel_performance_step_s": 0.0001917220652103424,
+            "line": 11,
+            "problem_id": 75,
+            "uid": "test_example_6b6ccc49eec14107882e29245f0a3052"
+          }
+        ],
+        "max": 44.84311784384772,
+        "mean": 12.12305931929898,
+        "min": 0.0001917220652103424,
+        "n": 42,
+        "p50": 13.121784274699166
+      },
+      "correct_only": {
+        "examples": [
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": 58.6,
+            "kg_kernel_backend_compile_s": 35.57345128012821,
+            "kg_kernel_performance_step_s": 9.107597885187715,
+            "line": 2,
+            "problem_id": 66,
+            "uid": "test_example_0d7bfd9997104db9a7e252b1128bed37"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": 2.27,
+            "kg_kernel_backend_compile_s": 24.549305996857584,
+            "kg_kernel_performance_step_s": 2.94748322898522,
+            "line": 5,
+            "problem_id": 14,
+            "uid": "test_example_1e2c16eb57ff4f7884e80ab84377c2b0"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": 19.2,
+            "kg_kernel_backend_compile_s": 38.14422472985461,
+            "kg_kernel_performance_step_s": 44.84311784384772,
+            "line": 12,
+            "problem_id": 44,
+            "uid": "test_example_37c2d95d0cef4347ba2412f249073532"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": 2.67,
+            "kg_kernel_backend_compile_s": 30.77434180304408,
+            "kg_kernel_performance_step_s": 6.272366010118276,
+            "line": 14,
+            "problem_id": 12,
+            "uid": "test_example_2b9af9d8ae8d4bb588606a7343fb9ef6"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": 14.8,
+            "kg_kernel_backend_compile_s": 34.92110326467082,
+            "kg_kernel_performance_step_s": 21.17286224430427,
+            "line": 17,
+            "problem_id": 30,
+            "uid": "test_example_da9eeb05055a4b7f9e10941af842549e"
+          }
+        ],
+        "max": 44.84311784384772,
+        "mean": 16.97219763149818,
+        "min": 2.94748322898522,
+        "n": 30,
+        "p50": 16.33938293112442
+      },
+      "incorrect_completed": {
+        "examples": [
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 27.351137780118734,
+            "kg_kernel_performance_step_s": 0.00019549299031496048,
+            "line": 7,
+            "problem_id": 54,
+            "uid": "test_example_c6e0ecc798534b2bbec1636d5b7d16b0"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 42.61413294589147,
+            "kg_kernel_performance_step_s": 0.00019995030015707016,
+            "line": 10,
+            "problem_id": 80,
+            "uid": "test_example_905d309b46f54716b0f8c2bb590e0a27"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 28.230052449274808,
+            "kg_kernel_performance_step_s": 0.0001917220652103424,
+            "line": 11,
+            "problem_id": 75,
+            "uid": "test_example_6b6ccc49eec14107882e29245f0a3052"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 35.310487600043416,
+            "kg_kernel_performance_step_s": 0.00019416911527514458,
+            "line": 18,
+            "problem_id": 61,
+            "uid": "test_example_43f9995b4a284765882ebbb446683cec"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 34.56702044932172,
+            "kg_kernel_performance_step_s": 0.0002000788226723671,
+            "line": 19,
+            "problem_id": 63,
+            "uid": "test_example_91dcc8542d8a447a8b92035069e8ed17"
+          }
+        ],
+        "max": 0.00031427061185240746,
+        "mean": 0.00021353880098710457,
+        "min": 0.0001917220652103424,
+        "n": 12,
+        "p50": 0.00020001456141471863
+      }
+    },
+    "tvm_ffi": {
+      "completed": {
+        "examples": [
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": 89.3,
+            "kg_kernel_backend_compile_s": 2.719740397296846,
+            "kg_kernel_performance_step_s": 9.539461580105126,
+            "line": 2,
+            "problem_id": 66,
+            "uid": "test_example_39c50c7ffcff4b6d9db4a49813875783"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 2.33638854091987,
+            "kg_kernel_performance_step_s": 0.0005143680609762669,
+            "line": 3,
+            "problem_id": 56,
+            "uid": "test_example_fed1973f62cb40dba36590eb6f480a2a"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 2.377581673208624,
+            "kg_kernel_performance_step_s": 0.00019739288836717606,
+            "line": 9,
+            "problem_id": 49,
+            "uid": "test_example_c7070ffb63064ace9fd8a0b793824947"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": 21.8,
+            "kg_kernel_backend_compile_s": 2.2231829538941383,
+            "kg_kernel_performance_step_s": 6.754455219954252,
+            "line": 13,
+            "problem_id": 12,
+            "uid": "test_example_0f50cf1550da41beb7b247c00f067e04"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": 3390.0,
+            "kg_kernel_backend_compile_s": 2.4929551552049816,
+            "kg_kernel_performance_step_s": 130.86694197775796,
+            "line": 16,
+            "problem_id": 75,
+            "uid": "test_example_bc9571b7a22e4f5ebd19ac2e79c4c8bf"
+          }
+        ],
+        "max": 130.86694197775796,
+        "mean": 14.354270264554101,
+        "min": 0.00019548926502466202,
+        "n": 39,
+        "p50": 11.54040031787008
+      },
+      "correct_only": {
+        "examples": [
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": 89.3,
+            "kg_kernel_backend_compile_s": 2.719740397296846,
+            "kg_kernel_performance_step_s": 9.539461580105126,
+            "line": 2,
+            "problem_id": 66,
+            "uid": "test_example_39c50c7ffcff4b6d9db4a49813875783"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": 21.8,
+            "kg_kernel_backend_compile_s": 2.2231829538941383,
+            "kg_kernel_performance_step_s": 6.754455219954252,
+            "line": 13,
+            "problem_id": 12,
+            "uid": "test_example_0f50cf1550da41beb7b247c00f067e04"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": 3390.0,
+            "kg_kernel_backend_compile_s": 2.4929551552049816,
+            "kg_kernel_performance_step_s": 130.86694197775796,
+            "line": 16,
+            "problem_id": 75,
+            "uid": "test_example_bc9571b7a22e4f5ebd19ac2e79c4c8bf"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": 9.36,
+            "kg_kernel_backend_compile_s": 2.710482662077993,
+            "kg_kernel_performance_step_s": 13.058813018724322,
+            "line": 19,
+            "problem_id": 4,
+            "uid": "test_example_b74a45b97b354d119e88c58cce688755"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c3_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": 27.8,
+            "kg_kernel_backend_compile_s": 2.326134826987982,
+            "kg_kernel_performance_step_s": 19.674421680159867,
+            "line": 21,
+            "problem_id": 23,
+            "uid": "test_example_aea4f7cd51714cafad398345a5a74e95"
+          }
+        ],
+        "max": 130.86694197775796,
+        "mean": 20.73384514014685,
+        "min": 6.130332147702575,
+        "n": 27,
+        "p50": 18.029955924022943
+      },
+      "incorrect_completed": {
+        "examples": [
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 2.33638854091987,
+            "kg_kernel_performance_step_s": 0.0005143680609762669,
+            "line": 3,
+            "problem_id": 56,
+            "uid": "test_example_fed1973f62cb40dba36590eb6f480a2a"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 2.377581673208624,
+            "kg_kernel_performance_step_s": 0.00019739288836717606,
+            "line": 9,
+            "problem_id": 49,
+            "uid": "test_example_c7070ffb63064ace9fd8a0b793824947"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 2.6594386966899037,
+            "kg_kernel_performance_step_s": 0.000199110247194767,
+            "line": 18,
+            "problem_id": 63,
+            "uid": "test_example_d50ceac1dfca434b8553b778638946c9"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 2.7224537562578917,
+            "kg_kernel_performance_step_s": 0.00019621290266513824,
+            "line": 33,
+            "problem_id": 37,
+            "uid": "test_example_26343cec7edb447c9ddd1aa99c348068"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c3_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 2.673492992762476,
+            "kg_kernel_performance_step_s": 0.00020045600831508636,
+            "line": 36,
+            "problem_id": 77,
+            "uid": "test_example_868bffcf94c44a298d28fc011e121d43"
+          }
+        ],
+        "max": 0.0005143680609762669,
+        "mean": 0.0002267944704120358,
+        "min": 0.00019548926502466202,
+        "n": 12,
+        "p50": 0.00019825808703899384
+      }
+    }
+  },
+  "official_c8": {
+    "cuda_agent": {
+      "completed": {
+        "examples": [
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": 2.24,
+            "kg_kernel_backend_compile_s": 28.212264703586698,
+            "kg_kernel_performance_step_s": 5.455222064163536,
+            "line": 5,
+            "problem_id": 14,
+            "uid": "test_example_d76979569b914be8af167e4b9981cca6"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 27.65560198901221,
+            "kg_kernel_performance_step_s": 0.00020566070452332497,
+            "line": 9,
+            "problem_id": 49,
+            "uid": "test_example_9fb6840d1dca4f0c9ef2a1f4137b7f46"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 27.749436228070408,
+            "kg_kernel_performance_step_s": 0.0002154037356376648,
+            "line": 10,
+            "problem_id": 80,
+            "uid": "test_example_fa96cc0864e5468ab26b4dd77de1e77d"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 22.75085863377899,
+            "kg_kernel_performance_step_s": 0.00020032888278365135,
+            "line": 11,
+            "problem_id": 44,
+            "uid": "test_example_05f4d6ca6d584d3dbc068a43fcda56b0"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 22.431349892169237,
+            "kg_kernel_performance_step_s": 0.00020168395712971687,
+            "line": 12,
+            "problem_id": 75,
+            "uid": "test_example_9e5e6fb5daf04b8ba49487b0a7ec5c7d"
+          }
+        ],
+        "max": 26.029965648893267,
+        "mean": 7.684905484920212,
+        "min": 0.00019678520038723946,
+        "n": 48,
+        "p50": 5.1608194096479565
+      },
+      "correct_only": {
+        "examples": [
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": 2.24,
+            "kg_kernel_backend_compile_s": 28.212264703586698,
+            "kg_kernel_performance_step_s": 5.455222064163536,
+            "line": 5,
+            "problem_id": 14,
+            "uid": "test_example_d76979569b914be8af167e4b9981cca6"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": 21.8,
+            "kg_kernel_backend_compile_s": 27.795851631090045,
+            "kg_kernel_performance_step_s": 4.866416755132377,
+            "line": 16,
+            "problem_id": 12,
+            "uid": "test_example_4a35fa7fc8ae47788ea67f765b158cac"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": 9.82,
+            "kg_kernel_backend_compile_s": 29.678154618944973,
+            "kg_kernel_performance_step_s": 12.360382198821753,
+            "line": 21,
+            "problem_id": 4,
+            "uid": "test_example_3a914af5f8704df693cd5c51b6f01b22"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": 27.1,
+            "kg_kernel_backend_compile_s": 27.59285858599469,
+            "kg_kernel_performance_step_s": 16.240484212059528,
+            "line": 23,
+            "problem_id": 23,
+            "uid": "test_example_0cff809666f247f78e17e2c5763998a4"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": 25.2,
+            "kg_kernel_backend_compile_s": 29.099066806025803,
+            "kg_kernel_performance_step_s": 4.846321988850832,
+            "line": 25,
+            "problem_id": 17,
+            "uid": "test_example_cd9e098b793942d59434ffca3f93e61e"
+          }
+        ],
+        "max": 26.029965648893267,
+        "mean": 14.187343059394221,
+        "min": 4.846321988850832,
+        "n": 26,
+        "p50": 14.719250248046592
+      },
+      "incorrect_completed": {
+        "examples": [
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 27.65560198901221,
+            "kg_kernel_performance_step_s": 0.00020566070452332497,
+            "line": 9,
+            "problem_id": 49,
+            "uid": "test_example_9fb6840d1dca4f0c9ef2a1f4137b7f46"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 27.749436228070408,
+            "kg_kernel_performance_step_s": 0.0002154037356376648,
+            "line": 10,
+            "problem_id": 80,
+            "uid": "test_example_fa96cc0864e5468ab26b4dd77de1e77d"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 22.75085863377899,
+            "kg_kernel_performance_step_s": 0.00020032888278365135,
+            "line": 11,
+            "problem_id": 44,
+            "uid": "test_example_05f4d6ca6d584d3dbc068a43fcda56b0"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 22.431349892169237,
+            "kg_kernel_performance_step_s": 0.00020168395712971687,
+            "line": 12,
+            "problem_id": 75,
+            "uid": "test_example_9e5e6fb5daf04b8ba49487b0a7ec5c7d"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 21.574853679165244,
+            "kg_kernel_performance_step_s": 0.00020029069855809212,
+            "line": 19,
+            "problem_id": 61,
+            "uid": "test_example_e8481e20a347433dbe32e2b49ca73984"
+          }
+        ],
+        "max": 0.00022273696959018707,
+        "mean": 0.00020653326911005107,
+        "min": 0.00019678520038723946,
+        "n": 22,
+        "p50": 0.00020409398712217808
+      }
+    },
+    "pybind11": {
+      "completed": {
+        "examples": [
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": 59.4,
+            "kg_kernel_backend_compile_s": 28.238443668931723,
+            "kg_kernel_performance_step_s": 8.164587427861989,
+            "line": 6,
+            "problem_id": 66,
+            "uid": "test_example_0d7bfd9997104db9a7e252b1128bed37"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": 2.27,
+            "kg_kernel_backend_compile_s": 28.27858467726037,
+            "kg_kernel_performance_step_s": 4.601480924058706,
+            "line": 7,
+            "problem_id": 14,
+            "uid": "test_example_1e2c16eb57ff4f7884e80ab84377c2b0"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 27.990696114022285,
+            "kg_kernel_performance_step_s": 0.0001984238624572754,
+            "line": 8,
+            "problem_id": 54,
+            "uid": "test_example_c6e0ecc798534b2bbec1636d5b7d16b0"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 26.854872609954327,
+            "kg_kernel_performance_step_s": 0.00020043225958943367,
+            "line": 10,
+            "problem_id": 80,
+            "uid": "test_example_905d309b46f54716b0f8c2bb590e0a27"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 22.05388257978484,
+            "kg_kernel_performance_step_s": 0.0002015838399529457,
+            "line": 11,
+            "problem_id": 75,
+            "uid": "test_example_6b6ccc49eec14107882e29245f0a3052"
+          }
+        ],
+        "max": 33.832366227172315,
+        "mean": 12.072916342865764,
+        "min": 0.00019654491916298866,
+        "n": 42,
+        "p50": 12.796095188707113
+      },
+      "correct_only": {
+        "examples": [
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": 59.4,
+            "kg_kernel_backend_compile_s": 28.238443668931723,
+            "kg_kernel_performance_step_s": 8.164587427861989,
+            "line": 6,
+            "problem_id": 66,
+            "uid": "test_example_0d7bfd9997104db9a7e252b1128bed37"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": 2.27,
+            "kg_kernel_backend_compile_s": 28.27858467726037,
+            "kg_kernel_performance_step_s": 4.601480924058706,
+            "line": 7,
+            "problem_id": 14,
+            "uid": "test_example_1e2c16eb57ff4f7884e80ab84377c2b0"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": 19.2,
+            "kg_kernel_backend_compile_s": 22.62981155794114,
+            "kg_kernel_performance_step_s": 33.832366227172315,
+            "line": 14,
+            "problem_id": 44,
+            "uid": "test_example_37c2d95d0cef4347ba2412f249073532"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": 2.6,
+            "kg_kernel_backend_compile_s": 27.59537785500288,
+            "kg_kernel_performance_step_s": 4.370382686611265,
+            "line": 15,
+            "problem_id": 12,
+            "uid": "test_example_2b9af9d8ae8d4bb588606a7343fb9ef6"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": 14.8,
+            "kg_kernel_backend_compile_s": 23.61086342204362,
+            "kg_kernel_performance_step_s": 15.847568772733212,
+            "line": 17,
+            "problem_id": 30,
+            "uid": "test_example_da9eeb05055a4b7f9e10941af842549e"
+          }
+        ],
+        "max": 33.832366227172315,
+        "mean": 16.902002394385637,
+        "min": 4.370382686611265,
+        "n": 30,
+        "p50": 17.345930754207075
+      },
+      "incorrect_completed": {
+        "examples": [
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 27.990696114022285,
+            "kg_kernel_performance_step_s": 0.0001984238624572754,
+            "line": 8,
+            "problem_id": 54,
+            "uid": "test_example_c6e0ecc798534b2bbec1636d5b7d16b0"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 26.854872609954327,
+            "kg_kernel_performance_step_s": 0.00020043225958943367,
+            "line": 10,
+            "problem_id": 80,
+            "uid": "test_example_905d309b46f54716b0f8c2bb590e0a27"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 22.05388257978484,
+            "kg_kernel_performance_step_s": 0.0002015838399529457,
+            "line": 11,
+            "problem_id": 75,
+            "uid": "test_example_6b6ccc49eec14107882e29245f0a3052"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 27.118505802936852,
+            "kg_kernel_performance_step_s": 0.000199225265532732,
+            "line": 18,
+            "problem_id": 61,
+            "uid": "test_example_43f9995b4a284765882ebbb446683cec"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 28.75181392300874,
+            "kg_kernel_performance_step_s": 0.0001998567022383213,
+            "line": 20,
+            "problem_id": 63,
+            "uid": "test_example_91dcc8542d8a447a8b92035069e8ed17"
+          }
+        ],
+        "max": 0.00020888587459921837,
+        "mean": 0.0002012140660857161,
+        "min": 0.00019654491916298866,
+        "n": 12,
+        "p50": 0.0001996129285544157
+      }
+    },
+    "tvm_ffi": {
+      "completed": {
+        "examples": [
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 2.6588434390723705,
+            "kg_kernel_performance_step_s": 0.00030851690098643303,
+            "line": 2,
+            "problem_id": 56,
+            "uid": "test_example_fed1973f62cb40dba36590eb6f480a2a"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": 89.3,
+            "kg_kernel_backend_compile_s": 2.8899259390309453,
+            "kg_kernel_performance_step_s": 9.336393360979855,
+            "line": 3,
+            "problem_id": 66,
+            "uid": "test_example_39c50c7ffcff4b6d9db4a49813875783"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 2.282986974809319,
+            "kg_kernel_performance_step_s": 0.0001941099762916565,
+            "line": 9,
+            "problem_id": 49,
+            "uid": "test_example_c7070ffb63064ace9fd8a0b793824947"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": 21.9,
+            "kg_kernel_backend_compile_s": 2.299316782038659,
+            "kg_kernel_performance_step_s": 10.141709516756237,
+            "line": 14,
+            "problem_id": 12,
+            "uid": "test_example_0f50cf1550da41beb7b247c00f067e04"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 2.6174760526046157,
+            "kg_kernel_performance_step_s": 0.00027799420058727264,
+            "line": 17,
+            "problem_id": 63,
+            "uid": "test_example_d50ceac1dfca434b8553b778638946c9"
+          }
+        ],
+        "max": 131.08306811470538,
+        "mean": 15.048602634933419,
+        "min": 0.00019214674830436707,
+        "n": 39,
+        "p50": 11.382872242946178
+      },
+      "correct_only": {
+        "examples": [
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": 89.3,
+            "kg_kernel_backend_compile_s": 2.8899259390309453,
+            "kg_kernel_performance_step_s": 9.336393360979855,
+            "line": 3,
+            "problem_id": 66,
+            "uid": "test_example_39c50c7ffcff4b6d9db4a49813875783"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": 21.9,
+            "kg_kernel_backend_compile_s": 2.299316782038659,
+            "kg_kernel_performance_step_s": 10.141709516756237,
+            "line": 14,
+            "problem_id": 12,
+            "uid": "test_example_0f50cf1550da41beb7b247c00f067e04"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": 9.37,
+            "kg_kernel_backend_compile_s": 2.279680065345019,
+            "kg_kernel_performance_step_s": 11.418808954302222,
+            "line": 18,
+            "problem_id": 4,
+            "uid": "test_example_b74a45b97b354d119e88c58cce688755"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": 27.9,
+            "kg_kernel_backend_compile_s": 2.1704799765720963,
+            "kg_kernel_performance_step_s": 19.743659402709454,
+            "line": 20,
+            "problem_id": 23,
+            "uid": "test_example_aea4f7cd51714cafad398345a5a74e95"
+          },
+          {
+            "correctness": true,
+            "file": "benchmarks/results/official_c8_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": 3390.0,
+            "kg_kernel_backend_compile_s": 2.389270461164415,
+            "kg_kernel_performance_step_s": 131.08306811470538,
+            "line": 25,
+            "problem_id": 75,
+            "uid": "test_example_bc9571b7a22e4f5ebd19ac2e79c4c8bf"
+          }
+        ],
+        "max": 131.08306811470538,
+        "mean": 21.73675986615665,
+        "min": 6.151946132071316,
+        "n": 27,
+        "p50": 19.245534718967974
+      },
+      "incorrect_completed": {
+        "examples": [
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 2.6588434390723705,
+            "kg_kernel_performance_step_s": 0.00030851690098643303,
+            "line": 2,
+            "problem_id": 56,
+            "uid": "test_example_fed1973f62cb40dba36590eb6f480a2a"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 2.282986974809319,
+            "kg_kernel_performance_step_s": 0.0001941099762916565,
+            "line": 9,
+            "problem_id": 49,
+            "uid": "test_example_c7070ffb63064ace9fd8a0b793824947"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 2.6174760526046157,
+            "kg_kernel_performance_step_s": 0.00027799420058727264,
+            "line": 17,
+            "problem_id": 63,
+            "uid": "test_example_d50ceac1dfca434b8553b778638946c9"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 2.6691138111054897,
+            "kg_kernel_performance_step_s": 0.00019960012286901474,
+            "line": 33,
+            "problem_id": 37,
+            "uid": "test_example_26343cec7edb447c9ddd1aa99c348068"
+          },
+          {
+            "correctness": false,
+            "file": "benchmarks/results/official_c8_27b_breakdown_tvm_ffi.jsonl",
+            "kernel_runtime_ms": -1.0,
+            "kg_kernel_backend_compile_s": 2.661452936939895,
+            "kg_kernel_performance_step_s": 0.00020495383068919182,
+            "line": 35,
+            "problem_id": 77,
+            "uid": "test_example_868bffcf94c44a298d28fc011e121d43"
+          }
+        ],
+        "max": 0.0005712108686566353,
+        "mean": 0.0002488646811495225,
+        "min": 0.00019214674830436707,
+        "n": 12,
+        "p50": 0.00020658737048506737
+      }
+    }
+  }
+}

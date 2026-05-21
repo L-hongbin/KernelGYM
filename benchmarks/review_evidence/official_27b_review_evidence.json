@@ -1,0 +1,3505 @@
+{
+  "c3_c8_consistency": {
+    "largest_elapsed_deltas": [
+      {
+        "binding": "pybind11",
+        "compile_delta": -15.514413171913475,
+        "elapsed_delta_c8_minus_c3": -55.077000000000005,
+        "kg_total_delta": -26.538569973781705,
+        "line3": 12,
+        "line8": 14,
+        "perf_delta": -11.010751616675407,
+        "problem_id": 44,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_37c2d95d0cef4347ba2412f249073532"
+      },
+      {
+        "binding": "cuda_agent",
+        "compile_delta": 15.528232933953404,
+        "elapsed_delta_c8_minus_c3": 32.057,
+        "kg_total_delta": 15.56788001069799,
+        "line3": 72,
+        "line8": 72,
+        "perf_delta": 5.216337740421295e-06,
+        "problem_id": 84,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_be79e03f83d74054a539e563a1c09dd1"
+      },
+      {
+        "binding": "pybind11",
+        "compile_delta": -11.310239842627198,
+        "elapsed_delta_c8_minus_c3": -30.051000000000002,
+        "kg_total_delta": -16.629211940336972,
+        "line3": 17,
+        "line8": 17,
+        "perf_delta": -5.325293471571058,
+        "problem_id": 30,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_da9eeb05055a4b7f9e10941af842549e"
+      },
+      {
+        "binding": "cuda_agent",
+        "compile_delta": -10.78540932200849,
+        "elapsed_delta_c8_minus_c3": -28.079000000000008,
+        "kg_total_delta": -17.3740311935544,
+        "line3": 49,
+        "line8": 49,
+        "perf_delta": -6.53490031696856,
+        "problem_id": 22,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_6693e6d29a724131b4d9c1755c398fd7"
+      },
+      {
+        "binding": "pybind11",
+        "compile_delta": -3.468485460616648,
+        "elapsed_delta_c8_minus_c3": -28.058999999999997,
+        "kg_total_delta": -8.188979664351791,
+        "line3": 28,
+        "line8": 29,
+        "perf_delta": -4.727308528032154,
+        "problem_id": 93,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_67345b8230ad4b69b1bdf2918cdfb0f3"
+      },
+      {
+        "binding": "pybind11",
+        "compile_delta": -5.4769485257565975,
+        "elapsed_delta_c8_minus_c3": -26.040999999999997,
+        "kg_total_delta": -9.263632067944854,
+        "line3": 63,
+        "line8": 63,
+        "perf_delta": -3.782661242876202,
+        "problem_id": 51,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_0d159032517e4cf3bf0087b6d0a35b92"
+      },
+      {
+        "binding": "tvm_ffi",
+        "compile_delta": -0.6469458537176251,
+        "elapsed_delta_c8_minus_c3": -24.523000000000003,
+        "kg_total_delta": -7.408172193914652,
+        "line3": 63,
+        "line8": 62,
+        "perf_delta": -6.758684655185789,
+        "problem_id": 51,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_99e1dc8c03e941248d3fb1f20afb4887"
+      },
+      {
+        "binding": "cuda_agent",
+        "compile_delta": 16.724769660737365,
+        "elapsed_delta_c8_minus_c3": 23.053999999999995,
+        "kg_total_delta": 22.745734394993633,
+        "line3": 74,
+        "line8": 74,
+        "perf_delta": 6.0884648584760725,
+        "problem_id": 21,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_4f9d1c0545a047c492f91b36af822876"
+      },
+      {
+        "binding": "cuda_agent",
+        "compile_delta": 6.648819523863494,
+        "elapsed_delta_c8_minus_c3": 23.012999999999998,
+        "kg_total_delta": 8.458299007732421,
+        "line3": 51,
+        "line8": 55,
+        "perf_delta": 1.8054717988707125,
+        "problem_id": 27,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_49e4001819a345b2a728a57ea7d31f9a"
+      },
+      {
+        "binding": "tvm_ffi",
+        "compile_delta": 0.28907036408782005,
+        "elapsed_delta_c8_minus_c3": -22.034000000000002,
+        "kg_total_delta": -4.89031479600817,
+        "line3": 47,
+        "line8": 48,
+        "perf_delta": -5.143110904376954,
+        "problem_id": 29,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_88dde22bd31740f7975aa64f6f11c8b9"
+      },
+      {
+        "binding": "pybind11",
+        "compile_delta": -6.142232324928045,
+        "elapsed_delta_c8_minus_c3": -21.061999999999998,
+        "kg_total_delta": -7.048085139133036,
+        "line3": 49,
+        "line8": 48,
+        "perf_delta": -0.9208645443432033,
+        "problem_id": 22,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_e4318409749e45fa9fe810acf8017d8e"
+      },
+      {
+        "binding": "pybind11",
+        "compile_delta": 24.945924611762166,
+        "elapsed_delta_c8_minus_c3": 21.025,
+        "kg_total_delta": 29.74366011703387,
+        "line3": 70,
+        "line8": 71,
+        "perf_delta": 4.793398157693446,
+        "problem_id": 18,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_98011705fa0444f4825e0817308a0e3f"
+      },
+      {
+        "binding": "tvm_ffi",
+        "compile_delta": 0.009171894751489162,
+        "elapsed_delta_c8_minus_c3": -20.065,
+        "kg_total_delta": -5.692312975414097,
+        "line3": 39,
+        "line8": 38,
+        "perf_delta": -5.717016196809709,
+        "problem_id": 47,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_ef402b0134da4141b7cfa4e4e4a2bdc4"
+      },
+      {
+        "binding": "pybind11",
+        "compile_delta": null,
+        "elapsed_delta_c8_minus_c3": 20.014,
+        "kg_total_delta": null,
+        "line3": 58,
+        "line8": 59,
+        "perf_delta": null,
+        "problem_id": 9,
+        "status3": "failed",
+        "status8": "failed",
+        "uid": "test_example_04b1ac698d3143c083e7086a283abb18"
+      },
+      {
+        "binding": "pybind11",
+        "compile_delta": null,
+        "elapsed_delta_c8_minus_c3": -20.002999999999997,
+        "kg_total_delta": null,
+        "line3": 13,
+        "line8": 12,
+        "perf_delta": null,
+        "problem_id": 53,
+        "status3": "failed",
+        "status8": "failed",
+        "uid": "test_example_f5b73f7b7a064f5e8a08933262de8484"
+      },
+      {
+        "binding": "pybind11",
+        "compile_delta": -3.9155039126053452,
+        "elapsed_delta_c8_minus_c3": -19.026999999999994,
+        "kg_total_delta": -7.78163872892037,
+        "line3": 27,
+        "line8": 27,
+        "perf_delta": -3.862891444005072,
+        "problem_id": 19,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_f09e2190f22f4c96bde1829bbfcd7caf"
+      },
+      {
+        "binding": "pybind11",
+        "compile_delta": null,
+        "elapsed_delta_c8_minus_c3": 19.017,
+        "kg_total_delta": null,
+        "line3": 69,
+        "line8": 69,
+        "perf_delta": null,
+        "problem_id": 85,
+        "status3": "failed",
+        "status8": "failed",
+        "uid": "test_example_3ba4a7846bd64fff90fe3e43c272dbcd"
+      },
+      {
+        "binding": "cuda_agent",
+        "compile_delta": 8.435306550003588,
+        "elapsed_delta_c8_minus_c3": 18.539000000000005,
+        "kg_total_delta": 8.469400376081467,
+        "line3": 57,
+        "line8": 57,
+        "perf_delta": 6.111804395914078e-06,
+        "problem_id": 91,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_a5fc2e084c434198bf7d8e1b2020c505"
+      },
+      {
+        "binding": "pybind11",
+        "compile_delta": null,
+        "elapsed_delta_c8_minus_c3": 18.517,
+        "kg_total_delta": null,
+        "line3": 50,
+        "line8": 50,
+        "perf_delta": null,
+        "problem_id": 92,
+        "status3": "failed",
+        "status8": "failed",
+        "uid": "test_example_cc4d43bceab14aa1b0253d682b05e678"
+      },
+      {
+        "binding": "pybind11",
+        "compile_delta": -5.09230122808367,
+        "elapsed_delta_c8_minus_c3": -17.557000000000002,
+        "kg_total_delta": -5.800104381516576,
+        "line3": 47,
+        "line8": 47,
+        "perf_delta": -0.6686753588728607,
+        "problem_id": 29,
+        "status3": "completed",
+        "status8": "completed",
+        "uid": "test_example_3c84de01ebef448c90ddb307f8e085a4"
+      }
+    ],
+    "status_mismatch_count": 0,
+    "status_mismatches": []
+  },
+  "coverage_summary": {
+    "avg_rollouts_by_binding_excluded": {
+      "cuda_agent": 1.0769230769230769,
+      "pybind11": 4.8076923076923075,
+      "tvm_ffi": 1.4230769230769231,
+      "unclassified": 0.6923076923076923
+    },
+    "avg_rollouts_by_binding_included": {
+      "cuda_agent": 1.9594594594594594,
+      "pybind11": 3.7567567567567566,
+      "tvm_ffi": 1.9594594594594594,
+      "unclassified": 0.32432432432432434
+    },
+    "excluded_binding_coverage": {
+      "0": {
+        "cuda_agent": {
+          "n": 3,
+          "sample_ids": [
+            3,
+            4,
+            5
+          ],
+          "score_mean": 1.3841903607050579
+        },
+        "pybind11": {
+          "n": 5,
+          "sample_ids": [
+            0,
+            1,
+            2,
+            6,
+            7
+          ],
+          "score_mean": 0.5416534423828125
+        }
+      },
+      "11": {
+        "cuda_agent": {
+          "n": 2,
+          "sample_ids": [
+            4,
+            6
+          ],
+          "score_mean": 3.036998987197876
+        },
+        "pybind11": {
+          "n": 6,
+          "sample_ids": [
+            0,
+            1,
+            2,
+            3,
+            5,
+            7
+          ],
+          "score_mean": 2.390759507815043
+        }
+      },
+      "15": {
+        "cuda_agent": {
+          "n": 2,
+          "sample_ids": [
+            4,
+            5
+          ],
+          "score_mean": 0.7500362396240234
+        },
+        "pybind11": {
+          "n": 6,
+          "sample_ids": [
+            0,
+            1,
+            2,
+            3,
+            6,
+            7
+          ],
+          "score_mean": 1.3628958364327748
+        }
+      },
+      "20": {
+        "pybind11": {
+          "n": 8,
+          "sample_ids": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "score_mean": -0.0625
+        }
+      },
+      "25": {
+        "cuda_agent": {
+          "n": 3,
+          "sample_ids": [
+            0,
+            2,
+            6
+          ],
+          "score_mean": 0.0
+        },
+        "pybind11": {
+          "n": 5,
+          "sample_ids": [
+            1,
+            3,
+            4,
+            5,
+            7
+          ],
+          "score_mean": -0.1
+        }
+      },
+      "33": {
+        "cuda_agent": {
+          "n": 3,
+          "sample_ids": [
+            1,
+            3,
+            7
+          ],
+          "score_mean": -0.16666666666666666
+        },
+        "pybind11": {
+          "n": 5,
+          "sample_ids": [
+            0,
+            2,
+            4,
+            5,
+            6
+          ],
+          "score_mean": -0.1
+        }
+      },
+      "38": {
+        "cuda_agent": {
+          "n": 2,
+          "sample_ids": [
+            2,
+            5
+          ],
+          "score_mean": 0.0
+        },
+        "pybind11": {
+          "n": 6,
+          "sample_ids": [
+            0,
+            1,
+            3,
+            4,
+            6,
+            7
+          ],
+          "score_mean": 0.0
+        }
+      },
+      "41": {
+        "pybind11": {
+          "n": 5,
+          "sample_ids": [
+            0,
+            3,
+            4,
+            5,
+            6
+          ],
+          "score_mean": 2.3688384294509888
+        },
+        "tvm_ffi": {
+          "n": 3,
+          "sample_ids": [
+            1,
+            2,
+            7
+          ],
+          "score_mean": 2.734594782193502
+        }
+      },
+      "43": {
+        "cuda_agent": {
+          "n": 2,
+          "sample_ids": [
+            1,
+            6
+          ],
+          "score_mean": 2.3809012174606323
+        },
+        "pybind11": {
+          "n": 6,
+          "sample_ids": [
+            0,
+            2,
+            3,
+            4,
+            5,
+            7
+          ],
+          "score_mean": 2.3566989501317344
+        }
+      },
+      "46": {
+        "pybind11": {
+          "n": 6,
+          "sample_ids": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "score_mean": 1.5688741405804951
+        },
+        "tvm_ffi": {
+          "n": 2,
+          "sample_ids": [
+            6,
+            7
+          ],
+          "score_mean": 1.0532329678535461
+        }
+      },
+      "5": {
+        "pybind11": {
+          "n": 4,
+          "sample_ids": [
+            0,
+            1,
+            3,
+            6
+          ],
+          "score_mean": 1.2179066836833954
+        },
+        "tvm_ffi": {
+          "n": 3,
+          "sample_ids": [
+            4,
+            5,
+            7
+          ],
+          "score_mean": -0.14926624298095703
+        },
+        "unclassified": {
+          "n": 1,
+          "sample_ids": [
+            2
+          ],
+          "score_mean": 0.0
+        }
+      },
+      "58": {
+        "pybind11": {
+          "n": 4,
+          "sample_ids": [
+            0,
+            3,
+            4,
+            5
+          ],
+          "score_mean": -0.3749993145465851
+        },
+        "tvm_ffi": {
+          "n": 2,
+          "sample_ids": [
+            6,
+            7
+          ],
+          "score_mean": -0.21077868342399597
+        },
+        "unclassified": {
+          "n": 2,
+          "sample_ids": [
+            1,
+            2
+          ],
+          "score_mean": 0.0
+        }
+      },
+      "59": {
+        "cuda_agent": {
+          "n": 2,
+          "sample_ids": [
+            0,
+            3
+          ],
+          "score_mean": -1.0
+        },
+        "pybind11": {
+          "n": 5,
+          "sample_ids": [
+            1,
+            4,
+            5,
+            6,
+            7
+          ],
+          "score_mean": -0.176657772064209
+        },
+        "unclassified": {
+          "n": 1,
+          "sample_ids": [
+            2
+          ],
+          "score_mean": 0.0
+        }
+      },
+      "62": {
+        "pybind11": {
+          "n": 4,
+          "sample_ids": [
+            1,
+            3,
+            4,
+            6
+          ],
+          "score_mean": -0.125
+        },
+        "tvm_ffi": {
+          "n": 3,
+          "sample_ids": [
+            0,
+            2,
+            7
+          ],
+          "score_mean": -1.0
+        },
+        "unclassified": {
+          "n": 1,
+          "sample_ids": [
+            5
+          ],
+          "score_mean": 0.0
+        }
+      },
+      "7": {
+        "cuda_agent": {
+          "n": 4,
+          "sample_ids": [
+            0,
+            2,
+            3,
+            5
+          ],
+          "score_mean": 1.2655313611030579
+        },
+        "pybind11": {
+          "n": 4,
+          "sample_ids": [
+            1,
+            4,
+            6,
+            7
+          ],
+          "score_mean": 2.2008471488952637
+        }
+      },
+      "70": {
+        "pybind11": {
+          "n": 2,
+          "sample_ids": [
+            1,
+            7
+          ],
+          "score_mean": -1.5
+        },
+        "tvm_ffi": {
+          "n": 2,
+          "sample_ids": [
+            0,
+            6
+          ],
+          "score_mean": 0.0
+        },
+        "unclassified": {
+          "n": 4,
+          "sample_ids": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "score_mean": 0.0
+        }
+      },
+      "71": {
+        "pybind11": {
+          "n": 5,
+          "sample_ids": [
+            0,
+            2,
+            4,
+            5,
+            7
+          ],
+          "score_mean": -0.7
+        },
+        "tvm_ffi": {
+          "n": 3,
+          "sample_ids": [
+            1,
+            3,
+            6
+          ],
+          "score_mean": -1.1666666666666667
+        }
+      },
+      "74": {
+        "pybind11": {
+          "n": 5,
+          "sample_ids": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "score_mean": -1.2
+        },
+        "tvm_ffi": {
+          "n": 2,
+          "sample_ids": [
+            3,
+            7
+          ],
+          "score_mean": -1.5
+        },
+        "unclassified": {
+          "n": 1,
+          "sample_ids": [
+            6
+          ],
+          "score_mean": 0.0
+        }
+      },
+      "78": {
+        "cuda_agent": {
+          "n": 1,
+          "sample_ids": [
+            5
+          ],
+          "score_mean": 0.5594890713691711
+        },
+        "pybind11": {
+          "n": 4,
+          "sample_ids": [
+            1,
+            2,
+            4,
+            7
+          ],
+          "score_mean": 0.163510262966156
+        },
+        "unclassified": {
+          "n": 3,
+          "sample_ids": [
+            0,
+            3,
+            6
+          ],
+          "score_mean": 0.0
+        }
+      },
+      "79": {
+        "cuda_agent": {
+          "n": 3,
+          "sample_ids": [
+            0,
+            1,
+            3
+          ],
+          "score_mean": 0.058591206868489586
+        },
+        "pybind11": {
+          "n": 5,
+          "sample_ids": [
+            2,
+            4,
+            5,
+            6,
+            7
+          ],
+          "score_mean": -0.548902440071106
+        }
+      },
+      "86": {
+        "pybind11": {
+          "n": 3,
+          "sample_ids": [
+            1,
+            2,
+            5
+          ],
+          "score_mean": 0.0
+        },
+        "tvm_ffi": {
+          "n": 3,
+          "sample_ids": [
+            0,
+            4,
+            7
+          ],
+          "score_mean": -1.1666666666666667
+        },
+        "unclassified": {
+          "n": 2,
+          "sample_ids": [
+            3,
+            6
+          ],
+          "score_mean": 0.0
+        }
+      },
+      "87": {
+        "pybind11": {
+          "n": 5,
+          "sample_ids": [
+            1,
+            2,
+            3,
+            5,
+            6
+          ],
+          "score_mean": 4.7
+        },
+        "tvm_ffi": {
+          "n": 3,
+          "sample_ids": [
+            0,
+            4,
+            7
+          ],
+          "score_mean": 6.0
+        }
+      },
+      "88": {
+        "pybind11": {
+          "n": 4,
+          "sample_ids": [
+            0,
+            1,
+            3,
+            4
+          ],
+          "score_mean": 0.0
+        },
+        "tvm_ffi": {
+          "n": 2,
+          "sample_ids": [
+            2,
+            7
+          ],
+          "score_mean": -0.25
+        },
+        "unclassified": {
+          "n": 2,
+          "sample_ids": [
+            5,
+            6
+          ],
+          "score_mean": -0.25
+        }
+      },
+      "94": {
+        "pybind11": {
+          "n": 3,
+          "sample_ids": [
+            2,
+            3,
+            5
+          ],
+          "score_mean": 4.209933598836263
+        },
+        "tvm_ffi": {
+          "n": 5,
+          "sample_ids": [
+            0,
+            1,
+            4,
+            6,
+            7
+          ],
+          "score_mean": 1.7364015102386474
+        }
+      },
+      "95": {
+        "pybind11": {
+          "n": 4,
+          "sample_ids": [
+            1,
+            3,
+            5,
+            6
+          ],
+          "score_mean": 2.529012441635132
+        },
+        "tvm_ffi": {
+          "n": 4,
+          "sample_ids": [
+            0,
+            2,
+            4,
+            7
+          ],
+          "score_mean": 2.0273601412773132
+        }
+      },
+      "97": {
+        "cuda_agent": {
+          "n": 1,
+          "sample_ids": [
+            6
+          ],
+          "score_mean": 5.861701965332031
+        },
+        "pybind11": {
+          "n": 6,
+          "sample_ids": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            7
+          ],
+          "score_mean": 2.548929135004679
+        },
+        "unclassified": {
+          "n": 1,
+          "sample_ids": [
+            0
+          ],
+          "score_mean": 0.0
+        }
+      }
+    },
+    "excluded_problem_ids": [
+      0,
+      5,
+      7,
+      11,
+      15,
+      20,
+      25,
+      33,
+      38,
+      41,
+      43,
+      46,
+      58,
+      59,
+      62,
+      70,
+      71,
+      74,
+      78,
+      79,
+      86,
+      87,
+      88,
+      94,
+      95,
+      97
+    ]
+  },
+  "perf_pairs_largest_ratios": [
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+        "_line": 11,
+        "correctness": false,
+        "elapsed_s": 41.578,
+        "kernel_runtime_ms": -1.0,
+        "kg_kernel_backend_compile_s": 41.16539344191551,
+        "kg_kernel_performance_step_s": 0.00019449228420853615,
+        "reference_runtime_ms": -1.0,
+        "sample_id": 1,
+        "speedup": 0.0,
+        "status": "completed",
+        "uid": "test_example_05f4d6ca6d584d3dbc068a43fcda56b0",
+        "wg_pool_total_s": 41.33315134048462
+      },
+      "problem_id": 44,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+        "_line": 12,
+        "correctness": true,
+        "elapsed_s": 112.697,
+        "kernel_runtime_ms": 19.2,
+        "kg_kernel_backend_compile_s": 38.14422472985461,
+        "kg_kernel_performance_step_s": 44.84311784384772,
+        "reference_runtime_ms": 20.3,
+        "sample_id": 3,
+        "speedup": 1.0572916666666667,
+        "status": "completed",
+        "uid": "test_example_37c2d95d0cef4347ba2412f249073532",
+        "wg_pool_total_s": 83.43054533004761
+      },
+      "ratio_py_over_cuda_perf_step": 230565.02229037826,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 34,
+          "binding": "cuda_agent",
+          "kernel_len": 28462,
+          "kernel_sha256": "08c04fbd5cb92b5dc20cf86273b774d40603042a990dfc88602789f2b47ea3c2",
+          "problem_id": 44,
+          "reference_len": 1258,
+          "reference_sha256": "3abae4a4776630cc55e066f3878c268e9338b4a936d50a38d8bd62d3bdefe1ba",
+          "sample_id": 1,
+          "score": 0.0,
+          "uid": "test_example_05f4d6ca6d584d3dbc068a43fcda56b0"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 34,
+          "binding": "pybind11",
+          "kernel_len": 95519,
+          "kernel_sha256": "1d13203afe91bae243be2061fc90db380dd70fad84e4ccab87b3aaa4b9e79279",
+          "problem_id": 44,
+          "reference_len": 1258,
+          "reference_sha256": "3abae4a4776630cc55e066f3878c268e9338b4a936d50a38d8bd62d3bdefe1ba",
+          "sample_id": 3,
+          "score": 0.0,
+          "uid": "test_example_37c2d95d0cef4347ba2412f249073532"
+        }
+      },
+      "tag": "official_c3"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+        "_line": 11,
+        "correctness": false,
+        "elapsed_s": 32.561,
+        "kernel_runtime_ms": -1.0,
+        "kg_kernel_backend_compile_s": 22.75085863377899,
+        "kg_kernel_performance_step_s": 0.00020032888278365135,
+        "reference_runtime_ms": -1.0,
+        "sample_id": 1,
+        "speedup": 0.0,
+        "status": "completed",
+        "uid": "test_example_05f4d6ca6d584d3dbc068a43fcda56b0",
+        "wg_pool_total_s": 32.505061626434326
+      },
+      "problem_id": 44,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+        "_line": 14,
+        "correctness": true,
+        "elapsed_s": 57.62,
+        "kernel_runtime_ms": 19.2,
+        "kg_kernel_backend_compile_s": 22.62981155794114,
+        "kg_kernel_performance_step_s": 33.832366227172315,
+        "reference_runtime_ms": 20.3,
+        "sample_id": 3,
+        "speedup": 1.0572916666666667,
+        "status": "completed",
+        "uid": "test_example_37c2d95d0cef4347ba2412f249073532",
+        "wg_pool_total_s": 56.97259759902954
+      },
+      "ratio_py_over_cuda_perf_step": 168884.1157453574,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 34,
+          "binding": "cuda_agent",
+          "kernel_len": 28462,
+          "kernel_sha256": "08c04fbd5cb92b5dc20cf86273b774d40603042a990dfc88602789f2b47ea3c2",
+          "problem_id": 44,
+          "reference_len": 1258,
+          "reference_sha256": "3abae4a4776630cc55e066f3878c268e9338b4a936d50a38d8bd62d3bdefe1ba",
+          "sample_id": 1,
+          "score": 0.0,
+          "uid": "test_example_05f4d6ca6d584d3dbc068a43fcda56b0"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 34,
+          "binding": "pybind11",
+          "kernel_len": 95519,
+          "kernel_sha256": "1d13203afe91bae243be2061fc90db380dd70fad84e4ccab87b3aaa4b9e79279",
+          "problem_id": 44,
+          "reference_len": 1258,
+          "reference_sha256": "3abae4a4776630cc55e066f3878c268e9338b4a936d50a38d8bd62d3bdefe1ba",
+          "sample_id": 3,
+          "score": 0.0,
+          "uid": "test_example_37c2d95d0cef4347ba2412f249073532"
+        }
+      },
+      "tag": "official_c8"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+        "_line": 24,
+        "correctness": false,
+        "elapsed_s": 27.565,
+        "kernel_runtime_ms": -1.0,
+        "kg_kernel_backend_compile_s": 27.096253532916307,
+        "kg_kernel_performance_step_s": 0.00020013796165585518,
+        "reference_runtime_ms": -1.0,
+        "sample_id": 7,
+        "speedup": 0.0,
+        "status": "completed",
+        "uid": "test_example_3880cf25b48e4d268286538488605f1d",
+        "wg_pool_total_s": 27.452476501464844
+      },
+      "problem_id": 3,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+        "_line": 26,
+        "correctness": true,
+        "elapsed_s": 56.64,
+        "kernel_runtime_ms": 103.0,
+        "kg_kernel_backend_compile_s": 28.71634092181921,
+        "kg_kernel_performance_step_s": 26.788997856900096,
+        "reference_runtime_ms": 8.99,
+        "sample_id": 0,
+        "speedup": 0.08728155339805825,
+        "status": "completed",
+        "uid": "test_example_624431a97081443888c9d021dcddb4c0",
+        "wg_pool_total_s": 56.085954427719116
+      },
+      "ratio_py_over_cuda_perf_step": 133852.65661376523,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 3,
+          "binding": "cuda_agent",
+          "kernel_len": 28952,
+          "kernel_sha256": "6c9b72541bd61ee84706a408cbbc3703b49a20fe275c549717132be0dba0ba02",
+          "problem_id": 3,
+          "reference_len": 772,
+          "reference_sha256": "5f1476dfcbd291f393d469a2645ff628f1e393bd720c2fe36d5fa4f9181dd8a1",
+          "sample_id": 7,
+          "score": 1.5381402969360352,
+          "uid": "test_example_3880cf25b48e4d268286538488605f1d"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 3,
+          "binding": "pybind11",
+          "kernel_len": 22966,
+          "kernel_sha256": "6a49509c0172d4b7bde90f96c0ba66b0f845530ec1257cd894a6a1c838b08de6",
+          "problem_id": 3,
+          "reference_len": 772,
+          "reference_sha256": "5f1476dfcbd291f393d469a2645ff628f1e393bd720c2fe36d5fa4f9181dd8a1",
+          "sample_id": 0,
+          "score": 2.1114492416381836,
+          "uid": "test_example_624431a97081443888c9d021dcddb4c0"
+        }
+      },
+      "tag": "official_c8"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+        "_line": 28,
+        "correctness": false,
+        "elapsed_s": 39.573,
+        "kernel_runtime_ms": -1.0,
+        "kg_kernel_backend_compile_s": 38.88782477006316,
+        "kg_kernel_performance_step_s": 0.00019839592278003693,
+        "reference_runtime_ms": -1.0,
+        "sample_id": 0,
+        "speedup": 0.0,
+        "status": "completed",
+        "uid": "test_example_9894f324fd53452e84739254a8492e80",
+        "wg_pool_total_s": 39.09466218948364
+      },
+      "problem_id": 93,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+        "_line": 28,
+        "correctness": true,
+        "elapsed_s": 83.654,
+        "kernel_runtime_ms": 18.6,
+        "kg_kernel_backend_compile_s": 37.44576968671754,
+        "kg_kernel_performance_step_s": 25.813695715740323,
+        "reference_runtime_ms": 27.8,
+        "sample_id": 1,
+        "speedup": 1.4946236559139785,
+        "status": "completed",
+        "uid": "test_example_67345b8230ad4b69b1bdf2918cdfb0f3",
+        "wg_pool_total_s": 63.596495151519775
+      },
+      "ratio_py_over_cuda_perf_step": 130112.02727366613,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 71,
+          "binding": "cuda_agent",
+          "kernel_len": 38802,
+          "kernel_sha256": "7e99c24d00e7bb236efd7e931bc15642424193c7b88910c382d8c96022f32224",
+          "problem_id": 93,
+          "reference_len": 575,
+          "reference_sha256": "1bc23c8534d817cd5acff184eb8d3849f43b96b6dffcde6ab78a1c71a8fe64f3",
+          "sample_id": 0,
+          "score": 1.5,
+          "uid": "test_example_9894f324fd53452e84739254a8492e80"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 71,
+          "binding": "pybind11",
+          "kernel_len": 40549,
+          "kernel_sha256": "90a11ca90da2dbbc24e831af5f6950822ab9924bf6e43dd7e72fed85edafc7b3",
+          "problem_id": 93,
+          "reference_len": 575,
+          "reference_sha256": "1bc23c8534d817cd5acff184eb8d3849f43b96b6dffcde6ab78a1c71a8fe64f3",
+          "sample_id": 1,
+          "score": 3.2446236610412598,
+          "uid": "test_example_67345b8230ad4b69b1bdf2918cdfb0f3"
+        }
+      },
+      "tag": "official_c3"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+        "_line": 24,
+        "correctness": false,
+        "elapsed_s": 31.573,
+        "kernel_runtime_ms": -1.0,
+        "kg_kernel_backend_compile_s": 30.97323409281671,
+        "kg_kernel_performance_step_s": 0.00020764721557497978,
+        "reference_runtime_ms": -1.0,
+        "sample_id": 7,
+        "speedup": 0.0,
+        "status": "completed",
+        "uid": "test_example_3880cf25b48e4d268286538488605f1d",
+        "wg_pool_total_s": 31.301825523376465
+      },
+      "problem_id": 3,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+        "_line": 26,
+        "correctness": true,
+        "elapsed_s": 57.602,
+        "kernel_runtime_ms": 103.0,
+        "kg_kernel_backend_compile_s": 29.981870897114277,
+        "kg_kernel_performance_step_s": 26.940662225708365,
+        "reference_runtime_ms": 8.99,
+        "sample_id": 0,
+        "speedup": 0.08728155339805825,
+        "status": "completed",
+        "uid": "test_example_624431a97081443888c9d021dcddb4c0",
+        "wg_pool_total_s": 57.472723722457886
+      },
+      "ratio_py_over_cuda_perf_step": 129742.46801773417,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 3,
+          "binding": "cuda_agent",
+          "kernel_len": 28952,
+          "kernel_sha256": "6c9b72541bd61ee84706a408cbbc3703b49a20fe275c549717132be0dba0ba02",
+          "problem_id": 3,
+          "reference_len": 772,
+          "reference_sha256": "5f1476dfcbd291f393d469a2645ff628f1e393bd720c2fe36d5fa4f9181dd8a1",
+          "sample_id": 7,
+          "score": 1.5381402969360352,
+          "uid": "test_example_3880cf25b48e4d268286538488605f1d"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 3,
+          "binding": "pybind11",
+          "kernel_len": 22966,
+          "kernel_sha256": "6a49509c0172d4b7bde90f96c0ba66b0f845530ec1257cd894a6a1c838b08de6",
+          "problem_id": 3,
+          "reference_len": 772,
+          "reference_sha256": "5f1476dfcbd291f393d469a2645ff628f1e393bd720c2fe36d5fa4f9181dd8a1",
+          "sample_id": 0,
+          "score": 2.1114492416381836,
+          "uid": "test_example_624431a97081443888c9d021dcddb4c0"
+        }
+      },
+      "tag": "official_c3"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+        "_line": 28,
+        "correctness": false,
+        "elapsed_s": 24.557,
+        "kernel_runtime_ms": -1.0,
+        "kg_kernel_backend_compile_s": 24.19057066971436,
+        "kg_kernel_performance_step_s": 0.00020085973665118217,
+        "reference_runtime_ms": -1.0,
+        "sample_id": 0,
+        "speedup": 0.0,
+        "status": "completed",
+        "uid": "test_example_9894f324fd53452e84739254a8492e80",
+        "wg_pool_total_s": 24.424309968948364
+      },
+      "problem_id": 93,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+        "_line": 29,
+        "correctness": true,
+        "elapsed_s": 55.595,
+        "kernel_runtime_ms": 18.6,
+        "kg_kernel_backend_compile_s": 33.97728422610089,
+        "kg_kernel_performance_step_s": 21.08638718770817,
+        "reference_runtime_ms": 27.8,
+        "sample_id": 1,
+        "speedup": 1.4946236559139785,
+        "status": "completed",
+        "uid": "test_example_67345b8230ad4b69b1bdf2918cdfb0f3",
+        "wg_pool_total_s": 55.49753260612488
+      },
+      "ratio_py_over_cuda_perf_step": 104980.65734461902,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 71,
+          "binding": "cuda_agent",
+          "kernel_len": 38802,
+          "kernel_sha256": "7e99c24d00e7bb236efd7e931bc15642424193c7b88910c382d8c96022f32224",
+          "problem_id": 93,
+          "reference_len": 575,
+          "reference_sha256": "1bc23c8534d817cd5acff184eb8d3849f43b96b6dffcde6ab78a1c71a8fe64f3",
+          "sample_id": 0,
+          "score": 1.5,
+          "uid": "test_example_9894f324fd53452e84739254a8492e80"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 71,
+          "binding": "pybind11",
+          "kernel_len": 40549,
+          "kernel_sha256": "90a11ca90da2dbbc24e831af5f6950822ab9924bf6e43dd7e72fed85edafc7b3",
+          "problem_id": 93,
+          "reference_len": 575,
+          "reference_sha256": "1bc23c8534d817cd5acff184eb8d3849f43b96b6dffcde6ab78a1c71a8fe64f3",
+          "sample_id": 1,
+          "score": 3.2446236610412598,
+          "uid": "test_example_67345b8230ad4b69b1bdf2918cdfb0f3"
+        }
+      },
+      "tag": "official_c8"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+        "_line": 56,
+        "correctness": false,
+        "elapsed_s": 41.065,
+        "kernel_runtime_ms": -1.0,
+        "kg_kernel_backend_compile_s": 32.8986248858273,
+        "kg_kernel_performance_step_s": 0.00020404206588864326,
+        "reference_runtime_ms": -1.0,
+        "sample_id": 7,
+        "speedup": 0.0,
+        "status": "completed",
+        "uid": "test_example_cbc2d255c3ae4bdaa5c248b4cad3c910",
+        "wg_pool_total_s": 40.78711199760437
+      },
+      "problem_id": 83,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+        "_line": 57,
+        "correctness": true,
+        "elapsed_s": 54.582,
+        "kernel_runtime_ms": 21.9,
+        "kg_kernel_backend_compile_s": 34.0802591079846,
+        "kg_kernel_performance_step_s": 19.519557820167392,
+        "reference_runtime_ms": 11.3,
+        "sample_id": 0,
+        "speedup": 0.5159817351598174,
+        "status": "completed",
+        "uid": "test_example_5a06bfecc2644ab9bc74dfe96ba8a576",
+        "wg_pool_total_s": 54.21112060546875
+      },
+      "ratio_py_over_cuda_perf_step": 95664.38045584319,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 64,
+          "binding": "cuda_agent",
+          "kernel_len": 38988,
+          "kernel_sha256": "9c1a092d8928b0b372efd01e7d7a49fa802ab8640245fc70f5b2c478580e8b36",
+          "problem_id": 83,
+          "reference_len": 1681,
+          "reference_sha256": "1af31dab803ef4f4e5b94f7bbe54260ef23930715610d1cbd8e7cdcd88e5c45c",
+          "sample_id": 7,
+          "score": 0.0,
+          "uid": "test_example_cbc2d255c3ae4bdaa5c248b4cad3c910"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 64,
+          "binding": "pybind11",
+          "kernel_len": 46452,
+          "kernel_sha256": "271ad040f8995850962a933f6a90ddf1c48434d70b9b02b52c530740acff9613",
+          "problem_id": 83,
+          "reference_len": 1681,
+          "reference_sha256": "1af31dab803ef4f4e5b94f7bbe54260ef23930715610d1cbd8e7cdcd88e5c45c",
+          "sample_id": 0,
+          "score": -0.5,
+          "uid": "test_example_5a06bfecc2644ab9bc74dfe96ba8a576"
+        }
+      },
+      "tag": "official_c8"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+        "_line": 40,
+        "correctness": false,
+        "elapsed_s": 35.076,
+        "kernel_runtime_ms": -1.0,
+        "kg_kernel_backend_compile_s": 34.24652791908011,
+        "kg_kernel_performance_step_s": 0.00020603416487574577,
+        "reference_runtime_ms": -1.0,
+        "sample_id": 2,
+        "speedup": 0.0,
+        "status": "completed",
+        "uid": "test_example_f837a0f816854613891bdbff45897e5d",
+        "wg_pool_total_s": 34.564796447753906
+      },
+      "problem_id": 81,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+        "_line": 40,
+        "correctness": true,
+        "elapsed_s": 47.112,
+        "kernel_runtime_ms": 2.56,
+        "kg_kernel_backend_compile_s": 32.23895302740857,
+        "kg_kernel_performance_step_s": 12.413993729278445,
+        "reference_runtime_ms": 2.82,
+        "sample_id": 0,
+        "speedup": 1.1015625,
+        "status": "completed",
+        "uid": "test_example_2408f070103345acac43aebdedaa1efb",
+        "wg_pool_total_s": 44.902836084365845
+      },
+      "ratio_py_over_cuda_perf_step": 60252.11273462838,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 62,
+          "binding": "cuda_agent",
+          "kernel_len": 44921,
+          "kernel_sha256": "88c65e769c1463ac493a500e64581a451995ab8a99c5dac22c0ed619ddf51e5a",
+          "problem_id": 81,
+          "reference_len": 1512,
+          "reference_sha256": "23578d4c1257ee9c2b86ab8969eb91292aca2b9699ab15b2b72ea7e8d438078f",
+          "sample_id": 2,
+          "score": 0.0,
+          "uid": "test_example_f837a0f816854613891bdbff45897e5d"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 62,
+          "binding": "pybind11",
+          "kernel_len": 89532,
+          "kernel_sha256": "013cd6b6806a46ec4c8dc8bb4415c7d8d80ccac5e4acedfc38e95611321c07f3",
+          "problem_id": 81,
+          "reference_len": 1512,
+          "reference_sha256": "23578d4c1257ee9c2b86ab8969eb91292aca2b9699ab15b2b72ea7e8d438078f",
+          "sample_id": 0,
+          "score": 3.1264848709106445,
+          "uid": "test_example_2408f070103345acac43aebdedaa1efb"
+        }
+      },
+      "tag": "official_c3"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+        "_line": 56,
+        "correctness": false,
+        "elapsed_s": 27.056,
+        "kernel_runtime_ms": -1.0,
+        "kg_kernel_backend_compile_s": 26.41262934403494,
+        "kg_kernel_performance_step_s": 0.00020844582468271255,
+        "reference_runtime_ms": -1.0,
+        "sample_id": 7,
+        "speedup": 0.0,
+        "status": "completed",
+        "uid": "test_example_cbc2d255c3ae4bdaa5c248b4cad3c910",
+        "wg_pool_total_s": 26.713939666748047
+      },
+      "problem_id": 83,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+        "_line": 57,
+        "correctness": true,
+        "elapsed_s": 50.1,
+        "kernel_runtime_ms": 21.9,
+        "kg_kernel_backend_compile_s": 28.293604337144643,
+        "kg_kernel_performance_step_s": 12.195470850914717,
+        "reference_runtime_ms": 11.3,
+        "sample_id": 0,
+        "speedup": 0.5159817351598174,
+        "status": "completed",
+        "uid": "test_example_5a06bfecc2644ab9bc74dfe96ba8a576",
+        "wg_pool_total_s": 41.07525157928467
+      },
+      "ratio_py_over_cuda_perf_step": 58506.66891254909,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 64,
+          "binding": "cuda_agent",
+          "kernel_len": 38988,
+          "kernel_sha256": "9c1a092d8928b0b372efd01e7d7a49fa802ab8640245fc70f5b2c478580e8b36",
+          "problem_id": 83,
+          "reference_len": 1681,
+          "reference_sha256": "1af31dab803ef4f4e5b94f7bbe54260ef23930715610d1cbd8e7cdcd88e5c45c",
+          "sample_id": 7,
+          "score": 0.0,
+          "uid": "test_example_cbc2d255c3ae4bdaa5c248b4cad3c910"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 64,
+          "binding": "pybind11",
+          "kernel_len": 46452,
+          "kernel_sha256": "271ad040f8995850962a933f6a90ddf1c48434d70b9b02b52c530740acff9613",
+          "problem_id": 83,
+          "reference_len": 1681,
+          "reference_sha256": "1af31dab803ef4f4e5b94f7bbe54260ef23930715610d1cbd8e7cdcd88e5c45c",
+          "sample_id": 0,
+          "score": -0.5,
+          "uid": "test_example_5a06bfecc2644ab9bc74dfe96ba8a576"
+        }
+      },
+      "tag": "official_c3"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+        "_line": 39,
+        "correctness": false,
+        "elapsed_s": 41.579,
+        "kernel_runtime_ms": -1.0,
+        "kg_kernel_backend_compile_s": 40.65390044590458,
+        "kg_kernel_performance_step_s": 0.00021241698414087296,
+        "reference_runtime_ms": -1.0,
+        "sample_id": 2,
+        "speedup": 0.0,
+        "status": "completed",
+        "uid": "test_example_f837a0f816854613891bdbff45897e5d",
+        "wg_pool_total_s": 40.994805574417114
+      },
+      "problem_id": 81,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+        "_line": 39,
+        "correctness": true,
+        "elapsed_s": 51.59,
+        "kernel_runtime_ms": 2.56,
+        "kg_kernel_backend_compile_s": 40.74337188526988,
+        "kg_kernel_performance_step_s": 10.204715095926076,
+        "reference_runtime_ms": 2.82,
+        "sample_id": 0,
+        "speedup": 1.1015625,
+        "status": "completed",
+        "uid": "test_example_2408f070103345acac43aebdedaa1efb",
+        "wg_pool_total_s": 51.222535371780396
+      },
+      "ratio_py_over_cuda_perf_step": 48040.95650448744,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 62,
+          "binding": "cuda_agent",
+          "kernel_len": 44921,
+          "kernel_sha256": "88c65e769c1463ac493a500e64581a451995ab8a99c5dac22c0ed619ddf51e5a",
+          "problem_id": 81,
+          "reference_len": 1512,
+          "reference_sha256": "23578d4c1257ee9c2b86ab8969eb91292aca2b9699ab15b2b72ea7e8d438078f",
+          "sample_id": 2,
+          "score": 0.0,
+          "uid": "test_example_f837a0f816854613891bdbff45897e5d"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 62,
+          "binding": "pybind11",
+          "kernel_len": 89532,
+          "kernel_sha256": "013cd6b6806a46ec4c8dc8bb4415c7d8d80ccac5e4acedfc38e95611321c07f3",
+          "problem_id": 81,
+          "reference_len": 1512,
+          "reference_sha256": "23578d4c1257ee9c2b86ab8969eb91292aca2b9699ab15b2b72ea7e8d438078f",
+          "sample_id": 0,
+          "score": 3.1264848709106445,
+          "uid": "test_example_2408f070103345acac43aebdedaa1efb"
+        }
+      },
+      "tag": "official_c8"
+    }
+  ],
+  "perf_pairs_near_2p5": [
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+        "_line": 38,
+        "correctness": false,
+        "elapsed_s": 36.063,
+        "kernel_runtime_ms": -1.0,
+        "kg_kernel_backend_compile_s": 35.616133832372725,
+        "kg_kernel_performance_step_s": 0.00019891513511538506,
+        "reference_runtime_ms": -1.0,
+        "sample_id": 3,
+        "speedup": 0.0,
+        "status": "completed",
+        "uid": "test_example_bb09fa74b21f415d9f0c856a00654851",
+        "wg_pool_total_s": 35.83176517486572
+      },
+      "problem_id": 45,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+        "_line": 38,
+        "correctness": false,
+        "elapsed_s": 33.562,
+        "kernel_runtime_ms": -1.0,
+        "kg_kernel_backend_compile_s": 33.11474391492084,
+        "kg_kernel_performance_step_s": 0.00031427061185240746,
+        "reference_runtime_ms": -1.0,
+        "sample_id": 0,
+        "speedup": 0.0,
+        "status": "completed",
+        "uid": "test_example_750ad599349748f2a5fb8ae85ba85ea2",
+        "wg_pool_total_s": 33.37852120399475
+      },
+      "ratio_py_over_cuda_perf_step": 1.579923074582072,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 35,
+          "binding": "cuda_agent",
+          "kernel_len": 35695,
+          "kernel_sha256": "e06f96c5c680701a422a195300c03773065fc5003b5ae3cb415a564466f535cc",
+          "problem_id": 45,
+          "reference_len": 1379,
+          "reference_sha256": "bb683a01c421e1e289b7cd765a7c199317984f4fccad885e69acf32fa97ce3d3",
+          "sample_id": 3,
+          "score": 1.0,
+          "uid": "test_example_bb09fa74b21f415d9f0c856a00654851"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 35,
+          "binding": "pybind11",
+          "kernel_len": 41909,
+          "kernel_sha256": "a7d437d0ef93eb2b0173fdc525d164a3db55a4e58506c139d458b2631288bc26",
+          "problem_id": 45,
+          "reference_len": 1379,
+          "reference_sha256": "bb683a01c421e1e289b7cd765a7c199317984f4fccad885e69acf32fa97ce3d3",
+          "sample_id": 0,
+          "score": 1.0,
+          "uid": "test_example_750ad599349748f2a5fb8ae85ba85ea2"
+        }
+      },
+      "tag": "official_c3"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+        "_line": 20,
+        "correctness": true,
+        "elapsed_s": 48.597,
+        "kernel_runtime_ms": 9.83,
+        "kg_kernel_backend_compile_s": 24.77917041676119,
+        "kg_kernel_performance_step_s": 13.595356935169548,
+        "reference_runtime_ms": 9.36,
+        "sample_id": 0,
+        "speedup": 0.9521871820956256,
+        "status": "completed",
+        "uid": "test_example_3a914af5f8704df693cd5c51b6f01b22",
+        "wg_pool_total_s": 48.35443735122681
+      },
+      "problem_id": 4,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+        "_line": 20,
+        "correctness": true,
+        "elapsed_s": 45.595,
+        "kernel_runtime_ms": 9.33,
+        "kg_kernel_backend_compile_s": 27.718915964942425,
+        "kg_kernel_performance_step_s": 17.20638959016651,
+        "reference_runtime_ms": 9.36,
+        "sample_id": 1,
+        "speedup": 1.0032154340836013,
+        "status": "completed",
+        "uid": "test_example_f82d9344d39546e7be9ed3040ee2540e",
+        "wg_pool_total_s": 45.39820623397827
+      },
+      "ratio_py_over_cuda_perf_step": 1.2656077859681385,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 4,
+          "binding": "cuda_agent",
+          "kernel_len": 15195,
+          "kernel_sha256": "86016201cdb78d9be82aa653f6deaa2597203804f2aa252ec1ab6120d4b2e1b2",
+          "problem_id": 4,
+          "reference_len": 711,
+          "reference_sha256": "f4d52425a8f72b4b22375494064f2ab1675e2caf29376c47a102211ce66d6987",
+          "sample_id": 0,
+          "score": 0.0,
+          "uid": "test_example_3a914af5f8704df693cd5c51b6f01b22"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 4,
+          "binding": "pybind11",
+          "kernel_len": 18574,
+          "kernel_sha256": "af8f0a49c2172ced2acf1bebdb714f02f32a393ce7e3b36171775b53ec1c0009",
+          "problem_id": 4,
+          "reference_len": 711,
+          "reference_sha256": "f4d52425a8f72b4b22375494064f2ab1675e2caf29376c47a102211ce66d6987",
+          "sample_id": 1,
+          "score": -0.5,
+          "uid": "test_example_f82d9344d39546e7be9ed3040ee2540e"
+        }
+      },
+      "tag": "official_c3"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+        "_line": 41,
+        "correctness": true,
+        "elapsed_s": 61.123,
+        "kernel_runtime_ms": 14.0,
+        "kg_kernel_backend_compile_s": 41.3449250231497,
+        "kg_kernel_performance_step_s": 18.904347823001444,
+        "reference_runtime_ms": 14.0,
+        "sample_id": 3,
+        "speedup": 1.0,
+        "status": "completed",
+        "uid": "test_example_f3a4617e3bba4a7e85b5a671244d067b",
+        "wg_pool_total_s": 60.873183488845825
+      },
+      "problem_id": 28,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+        "_line": 42,
+        "correctness": true,
+        "elapsed_s": 66.611,
+        "kernel_runtime_ms": 14.0,
+        "kg_kernel_backend_compile_s": 42.03500745771453,
+        "kg_kernel_performance_step_s": 23.56500809499994,
+        "reference_runtime_ms": 14.0,
+        "sample_id": 0,
+        "speedup": 1.0,
+        "status": "completed",
+        "uid": "test_example_caf3a92c1e944b3ea7644a34a2bc6798",
+        "wg_pool_total_s": 66.26455473899841
+      },
+      "ratio_py_over_cuda_perf_step": 1.2465390668662868,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 22,
+          "binding": "cuda_agent",
+          "kernel_len": 20280,
+          "kernel_sha256": "905da110fcb527cc67a25a1fc9600851ef1c12f360a8b1aeb26fad501f1537e3",
+          "problem_id": 28,
+          "reference_len": 737,
+          "reference_sha256": "dadaed23e8f0194fc4840b5af4d10d397f96f2034eca0e36653078b270ce8539",
+          "sample_id": 3,
+          "score": 0.0,
+          "uid": "test_example_f3a4617e3bba4a7e85b5a671244d067b"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 22,
+          "binding": "pybind11",
+          "kernel_len": 17741,
+          "kernel_sha256": "4fc9718c33fe53d7393223354ab6c3a7eba80d07e64e335d8e23cbbbe114103d",
+          "problem_id": 28,
+          "reference_len": 737,
+          "reference_sha256": "dadaed23e8f0194fc4840b5af4d10d397f96f2034eca0e36653078b270ce8539",
+          "sample_id": 0,
+          "score": 0.0,
+          "uid": "test_example_caf3a92c1e944b3ea7644a34a2bc6798"
+        }
+      },
+      "tag": "official_c8"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+        "_line": 27,
+        "correctness": true,
+        "elapsed_s": 50.596,
+        "kernel_runtime_ms": 14.0,
+        "kg_kernel_backend_compile_s": 31.172570504248142,
+        "kg_kernel_performance_step_s": 18.60933394683525,
+        "reference_runtime_ms": 14.0,
+        "sample_id": 1,
+        "speedup": 1.0,
+        "status": "completed",
+        "uid": "test_example_09ef73db948f486abe17b1781adaa455",
+        "wg_pool_total_s": 50.395596742630005
+      },
+      "problem_id": 19,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+        "_line": 27,
+        "correctness": true,
+        "elapsed_s": 62.102,
+        "kernel_runtime_ms": 14.4,
+        "kg_kernel_backend_compile_s": 27.059130563400686,
+        "kg_kernel_performance_step_s": 22.881336335092783,
+        "reference_runtime_ms": 14.0,
+        "sample_id": 2,
+        "speedup": 0.9722222222222222,
+        "status": "completed",
+        "uid": "test_example_f09e2190f22f4c96bde1829bbfcd7caf",
+        "wg_pool_total_s": 50.57931923866272
+      },
+      "ratio_py_over_cuda_perf_step": 1.2295623476080422,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 15,
+          "binding": "cuda_agent",
+          "kernel_len": 19468,
+          "kernel_sha256": "f1468236811c641685e05aeba9002f6ee06fb93675e7a807aa48c00d9843928b",
+          "problem_id": 19,
+          "reference_len": 1045,
+          "reference_sha256": "5dea58d2392f446e0139e6cfb58bec3a1ac23cee90bb5c3e8a6ddab2909b7fbf",
+          "sample_id": 1,
+          "score": 0.0,
+          "uid": "test_example_09ef73db948f486abe17b1781adaa455"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 15,
+          "binding": "pybind11",
+          "kernel_len": 23415,
+          "kernel_sha256": "0f49068a1f4bd45c9ae89e819851c628c0933ba1f7150bbd636ab1792905decb",
+          "problem_id": 19,
+          "reference_len": 1045,
+          "reference_sha256": "5dea58d2392f446e0139e6cfb58bec3a1ac23cee90bb5c3e8a6ddab2909b7fbf",
+          "sample_id": 2,
+          "score": -0.5,
+          "uid": "test_example_f09e2190f22f4c96bde1829bbfcd7caf"
+        }
+      },
+      "tag": "official_c3"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+        "_line": 74,
+        "correctness": true,
+        "elapsed_s": 43.585,
+        "kernel_runtime_ms": 14.8,
+        "kg_kernel_backend_compile_s": 27.319337309338152,
+        "kg_kernel_performance_step_s": 15.381661438848823,
+        "reference_runtime_ms": 14.0,
+        "sample_id": 0,
+        "speedup": 0.9459459459459459,
+        "status": "completed",
+        "uid": "test_example_4f9d1c0545a047c492f91b36af822876",
+        "wg_pool_total_s": 43.36522078514099
+      },
+      "problem_id": 21,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+        "_line": 74,
+        "correctness": true,
+        "elapsed_s": 59.097,
+        "kernel_runtime_ms": 14.4,
+        "kg_kernel_backend_compile_s": 28.79039666103199,
+        "kg_kernel_performance_step_s": 18.87215397786349,
+        "reference_runtime_ms": 14.0,
+        "sample_id": 1,
+        "speedup": 0.9722222222222222,
+        "status": "completed",
+        "uid": "test_example_55229ead509d4d5cb137e99713ce6038",
+        "wg_pool_total_s": 48.28866195678711
+      },
+      "ratio_py_over_cuda_perf_step": 1.226925586217811,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 16,
+          "binding": "cuda_agent",
+          "kernel_len": 13993,
+          "kernel_sha256": "9ef552102459fe473e46599dc9f2a6b27527ce94fa91514259c31df3525131b4",
+          "problem_id": 21,
+          "reference_len": 707,
+          "reference_sha256": "8d47a07cbd045c944bb0bbd613e9375ca8032f7062e36f7a5d3c427c30e88490",
+          "sample_id": 0,
+          "score": 0.0,
+          "uid": "test_example_4f9d1c0545a047c492f91b36af822876"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 16,
+          "binding": "pybind11",
+          "kernel_len": 22935,
+          "kernel_sha256": "de6cc9b9ca1016a961172dfa345c98f7d8b4212b1e3ba9a5b21b8fe8a0cd0f1a",
+          "problem_id": 21,
+          "reference_len": 707,
+          "reference_sha256": "8d47a07cbd045c944bb0bbd613e9375ca8032f7062e36f7a5d3c427c30e88490",
+          "sample_id": 1,
+          "score": 0.0,
+          "uid": "test_example_55229ead509d4d5cb137e99713ce6038"
+        }
+      },
+      "tag": "official_c3"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+        "_line": 40,
+        "correctness": true,
+        "elapsed_s": 75.624,
+        "kernel_runtime_ms": 26.9,
+        "kg_kernel_backend_compile_s": 39.65116310399026,
+        "kg_kernel_performance_step_s": 23.706311106216162,
+        "reference_runtime_ms": 10.1,
+        "sample_id": 4,
+        "speedup": 0.3754646840148699,
+        "status": "completed",
+        "uid": "test_example_d2fb93475c954699ae015a9c5975f4bc",
+        "wg_pool_total_s": 75.35803198814392
+      },
+      "problem_id": 47,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+        "_line": 41,
+        "correctness": true,
+        "elapsed_s": 69.625,
+        "kernel_runtime_ms": 11.6,
+        "kg_kernel_backend_compile_s": 40.517014897894114,
+        "kg_kernel_performance_step_s": 28.721202911809087,
+        "reference_runtime_ms": 10.0,
+        "sample_id": 2,
+        "speedup": 0.8620689655172414,
+        "status": "completed",
+        "uid": "test_example_84686f66b6304c79a4d7a7932d464857",
+        "wg_pool_total_s": 69.5227563381195
+      },
+      "ratio_py_over_cuda_perf_step": 1.2115424784195101,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 36,
+          "binding": "cuda_agent",
+          "kernel_len": 34310,
+          "kernel_sha256": "adfaa0276f50a077abcc8f666f2857f898eb0d3f018731aec9c517f24f4c07e6",
+          "problem_id": 47,
+          "reference_len": 1025,
+          "reference_sha256": "5fedf7c91096731d6d0edf00ade5b31b835c07e39be159512446fb4479fd5b35",
+          "sample_id": 4,
+          "score": 0.6851851940155029,
+          "uid": "test_example_d2fb93475c954699ae015a9c5975f4bc"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 36,
+          "binding": "pybind11",
+          "kernel_len": 42131,
+          "kernel_sha256": "7c9c0b59209f4eab8045897cb7ff1f19efa2d5b2ca2a990838e7a15738e53d5f",
+          "problem_id": 47,
+          "reference_len": 1025,
+          "reference_sha256": "5fedf7c91096731d6d0edf00ade5b31b835c07e39be159512446fb4479fd5b35",
+          "sample_id": 2,
+          "score": 2.798844814300537,
+          "uid": "test_example_84686f66b6304c79a4d7a7932d464857"
+        }
+      },
+      "tag": "official_c8"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+        "_line": 62,
+        "correctness": true,
+        "elapsed_s": 64.604,
+        "kernel_runtime_ms": 14.4,
+        "kg_kernel_backend_compile_s": 38.99845309695229,
+        "kg_kernel_performance_step_s": 17.43825485231355,
+        "reference_runtime_ms": 34.9,
+        "sample_id": 1,
+        "speedup": 2.423611111111111,
+        "status": "completed",
+        "uid": "test_example_593bf1f692304ef691a4fbcd999e85c1",
+        "wg_pool_total_s": 64.30794763565063
+      },
+      "problem_id": 24,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+        "_line": 61,
+        "correctness": true,
+        "elapsed_s": 59.104,
+        "kernel_runtime_ms": 14.0,
+        "kg_kernel_backend_compile_s": 37.347348859068006,
+        "kg_kernel_performance_step_s": 20.89576204121113,
+        "reference_runtime_ms": 34.9,
+        "sample_id": 0,
+        "speedup": 2.492857142857143,
+        "status": "completed",
+        "uid": "test_example_a315c645d8fa4d9bb280c326f9a455fc",
+        "wg_pool_total_s": 58.958515882492065
+      },
+      "ratio_py_over_cuda_perf_step": 1.1982713991841258,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 19,
+          "binding": "cuda_agent",
+          "kernel_len": 18354,
+          "kernel_sha256": "0dd1e75274176cc3ae8dfbd1c88c0920b075451a692040b2d103dfe36d160ecc",
+          "problem_id": 24,
+          "reference_len": 717,
+          "reference_sha256": "dbc25cc89be043065594c2882809b129a442af34ecdc280b9be2bc04597d653a",
+          "sample_id": 1,
+          "score": 0.0,
+          "uid": "test_example_593bf1f692304ef691a4fbcd999e85c1"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 19,
+          "binding": "pybind11",
+          "kernel_len": 63801,
+          "kernel_sha256": "f129659fec09e6611ca62644885927c2bea20c4c95ab03b9fb01c0b26a25f606",
+          "problem_id": 24,
+          "reference_len": 717,
+          "reference_sha256": "dbc25cc89be043065594c2882809b129a442af34ecdc280b9be2bc04597d653a",
+          "sample_id": 0,
+          "score": 0.0,
+          "uid": "test_example_a315c645d8fa4d9bb280c326f9a455fc"
+        }
+      },
+      "tag": "official_c8"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_cuda_agent.jsonl",
+        "_line": 49,
+        "correctness": true,
+        "elapsed_s": 43.568,
+        "kernel_runtime_ms": 27.5,
+        "kg_kernel_backend_compile_s": 24.30167068215087,
+        "kg_kernel_performance_step_s": 18.19549394212663,
+        "reference_runtime_ms": 27.8,
+        "sample_id": 4,
+        "speedup": 1.010909090909091,
+        "status": "completed",
+        "uid": "test_example_6693e6d29a724131b4d9c1755c398fd7",
+        "wg_pool_total_s": 43.15913653373718
+      },
+      "problem_id": 22,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c8_27b_breakdown_pybind11.jsonl",
+        "_line": 48,
+        "correctness": true,
+        "elapsed_s": 51.592,
+        "kernel_runtime_ms": 29.1,
+        "kg_kernel_backend_compile_s": 28.56093021389097,
+        "kg_kernel_performance_step_s": 21.730647979769856,
+        "reference_runtime_ms": 27.8,
+        "sample_id": 0,
+        "speedup": 0.9553264604810996,
+        "status": "completed",
+        "uid": "test_example_e4318409749e45fa9fe810acf8017d8e",
+        "wg_pool_total_s": 51.03236675262451
+      },
+      "ratio_py_over_cuda_perf_step": 1.1942873355835948,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 17,
+          "binding": "cuda_agent",
+          "kernel_len": 32343,
+          "kernel_sha256": "ea293bb13a3af4a09b491867106b5b12635eba9e9ab3d1228b0f9991369e204d",
+          "problem_id": 22,
+          "reference_len": 749,
+          "reference_sha256": "c9fa418447f2d64d5aeb4763d817137c1cb5a6b411a580f0b6291a7b29301d75",
+          "sample_id": 4,
+          "score": 0.0,
+          "uid": "test_example_6693e6d29a724131b4d9c1755c398fd7"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 17,
+          "binding": "pybind11",
+          "kernel_len": 27895,
+          "kernel_sha256": "47b78fdaa86fe302b1d1d37ee43d346cd2b8e14e96abd0eb9e1acd4379ab702e",
+          "problem_id": 22,
+          "reference_len": 749,
+          "reference_sha256": "c9fa418447f2d64d5aeb4763d817137c1cb5a6b411a580f0b6291a7b29301d75",
+          "sample_id": 0,
+          "score": 0.0,
+          "uid": "test_example_e4318409749e45fa9fe810acf8017d8e"
+        }
+      },
+      "tag": "official_c8"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+        "_line": 47,
+        "correctness": true,
+        "elapsed_s": 45.612,
+        "kernel_runtime_ms": 14.0,
+        "kg_kernel_backend_compile_s": 28.394924438092858,
+        "kg_kernel_performance_step_s": 16.38451523007825,
+        "reference_runtime_ms": 49.0,
+        "sample_id": 4,
+        "speedup": 3.5,
+        "status": "completed",
+        "uid": "test_example_25c803a7591e4f6ea8d104d8673189dc",
+        "wg_pool_total_s": 45.47287917137146
+      },
+      "problem_id": 29,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+        "_line": 47,
+        "correctness": true,
+        "elapsed_s": 61.14,
+        "kernel_runtime_ms": 14.0,
+        "kg_kernel_backend_compile_s": 29.35342356096953,
+        "kg_kernel_performance_step_s": 18.832744949962944,
+        "reference_runtime_ms": 49.0,
+        "sample_id": 1,
+        "speedup": 3.5,
+        "status": "completed",
+        "uid": "test_example_3c84de01ebef448c90ddb307f8e085a4",
+        "wg_pool_total_s": 48.93365526199341
+      },
+      "ratio_py_over_cuda_perf_step": 1.149423384549718,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 23,
+          "binding": "cuda_agent",
+          "kernel_len": 13964,
+          "kernel_sha256": "aa32b31f5d82bae4f522beb896135641c1c8d086190b0e28544420e650941c4e",
+          "problem_id": 29,
+          "reference_len": 728,
+          "reference_sha256": "1c7b8e7dd71284dbfbcc33bf87b94c962b3cca6da90bbd2b5c5e8900b1354a75",
+          "sample_id": 4,
+          "score": 0.0,
+          "uid": "test_example_25c803a7591e4f6ea8d104d8673189dc"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 23,
+          "binding": "pybind11",
+          "kernel_len": 22933,
+          "kernel_sha256": "3b6c1a563c7b3019494bb845c9a1be41d2085184b6f5e29a92f36020cc81d24f",
+          "problem_id": 29,
+          "reference_len": 728,
+          "reference_sha256": "1c7b8e7dd71284dbfbcc33bf87b94c962b3cca6da90bbd2b5c5e8900b1354a75",
+          "sample_id": 1,
+          "score": 0.0,
+          "uid": "test_example_3c84de01ebef448c90ddb307f8e085a4"
+        }
+      },
+      "tag": "official_c3"
+    },
+    {
+      "cuda": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_cuda_agent.jsonl",
+        "_line": 63,
+        "correctness": true,
+        "elapsed_s": 70.116,
+        "kernel_runtime_ms": 11.6,
+        "kg_kernel_backend_compile_s": 29.050319037865847,
+        "kg_kernel_performance_step_s": 22.801779321860522,
+        "reference_runtime_ms": 10.0,
+        "sample_id": 2,
+        "speedup": 0.8620689655172414,
+        "status": "completed",
+        "uid": "test_example_5d52317473484f4893ca56117adca849",
+        "wg_pool_total_s": 52.169703245162964
+      },
+      "problem_id": 51,
+      "pybind11": {
+        "_file": "benchmarks/results/official_c3_27b_breakdown_pybind11.jsonl",
+        "_line": 63,
+        "correctness": true,
+        "elapsed_s": 84.148,
+        "kernel_runtime_ms": 11.6,
+        "kg_kernel_backend_compile_s": 40.81064088689163,
+        "kg_kernel_performance_step_s": 25.735506150871515,
+        "reference_runtime_ms": 9.99,
+        "sample_id": 0,
+        "speedup": 0.8612068965517242,
+        "status": "completed",
+        "uid": "test_example_0d159032517e4cf3bf0087b6d0a35b92",
+        "wg_pool_total_s": 66.85094451904297
+      },
+      "ratio_py_over_cuda_perf_step": 1.128662188489754,
+      "sample_meta": {
+        "cuda_agent": {
+          "_file": "benchmarks/data_27b/samples_cuda_agent.jsonl.xz",
+          "_line": 40,
+          "binding": "cuda_agent",
+          "kernel_len": 41732,
+          "kernel_sha256": "4e06a26af4c6a3f457b52946a9219d9f71cb837dc13de32247fb2bd7aee53ac4",
+          "problem_id": 51,
+          "reference_len": 996,
+          "reference_sha256": "e1764caddce33679126f225b4da455a95978be85ccf79a372e3ef549ee35ba8f",
+          "sample_id": 2,
+          "score": 2.760741710662842,
+          "uid": "test_example_5d52317473484f4893ca56117adca849"
+        },
+        "pybind11": {
+          "_file": "benchmarks/data_27b/samples_pybind11.jsonl.xz",
+          "_line": 40,
+          "binding": "pybind11",
+          "kernel_len": 36269,
+          "kernel_sha256": "c3e90542eea57ad2ed18b8b2ab2c4f3be7262d82b259bd9d240c763c10652f4f",
+          "problem_id": 51,
+          "reference_len": 996,
+          "reference_sha256": "e1764caddce33679126f225b4da455a95978be85ccf79a372e3ef549ee35ba8f",
+          "sample_id": 0,
+          "score": 0.9273504018783569,
+          "uid": "test_example_0d159032517e4cf3bf0087b6d0a35b92"
+        }
+      },
+      "tag": "official_c3"
+    }
+  ],
+  "residual_outliers_abs_gt_1s": [],
+  "sample_alignment_first5": [
+    {
+      "kernel_all_same": false,
+      "kernel_sha256": {
+        "cuda_agent": "a24ad555cd506d61b59c25e8f550b6c2663bcf6d20d0f27992f3c58d5e8260b8",
+        "pybind11": "bb1bef4c27e4d16ecb0882b32db9e057fe05b8562a2b3068d0e086906235bd4c",
+        "tvm_ffi": "f24786c537d07ed76d75c2ca4722bd8467e351a0ba3a9cb3c19032a015c3cac8"
+      },
+      "original_scores": {
+        "cuda_agent": 2.9749374389648438,
+        "pybind11": 3.637321949005127,
+        "tvm_ffi": 0.5577625632286072
+      },
+      "problem_ids": {
+        "cuda_agent": 1,
+        "pybind11": 1,
+        "tvm_ffi": 1
+      },
+      "reference_all_same": true,
+      "row": 1,
+      "sample_ids": {
+        "cuda_agent": 4,
+        "pybind11": 0,
+        "tvm_ffi": 2
+      },
+      "uids": {
+        "cuda_agent": "test_example_3c7b80991ce24f18b93a0ad074031b51",
+        "pybind11": "test_example_5c415220bdae4603bbae555511447135",
+        "tvm_ffi": "test_example_ea68e2b4378f40dd96f8cfd590095fcc"
+      }
+    },
+    {
+      "kernel_all_same": false,
+      "kernel_sha256": {
+        "cuda_agent": "5e00aa6f8583bc2eeb19a029d974a04852ce62a74a343e26a9331ebf00c30393",
+        "pybind11": "597bf16b57dd04d5041ae14790598686047f39f7b2bd4b34502b9c46332f3f01",
+        "tvm_ffi": "8b177aa7664d56208f013e18e4a9febfcc876f4b12a0cdfa1af595cdb9499764"
+      },
+      "original_scores": {
+        "cuda_agent": 2.5700786113739014,
+        "pybind11": 1.5473779439926147,
+        "tvm_ffi": 0.5814249515533447
+      },
+      "problem_ids": {
+        "cuda_agent": 2,
+        "pybind11": 2,
+        "tvm_ffi": 2
+      },
+      "reference_all_same": true,
+      "row": 2,
+      "sample_ids": {
+        "cuda_agent": 0,
+        "pybind11": 1,
+        "tvm_ffi": 4
+      },
+      "uids": {
+        "cuda_agent": "test_example_1cc55cdf17a94a138ecbf68407dd81fe",
+        "pybind11": "test_example_a1262ab635364dff8dafd9755cc8e0ec",
+        "tvm_ffi": "test_example_f5d99b8a5e684369972cb293fde640d8"
+      }
+    },
+    {
+      "kernel_all_same": false,
+      "kernel_sha256": {
+        "cuda_agent": "6c9b72541bd61ee84706a408cbbc3703b49a20fe275c549717132be0dba0ba02",
+        "pybind11": "6a49509c0172d4b7bde90f96c0ba66b0f845530ec1257cd894a6a1c838b08de6",
+        "tvm_ffi": "59bf226f7e9406bab047ce103c431e6787c0c909dcea31f12c0f62a9d7a4db30"
+      },
+      "original_scores": {
+        "cuda_agent": 1.5381402969360352,
+        "pybind11": 2.1114492416381836,
+        "tvm_ffi": -0.5
+      },
+      "problem_ids": {
+        "cuda_agent": 3,
+        "pybind11": 3,
+        "tvm_ffi": 3
+      },
+      "reference_all_same": true,
+      "row": 3,
+      "sample_ids": {
+        "cuda_agent": 7,
+        "pybind11": 0,
+        "tvm_ffi": 4
+      },
+      "uids": {
+        "cuda_agent": "test_example_3880cf25b48e4d268286538488605f1d",
+        "pybind11": "test_example_624431a97081443888c9d021dcddb4c0",
+        "tvm_ffi": "test_example_0c11990f8d56480db5d0a72d1b95b885"
+      }
+    },
+    {
+      "kernel_all_same": false,
+      "kernel_sha256": {
+        "cuda_agent": "86016201cdb78d9be82aa653f6deaa2597203804f2aa252ec1ab6120d4b2e1b2",
+        "pybind11": "af8f0a49c2172ced2acf1bebdb714f02f32a393ce7e3b36171775b53ec1c0009",
+        "tvm_ffi": "01bcc5726834aedcf6ae8e2b51eaab2eae8e57f4c15431c79dc8766af0d8c313"
+      },
+      "original_scores": {
+        "cuda_agent": 0.0,
+        "pybind11": -0.5,
+        "tvm_ffi": 0.0
+      },
+      "problem_ids": {
+        "cuda_agent": 4,
+        "pybind11": 4,
+        "tvm_ffi": 4
+      },
+      "reference_all_same": true,
+      "row": 4,
+      "sample_ids": {
+        "cuda_agent": 0,
+        "pybind11": 1,
+        "tvm_ffi": 2
+      },
+      "uids": {
+        "cuda_agent": "test_example_3a914af5f8704df693cd5c51b6f01b22",
+        "pybind11": "test_example_f82d9344d39546e7be9ed3040ee2540e",
+        "tvm_ffi": "test_example_b74a45b97b354d119e88c58cce688755"
+      }
+    },
+    {
+      "kernel_all_same": false,
+      "kernel_sha256": {
+        "cuda_agent": "6e4b67ab3daf9350702ab61bfe055bcab4d191086085670151bdcd5148578559",
+        "pybind11": "eef08b2de6877d2e709e099d249f0aa03f350a0c93d1f5299273ca6454538dad",
+        "tvm_ffi": "2e12884c11f61c2493c40f9b48e82ec1a9cb0b14a1fc321944f7595d1dd2159d"
+      },
+      "original_scores": {
+        "cuda_agent": 0.0,
+        "pybind11": -0.5,
+        "tvm_ffi": 0.0
+      },
+      "problem_ids": {
+        "cuda_agent": 6,
+        "pybind11": 6,
+        "tvm_ffi": 6
+      },
+      "reference_all_same": true,
+      "row": 5,
+      "sample_ids": {
+        "cuda_agent": 3,
+        "pybind11": 0,
+        "tvm_ffi": 7
+      },
+      "uids": {
+        "cuda_agent": "test_example_42cc5c16b3b64dacb43fdb334944383b",
+        "pybind11": "test_example_883237a1757946729d0159a1ba44b71e",
+        "tvm_ffi": "test_example_4674d118f9714d4b80dcdfbb928a4fa0"
+      }
+    }
+  ],
+  "sample_alignment_summary": {
+    "aligned_problem_ids": true,
+    "kernel_all_same_rows": 0,
+    "reference_all_same_rows": 74,
+    "rows": 74
+  },
+  "sample_id_stats": {
+    "cuda_agent": {
+      "counts": {
+        "0": 28,
+        "1": 8,
+        "2": 10,
+        "3": 8,
+        "4": 10,
+        "5": 2,
+        "6": 4,
+        "7": 4
+      },
+      "max": 7,
+      "mean": 2.081081081081081,
+      "min": 0,
+      "n": 74,
+      "p50": 2.0,
+      "p90": 5.700000000000003
+    },
+    "pybind11": {
+      "counts": {
+        "0": 25,
+        "1": 26,
+        "2": 11,
+        "3": 7,
+        "4": 4,
+        "5": 0,
+        "6": 1,
+        "7": 0
+      },
+      "max": 6,
+      "mean": 1.2297297297297298,
+      "min": 0,
+      "n": 74,
+      "p50": 1.0,
+      "p90": 3.0
+    },
+    "tvm_ffi": {
+      "counts": {
+        "0": 17,
+        "1": 12,
+        "2": 12,
+        "3": 7,
+        "4": 10,
+        "5": 5,
+        "6": 5,
+        "7": 6
+      },
+      "max": 7,
+      "mean": 2.6216216216216215,
+      "min": 0,
+      "n": 74,
+      "p50": 2.0,
+      "p90": 6.0
+    }
+  },
+  "tag_summaries": {
+    "official_c3": {
+      "all_completion_order_first12": [
+        {
+          "binding": "tvm_ffi",
+          "elapsed_s": 0.021,
+          "finish_unix": 1779355124.863439,
+          "line": 1,
+          "problem_id": 96,
+          "start_unix": 1779355124.8424392,
+          "status": "unknown"
+        },
+        {
+          "binding": "cuda_agent",
+          "elapsed_s": 0.514,
+          "finish_unix": 1779355125.3779683,
+          "line": 1,
+          "problem_id": 66,
+          "start_unix": 1779355124.8639684,
+          "status": "failed"
+        },
+        {
+          "binding": "pybind11",
+          "elapsed_s": 33.074,
+          "finish_unix": 1779355157.9149535,
+          "line": 1,
+          "problem_id": 96,
+          "start_unix": 1779355124.8409536,
+          "status": "failed"
+        },
+        {
+          "binding": "cuda_agent",
+          "elapsed_s": 36.088,
+          "finish_unix": 1779355160.9260101,
+          "line": 2,
+          "problem_id": 96,
+          "start_unix": 1779355124.83801,
+          "status": "failed"
+        },
+        {
+          "binding": "pybind11",
+          "elapsed_s": 48.075,
+          "finish_unix": 1779355173.4536083,
+          "line": 2,
+          "problem_id": 66,
+          "start_unix": 1779355125.3786082,
+          "status": "completed"
+        },
+        {
+          "binding": "tvm_ffi",
+          "elapsed_s": 15.554,
+          "finish_unix": 1779355173.469347,
+          "line": 2,
+          "problem_id": 66,
+          "start_unix": 1779355157.915347,
+          "status": "completed"
+        },
+        {
+          "binding": "tvm_ffi",
+          "elapsed_s": 4.016,
+          "finish_unix": 1779355177.4853847,
+          "line": 3,
+          "problem_id": 56,
+          "start_unix": 1779355173.4693847,
+          "status": "completed"
+        },
+        {
+          "binding": "cuda_agent",
+          "elapsed_s": 21.06,
+          "finish_unix": 1779355181.9858766,
+          "line": 3,
+          "problem_id": 56,
+          "start_unix": 1779355160.9258766,
+          "status": "failed"
+        },
+        {
+          "binding": "pybind11",
+          "elapsed_s": 20.053,
+          "finish_unix": 1779355193.5064766,
+          "line": 3,
+          "problem_id": 56,
+          "start_unix": 1779355173.4534767,
+          "status": "failed"
+        },
+        {
+          "binding": "tvm_ffi",
+          "elapsed_s": 1.515,
+          "finish_unix": 1779355195.0221164,
+          "line": 4,
+          "problem_id": 14,
+          "start_unix": 1779355193.5071163,
+          "status": "failed"
+        },
+        {
+          "binding": "cuda_agent",
+          "elapsed_s": 0.014,
+          "finish_unix": 1779355195.035833,
+          "line": 4,
+          "problem_id": 89,
+          "start_unix": 1779355195.021833,
+          "status": "unknown"
+        },
+        {
+          "binding": "pybind11",
+          "elapsed_s": 0.018,
+          "finish_unix": 1779355195.054423,
+          "line": 4,
+          "problem_id": 89,
+          "start_unix": 1779355195.0364232,
+          "status": "unknown"
+        }
+      ],
+      "cuda_agent": {
+        "duplicates": {},
+        "elapsed_minus_wg_completed": {
+          "max": 19.93449522018433,
+          "mean": 2.0924903507232675,
+          "n": 48,
+          "p50": 0.33691311359405596,
+          "p90": 7.64418000736239
+        },
+        "statuses": {
+          "completed": 48,
+          "failed": 22,
+          "unknown": 4
+        },
+        "trial_field_counts": {
+          "correctness_trials_run": {
+            "missing": 27,
+            "values": [
+              "1",
+              "3",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_profile_trials": {
+            "missing": 48,
+            "values": [
+              "10",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_trials": {
+            "missing": 48,
+            "values": [
+              "20",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_warmup": {
+            "missing": 48,
+            "values": [
+              "3",
+              "None"
+            ]
+          },
+          "num_correct_trials": {
+            "missing": 16,
+            "values": [
+              "3",
+              "None"
+            ]
+          }
+        },
+        "worst_client_minus_wg": [
+          {
+            "client_minus_wg": 19.93449522018433,
+            "elapsed_s": 77.135,
+            "finish_unix": 1779357467.075427,
+            "line": 73,
+            "problem_id": 52,
+            "start_unix": 1779357389.940427,
+            "status": "completed",
+            "uid": "test_example_9d7f8080a9a64a039cb8f05aaa26cb1e",
+            "wg_pool_total_s": 57.200504779815674
+          },
+          {
+            "client_minus_wg": 17.946296754837036,
+            "elapsed_s": 70.116,
+            "finish_unix": 1779357062.3372269,
+            "line": 63,
+            "problem_id": 51,
+            "start_unix": 1779356992.221227,
+            "status": "completed",
+            "uid": "test_example_5d52317473484f4893ca56117adca849",
+            "wg_pool_total_s": 52.169703245162964
+          },
+          {
+            "client_minus_wg": 16.249284782409674,
+            "elapsed_s": 76.165,
+            "finish_unix": 1779356319.250126,
+            "line": 39,
+            "problem_id": 47,
+            "start_unix": 1779356243.085126,
+            "status": "completed",
+            "uid": "test_example_d2fb93475c954699ae015a9c5975f4bc",
+            "wg_pool_total_s": 59.91571521759033
+          },
+          {
+            "client_minus_wg": 13.231948949813841,
+            "elapsed_s": 53.077,
+            "finish_unix": 1779356941.0883553,
+            "line": 60,
+            "problem_id": 24,
+            "start_unix": 1779356888.0113554,
+            "status": "completed",
+            "uid": "test_example_593bf1f692304ef691a4fbcd999e85c1",
+            "wg_pool_total_s": 39.84505105018616
+          },
+          {
+            "client_minus_wg": 11.095815107345587,
+            "elapsed_s": 71.647,
+            "finish_unix": 1779356643.9406016,
+            "line": 49,
+            "problem_id": 22,
+            "start_unix": 1779356572.2936015,
+            "status": "completed",
+            "uid": "test_example_6693e6d29a724131b4d9c1755c398fd7",
+            "wg_pool_total_s": 60.55118489265442
+          },
+          {
+            "client_minus_wg": 6.164907821655277,
+            "elapsed_s": 53.584,
+            "finish_unix": 1779356464.5512078,
+            "line": 44,
+            "problem_id": 98,
+            "start_unix": 1779356410.9672077,
+            "status": "completed",
+            "uid": "test_example_122af761aa9748fcac3aa6a4b55987cc",
+            "wg_pool_total_s": 47.41909217834473
+          },
+          {
+            "client_minus_wg": 1.9367831096649155,
+            "elapsed_s": 49.086,
+            "finish_unix": 1779357248.6342626,
+            "line": 67,
+            "problem_id": 82,
+            "start_unix": 1779357199.5482626,
+            "status": "completed",
+            "uid": "test_example_76e5f50ba98b4c63be4224d20d6003f5",
+            "wg_pool_total_s": 47.14921689033508
+          },
+          {
+            "client_minus_wg": 1.5920535831451446,
+            "elapsed_s": 44.078,
+            "finish_unix": 1779357196.0651734,
+            "line": 66,
+            "problem_id": 73,
+            "start_unix": 1779357151.9871733,
+            "status": "completed",
+            "uid": "test_example_d95399a5271e4d0faef1fee96fd19e2c",
+            "wg_pool_total_s": 42.48594641685486
+          }
+        ]
+      },
+      "pybind11": {
+        "duplicates": {},
+        "elapsed_minus_wg_completed": {
+          "max": 29.266454669952395,
+          "mean": 6.526448874791463,
+          "n": 42,
+          "p50": 2.529516201972964,
+          "p90": 14.843686183547977
+        },
+        "statuses": {
+          "completed": 42,
+          "failed": 26,
+          "timeout": 1,
+          "unknown": 5
+        },
+        "trial_field_counts": {
+          "correctness_trials_run": {
+            "missing": 32,
+            "values": [
+              "1",
+              "3",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_profile_trials": {
+            "missing": 44,
+            "values": [
+              "10",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_trials": {
+            "missing": 44,
+            "values": [
+              "20",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_warmup": {
+            "missing": 44,
+            "values": [
+              "3",
+              "None"
+            ]
+          },
+          "num_correct_trials": {
+            "missing": 24,
+            "values": [
+              "3",
+              "None"
+            ]
+          }
+        },
+        "worst_client_minus_wg": [
+          {
+            "client_minus_wg": 29.266454669952395,
+            "elapsed_s": 112.697,
+            "finish_unix": 1779355396.9326777,
+            "line": 12,
+            "problem_id": 44,
+            "start_unix": 1779355284.2356777,
+            "status": "completed",
+            "uid": "test_example_37c2d95d0cef4347ba2412f249073532",
+            "wg_pool_total_s": 83.43054533004761
+          },
+          {
+            "client_minus_wg": 20.05750484848022,
+            "elapsed_s": 83.654,
+            "finish_unix": 1779355908.4644976,
+            "line": 28,
+            "problem_id": 93,
+            "start_unix": 1779355824.8104975,
+            "status": "completed",
+            "uid": "test_example_67345b8230ad4b69b1bdf2918cdfb0f3",
+            "wg_pool_total_s": 63.596495151519775
+          },
+          {
+            "client_minus_wg": 17.297055480957027,
+            "elapsed_s": 84.148,
+            "finish_unix": 1779357095.8003385,
+            "line": 63,
+            "problem_id": 51,
+            "start_unix": 1779357011.6523385,
+            "status": "completed",
+            "uid": "test_example_0d159032517e4cf3bf0087b6d0a35b92",
+            "wg_pool_total_s": 66.85094451904297
+          },
+          {
+            "client_minus_wg": 15.849740688323976,
+            "elapsed_s": 75.667,
+            "finish_unix": 1779356328.7708454,
+            "line": 39,
+            "problem_id": 47,
+            "start_unix": 1779356253.1038454,
+            "status": "completed",
+            "uid": "test_example_84686f66b6304c79a4d7a7932d464857",
+            "wg_pool_total_s": 59.817259311676025
+          },
+          {
+            "client_minus_wg": 14.873150680541997,
+            "elapsed_s": 70.123,
+            "finish_unix": 1779356213.521669,
+            "line": 36,
+            "problem_id": 48,
+            "start_unix": 1779356143.398669,
+            "status": "completed",
+            "uid": "test_example_f9a5e7f6e4384704be9c684c135854b3",
+            "wg_pool_total_s": 55.24984931945801
+          },
+          {
+            "client_minus_wg": 14.578505710601803,
+            "elapsed_s": 72.654,
+            "finish_unix": 1779356647.4489639,
+            "line": 49,
+            "problem_id": 22,
+            "start_unix": 1779356574.7949638,
+            "status": "completed",
+            "uid": "test_example_e4318409749e45fa9fe810acf8017d8e",
+            "wg_pool_total_s": 58.07549428939819
+          },
+          {
+            "client_minus_wg": 13.63709298324585,
+            "elapsed_s": 79.137,
+            "finish_unix": 1779355540.2188642,
+            "line": 17,
+            "problem_id": 30,
+            "start_unix": 1779355461.081864,
+            "status": "completed",
+            "uid": "test_example_da9eeb05055a4b7f9e10941af842549e",
+            "wg_pool_total_s": 65.49990701675415
+          },
+          {
+            "client_minus_wg": 13.594406608581544,
+            "elapsed_s": 51.079,
+            "finish_unix": 1779356941.578028,
+            "line": 60,
+            "problem_id": 24,
+            "start_unix": 1779356890.499028,
+            "status": "completed",
+            "uid": "test_example_a315c645d8fa4d9bb280c326f9a455fc",
+            "wg_pool_total_s": 37.48459339141846
+          }
+        ]
+      },
+      "tvm_ffi": {
+        "duplicates": {},
+        "elapsed_minus_wg_completed": {
+          "max": 17.48742084312439,
+          "mean": 6.7250051933679815,
+          "n": 39,
+          "p50": 3.3884705219268803,
+          "p90": 15.038265537643433
+        },
+        "statuses": {
+          "completed": 39,
+          "failed": 26,
+          "timeout": 5,
+          "unknown": 4
+        },
+        "trial_field_counts": {
+          "correctness_trials_run": {
+            "missing": 36,
+            "values": [
+              "1",
+              "3",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_profile_trials": {
+            "missing": 47,
+            "values": [
+              "10",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_trials": {
+            "missing": 47,
+            "values": [
+              "20",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_warmup": {
+            "missing": 47,
+            "values": [
+              "3",
+              "None"
+            ]
+          },
+          "num_correct_trials": {
+            "missing": 30,
+            "values": [
+              "3",
+              "None"
+            ]
+          }
+        },
+        "worst_client_minus_wg": [
+          {
+            "client_minus_wg": 17.48742084312439,
+            "elapsed_s": 43.573,
+            "finish_unix": 1779357464.6111236,
+            "line": 73,
+            "problem_id": 52,
+            "start_unix": 1779357421.0381236,
+            "status": "completed",
+            "uid": "test_example_288806025bb74c1bb4b0889222719e63",
+            "wg_pool_total_s": 26.08557915687561
+          },
+          {
+            "client_minus_wg": 17.284134403228762,
+            "elapsed_s": 46.066,
+            "finish_unix": 1779357061.7837608,
+            "line": 63,
+            "problem_id": 51,
+            "start_unix": 1779357015.7177608,
+            "status": "completed",
+            "uid": "test_example_99e1dc8c03e941248d3fb1f20afb4887",
+            "wg_pool_total_s": 28.78186559677124
+          },
+          {
+            "client_minus_wg": 17.01169344520568,
+            "elapsed_s": 161.266,
+            "finish_unix": 1779355505.5976176,
+            "line": 16,
+            "problem_id": 75,
+            "start_unix": 1779355344.3316176,
+            "status": "completed",
+            "uid": "test_example_bc9571b7a22e4f5ebd19ac2e79c4c8bf",
+            "wg_pool_total_s": 144.2543065547943
+          },
+          {
+            "client_minus_wg": 15.360397581100464,
+            "elapsed_s": 40.579,
+            "finish_unix": 1779355883.3944988,
+            "line": 28,
+            "problem_id": 93,
+            "start_unix": 1779355842.8154988,
+            "status": "completed",
+            "uid": "test_example_759015a686d042b0916b5271e5a59f82",
+            "wg_pool_total_s": 25.218602418899536
+          },
+          {
+            "client_minus_wg": 14.957732526779175,
+            "elapsed_s": 36.067,
+            "finish_unix": 1779357316.2522826,
+            "line": 69,
+            "problem_id": 36,
+            "start_unix": 1779357280.1852827,
+            "status": "completed",
+            "uid": "test_example_caba2a01a6cf453eb496afe5a0dff96b",
+            "wg_pool_total_s": 21.109267473220825
+          },
+          {
+            "client_minus_wg": 14.771764951705933,
+            "elapsed_s": 51.131,
+            "finish_unix": 1779356313.7431395,
+            "line": 39,
+            "problem_id": 47,
+            "start_unix": 1779356262.6121395,
+            "status": "completed",
+            "uid": "test_example_ef402b0134da4141b7cfa4e4e4a2bdc4",
+            "wg_pool_total_s": 36.35923504829407
+          },
+          {
+            "client_minus_wg": 14.35871193122864,
+            "elapsed_s": 43.572,
+            "finish_unix": 1779355980.1221116,
+            "line": 31,
+            "problem_id": 35,
+            "start_unix": 1779355936.5501115,
+            "status": "completed",
+            "uid": "test_example_ac790e7d3557419a807703287c69dda8",
+            "wg_pool_total_s": 29.213288068771362
+          },
+          {
+            "client_minus_wg": 13.907422071456907,
+            "elapsed_s": 32.556,
+            "finish_unix": 1779357348.8084729,
+            "line": 70,
+            "problem_id": 18,
+            "start_unix": 1779357316.2524729,
+            "status": "completed",
+            "uid": "test_example_77854c4778eb4171b7cd23c582dec1fc",
+            "wg_pool_total_s": 18.64857792854309
+          }
+        ]
+      }
+    },
+    "official_c8": {
+      "all_completion_order_first12": [
+        {
+          "binding": "tvm_ffi",
+          "elapsed_s": 0.025,
+          "finish_unix": 1779357524.9461806,
+          "line": 1,
+          "problem_id": 96,
+          "start_unix": 1779357524.9211805,
+          "status": "unknown"
+        },
+        {
+          "binding": "cuda_agent",
+          "elapsed_s": 0.527,
+          "finish_unix": 1779357525.4511106,
+          "line": 1,
+          "problem_id": 66,
+          "start_unix": 1779357524.9241107,
+          "status": "failed"
+        },
+        {
+          "binding": "tvm_ffi",
+          "elapsed_s": 4.515,
+          "finish_unix": 1779357529.4614675,
+          "line": 2,
+          "problem_id": 56,
+          "start_unix": 1779357524.9464674,
+          "status": "completed"
+        },
+        {
+          "binding": "tvm_ffi",
+          "elapsed_s": 13.065,
+          "finish_unix": 1779357537.9949389,
+          "line": 3,
+          "problem_id": 66,
+          "start_unix": 1779357524.9299388,
+          "status": "completed"
+        },
+        {
+          "binding": "tvm_ffi",
+          "elapsed_s": 2.012,
+          "finish_unix": 1779357540.006623,
+          "line": 4,
+          "problem_id": 14,
+          "start_unix": 1779357537.994623,
+          "status": "failed"
+        },
+        {
+          "binding": "cuda_agent",
+          "elapsed_s": 0.015,
+          "finish_unix": 1779357540.0218785,
+          "line": 2,
+          "problem_id": 89,
+          "start_unix": 1779357540.0068784,
+          "status": "unknown"
+        },
+        {
+          "binding": "pybind11",
+          "elapsed_s": 0.013,
+          "finish_unix": 1779357540.034627,
+          "line": 1,
+          "problem_id": 89,
+          "start_unix": 1779357540.021627,
+          "status": "unknown"
+        },
+        {
+          "binding": "tvm_ffi",
+          "elapsed_s": 7.526,
+          "finish_unix": 1779357547.5606356,
+          "line": 5,
+          "problem_id": 89,
+          "start_unix": 1779357540.0346355,
+          "status": "failed"
+        },
+        {
+          "binding": "pybind11",
+          "elapsed_s": 25.075,
+          "finish_unix": 1779357549.9943078,
+          "line": 2,
+          "problem_id": 96,
+          "start_unix": 1779357524.9193077,
+          "status": "failed"
+        },
+        {
+          "binding": "pybind11",
+          "elapsed_s": 25.569,
+          "finish_unix": 1779357550.5045586,
+          "line": 3,
+          "problem_id": 56,
+          "start_unix": 1779357524.9355586,
+          "status": "failed"
+        },
+        {
+          "binding": "pybind11",
+          "elapsed_s": 0.514,
+          "finish_unix": 1779357550.5080585,
+          "line": 4,
+          "problem_id": 69,
+          "start_unix": 1779357549.9940586,
+          "status": "failed"
+        },
+        {
+          "binding": "tvm_ffi",
+          "elapsed_s": 2.014,
+          "finish_unix": 1779357552.5189443,
+          "line": 6,
+          "problem_id": 69,
+          "start_unix": 1779357550.5049443,
+          "status": "failed"
+        }
+      ],
+      "cuda_agent": {
+        "duplicates": {},
+        "elapsed_minus_wg_completed": {
+          "max": 0.5841944255828864,
+          "mean": 0.281968961517016,
+          "n": 48,
+          "p50": 0.2522329473495475,
+          "p90": 0.5161186235427877
+        },
+        "statuses": {
+          "completed": 48,
+          "failed": 22,
+          "unknown": 4
+        },
+        "trial_field_counts": {
+          "correctness_trials_run": {
+            "missing": 27,
+            "values": [
+              "1",
+              "3",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_profile_trials": {
+            "missing": 48,
+            "values": [
+              "10",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_trials": {
+            "missing": 48,
+            "values": [
+              "20",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_warmup": {
+            "missing": 48,
+            "values": [
+              "3",
+              "None"
+            ]
+          },
+          "num_correct_trials": {
+            "missing": 16,
+            "values": [
+              "3",
+              "None"
+            ]
+          }
+        },
+        "worst_client_minus_wg": [
+          {
+            "client_minus_wg": 0.5841944255828864,
+            "elapsed_s": 41.579,
+            "finish_unix": 1779357932.3587072,
+            "line": 39,
+            "problem_id": 81,
+            "start_unix": 1779357890.7797072,
+            "status": "completed",
+            "uid": "test_example_f837a0f816854613891bdbff45897e5d",
+            "wg_pool_total_s": 40.994805574417114
+          },
+          {
+            "client_minus_wg": 0.5745616321563709,
+            "elapsed_s": 28.563,
+            "finish_unix": 1779358291.51072,
+            "line": 67,
+            "problem_id": 68,
+            "start_unix": 1779358262.94772,
+            "status": "completed",
+            "uid": "test_example_41b03641f8d34adaa7f9b3f2d266ee2c",
+            "wg_pool_total_s": 27.988438367843628
+          },
+          {
+            "client_minus_wg": 0.5606001911163361,
+            "elapsed_s": 46.081,
+            "finish_unix": 1779357763.4712725,
+            "line": 29,
+            "problem_id": 19,
+            "start_unix": 1779357717.3902724,
+            "status": "completed",
+            "uid": "test_example_09ef73db948f486abe17b1781adaa455",
+            "wg_pool_total_s": 45.52039980888367
+          },
+          {
+            "client_minus_wg": 0.5526254425048833,
+            "elapsed_s": 37.576,
+            "finish_unix": 1779358170.2451117,
+            "line": 59,
+            "problem_id": 67,
+            "start_unix": 1779358132.6691117,
+            "status": "completed",
+            "uid": "test_example_de53b86c38c44e1793519cb9779b9f7b",
+            "wg_pool_total_s": 37.02337455749512
+          },
+          {
+            "client_minus_wg": 0.5182387962341295,
+            "elapsed_s": 57.089,
+            "finish_unix": 1779357830.5884814,
+            "line": 33,
+            "problem_id": 2,
+            "start_unix": 1779357773.4994814,
+            "status": "completed",
+            "uid": "test_example_1cc55cdf17a94a138ecbf68407dd81fe",
+            "wg_pool_total_s": 56.57076120376587
+          },
+          {
+            "client_minus_wg": 0.5152099781036412,
+            "elapsed_s": 46.593,
+            "finish_unix": 1779358164.170116,
+            "line": 57,
+            "problem_id": 91,
+            "start_unix": 1779358117.577116,
+            "status": "completed",
+            "uid": "test_example_a5fc2e084c434198bf7d8e1b2020c505",
+            "wg_pool_total_s": 46.07779002189636
+          },
+          {
+            "client_minus_wg": 0.4883831939697245,
+            "elapsed_s": 40.571,
+            "finish_unix": 1779358257.8404565,
+            "line": 64,
+            "problem_id": 1,
+            "start_unix": 1779358217.2694564,
+            "status": "completed",
+            "uid": "test_example_3c7b80991ce24f18b93a0ad074031b51",
+            "wg_pool_total_s": 40.08261680603027
+          },
+          {
+            "client_minus_wg": 0.48315053939819563,
+            "elapsed_s": 36.06,
+            "finish_unix": 1779358293.900891,
+            "line": 69,
+            "problem_id": 82,
+            "start_unix": 1779358257.8408911,
+            "status": "completed",
+            "uid": "test_example_76e5f50ba98b4c63be4224d20d6003f5",
+            "wg_pool_total_s": 35.57684946060181
+          }
+        ]
+      },
+      "pybind11": {
+        "duplicates": {},
+        "elapsed_minus_wg_completed": {
+          "max": 0.6474024009704564,
+          "mean": 0.32704743167332256,
+          "n": 42,
+          "p50": 0.3408653202056904,
+          "p90": 0.5367272857665988
+        },
+        "statuses": {
+          "completed": 42,
+          "failed": 26,
+          "timeout": 1,
+          "unknown": 5
+        },
+        "trial_field_counts": {
+          "correctness_trials_run": {
+            "missing": 32,
+            "values": [
+              "1",
+              "3",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_profile_trials": {
+            "missing": 44,
+            "values": [
+              "10",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_trials": {
+            "missing": 44,
+            "values": [
+              "20",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_warmup": {
+            "missing": 44,
+            "values": [
+              "3",
+              "None"
+            ]
+          },
+          "num_correct_trials": {
+            "missing": 24,
+            "values": [
+              "3",
+              "None"
+            ]
+          }
+        },
+        "worst_client_minus_wg": [
+          {
+            "client_minus_wg": 0.6474024009704564,
+            "elapsed_s": 57.62,
+            "finish_unix": 1779357639.1995776,
+            "line": 14,
+            "problem_id": 44,
+            "start_unix": 1779357581.5795777,
+            "status": "completed",
+            "uid": "test_example_37c2d95d0cef4347ba2412f249073532",
+            "wg_pool_total_s": 56.97259759902954
+          },
+          {
+            "client_minus_wg": 0.5686976337432839,
+            "elapsed_s": 46.065,
+            "finish_unix": 1779358364.6123192,
+            "line": 70,
+            "problem_id": 84,
+            "start_unix": 1779358318.5473192,
+            "status": "failed",
+            "uid": "test_example_ee95dd49027c4aa3bf47dae19eabe6a9",
+            "wg_pool_total_s": 45.496302366256714
+          },
+          {
+            "client_minus_wg": 0.559633247375487,
+            "elapsed_s": 51.592,
+            "finish_unix": 1779358075.591652,
+            "line": 48,
+            "problem_id": 22,
+            "start_unix": 1779358023.999652,
+            "status": "completed",
+            "uid": "test_example_e4318409749e45fa9fe810acf8017d8e",
+            "wg_pool_total_s": 51.03236675262451
+          },
+          {
+            "client_minus_wg": 0.5540455722808844,
+            "elapsed_s": 56.64,
+            "finish_unix": 1779357763.5284638,
+            "line": 26,
+            "problem_id": 3,
+            "start_unix": 1779357706.8884637,
+            "status": "completed",
+            "uid": "test_example_624431a97081443888c9d021dcddb4c0",
+            "wg_pool_total_s": 56.085954427719116
+          },
+          {
+            "client_minus_wg": 0.5528382987976102,
+            "elapsed_s": 48.572,
+            "finish_unix": 1779357695.847091,
+            "line": 21,
+            "problem_id": 4,
+            "start_unix": 1779357647.275091,
+            "status": "completed",
+            "uid": "test_example_f82d9344d39546e7be9ed3040ee2540e",
+            "wg_pool_total_s": 48.01916170120239
+          },
+          {
+            "client_minus_wg": 0.5367525062561,
+            "elapsed_s": 58.096,
+            "finish_unix": 1779358115.561474,
+            "line": 53,
+            "problem_id": 27,
+            "start_unix": 1779358057.4654741,
+            "status": "completed",
+            "uid": "test_example_9751205f39574b17b78dd2b1288e0977",
+            "wg_pool_total_s": 57.5592474937439
+          },
+          {
+            "client_minus_wg": 0.5365003013610874,
+            "elapsed_s": 65.09,
+            "finish_unix": 1779358431.2527778,
+            "line": 73,
+            "problem_id": 21,
+            "start_unix": 1779358366.162778,
+            "status": "completed",
+            "uid": "test_example_55229ead509d4d5cb137e99713ce6038",
+            "wg_pool_total_s": 64.55349969863892
+          },
+          {
+            "client_minus_wg": 0.5084257221221904,
+            "elapsed_s": 62.135,
+            "finish_unix": 1779357817.1634545,
+            "line": 31,
+            "problem_id": 16,
+            "start_unix": 1779357755.0284545,
+            "status": "completed",
+            "uid": "test_example_cfc260a2ed58488f950d8fadacf6afb0",
+            "wg_pool_total_s": 61.62657427787781
+          }
+        ]
+      },
+      "tvm_ffi": {
+        "duplicates": {},
+        "elapsed_minus_wg_completed": {
+          "max": 0.5490575618743883,
+          "mean": 0.3444756135696015,
+          "n": 39,
+          "p50": 0.3404719257354749,
+          "p90": 0.5183501083374022
+        },
+        "statuses": {
+          "completed": 39,
+          "failed": 26,
+          "timeout": 5,
+          "unknown": 4
+        },
+        "trial_field_counts": {
+          "correctness_trials_run": {
+            "missing": 36,
+            "values": [
+              "1",
+              "3",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_profile_trials": {
+            "missing": 47,
+            "values": [
+              "10",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_trials": {
+            "missing": 47,
+            "values": [
+              "20",
+              "None"
+            ]
+          },
+          "kg_kernel_perf_num_warmup": {
+            "missing": 47,
+            "values": [
+              "3",
+              "None"
+            ]
+          },
+          "num_correct_trials": {
+            "missing": 30,
+            "values": [
+              "3",
+              "None"
+            ]
+          }
+        },
+        "worst_client_minus_wg": [
+          {
+            "client_minus_wg": 0.5490575618743883,
+            "elapsed_s": 24.557,
+            "finish_unix": 1779357834.1696377,
+            "line": 32,
+            "problem_id": 26,
+            "start_unix": 1779357809.6126378,
+            "status": "completed",
+            "uid": "test_example_c5f4cde0a6c341ada3b908c268632b63",
+            "wg_pool_total_s": 24.00794243812561
+          },
+          {
+            "client_minus_wg": 0.5313925209045411,
+            "elapsed_s": 3.519,
+            "finish_unix": 1779357860.154652,
+            "line": 35,
+            "problem_id": 77,
+            "start_unix": 1779357856.635652,
+            "status": "completed",
+            "uid": "test_example_868bffcf94c44a298d28fc011e121d43",
+            "wg_pool_total_s": 2.987607479095459
+          },
+          {
+            "client_minus_wg": 0.5312292728424062,
+            "elapsed_s": 31.066,
+            "finish_unix": 1779357921.7169302,
+            "line": 38,
+            "problem_id": 47,
+            "start_unix": 1779357890.6509302,
+            "status": "completed",
+            "uid": "test_example_ef402b0134da4141b7cfa4e4e4a2bdc4",
+            "wg_pool_total_s": 30.534770727157593
+          },
+          {
+            "client_minus_wg": 0.5192262268066408,
+            "elapsed_s": 12.535,
+            "finish_unix": 1779358333.4939892,
+            "line": 71,
+            "problem_id": 84,
+            "start_unix": 1779358320.9589891,
+            "status": "completed",
+            "uid": "test_example_2749942a431844828bffc48010234bc4",
+            "wg_pool_total_s": 12.01577377319336
+          },
+          {
+            "client_minus_wg": 0.5181310787200926,
+            "elapsed_s": 3.514,
+            "finish_unix": 1779358273.9758892,
+            "line": 66,
+            "problem_id": 68,
+            "start_unix": 1779358270.4618893,
+            "status": "completed",
+            "uid": "test_example_01e4cf77e55f4edc8ec08a3ee8a85d56",
+            "wg_pool_total_s": 2.9958689212799072
+          },
+          {
+            "client_minus_wg": 0.5130494117736824,
+            "elapsed_s": 17.55,
+            "finish_unix": 1779358015.5010421,
+            "line": 46,
+            "problem_id": 60,
+            "start_unix": 1779357997.9510422,
+            "status": "completed",
+            "uid": "test_example_4ccde15c5a1748e9919a545ff552f5ac",
+            "wg_pool_total_s": 17.03695058822632
+          },
+          {
+            "client_minus_wg": 0.5073277511596679,
+            "elapsed_s": 14.029,
+            "finish_unix": 1779358096.544495,
+            "line": 52,
+            "problem_id": 40,
+            "start_unix": 1779358082.515495,
+            "status": "completed",
+            "uid": "test_example_5b2a2f3c15074a44a41fff4350310ef1",
+            "wg_pool_total_s": 13.521672248840332
+          },
+          {
+            "client_minus_wg": 0.48569521522521963,
+            "elapsed_s": 1.521,
+            "finish_unix": 1779357984.4172442,
+            "line": 43,
+            "problem_id": 42,
+            "start_unix": 1779357982.8962443,
+            "status": "failed",
+            "uid": "test_example_614b67c034494280bef13a0adeaf82ce",
+            "wg_pool_total_s": 1.0353047847747803
+          }
+        ]
+      }
+    }
+  }
+}

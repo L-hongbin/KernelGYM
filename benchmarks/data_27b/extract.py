@@ -1,34 +1,40 @@
 #!/usr/bin/env python3
-"""Extract 100 real 27B rollouts per binding style.
+"""Extract paired 74-problem 3-binding rollouts from one 27B run.
 
 Source: the ``cuda-qwen36-27b-l1fullset-mixedauto-t180opt-...`` 27B
 offline-eval run in the upstream ``KernelGYM-vllm018-cuda-agent`` repo.
-That single run uses the ``mixedauto`` backend, meaning the model is
-free to pick any of three submission shapes per problem. In practice
-the 800 turn-1 responses break down roughly:
+KernelBench Level 1 has 100 problems and the run produced 8 rollouts
+per problem (800 turn-1 responses total). The mixedauto backend lets
+the model pick a submission shape per rollout, so each problem ends
+up with some mix of cuda_agent / pybind11 / tvm_ffi style outputs.
 
-  * ~136 explicit ``PYBIND11_MODULE(TORCH_EXTENSION_NAME, m){...}`` only
-    (the "cuda_agent" submission shape — the user's own binding TU is
-    the only thing compiled)
-  * ~403 ``REGISTER_BINDING(name, register_fn)`` only (the "pybind11"
-    framework-scaffold shape — the framework writes an extra
-    binding.cpp + binding_registry.h, two host C++ TUs get compiled)
-  * ~182 ``TVM_FFI_DLL_EXPORT_TYPED_FUNC(...)`` (the "tvm_ffi" shape —
-    routed through the tvm_ffi backend)
+Of the 100 problems:
 
-For each shape we pull 100 distinct turn-1 responses, AS-EMITTED by
-the model (no mechanical rewriting between shapes), pair them with
-the ``reference.py`` problem source from ``eval_outputs/``, and write
-three JSONL files:
+  * 74 have at least one rollout in EACH of the three styles
+  * 25 have rollouts in only two of the three
+  *  1 has rollouts in only one
 
-  benchmarks/data_27b/samples_cuda_agent.jsonl.xz
-  benchmarks/data_27b/samples_pybind11.jsonl.xz
-  benchmarks/data_27b/samples_tvm_ffi.jsonl.xz
+To make the cross-binding timing comparison **paired by problem**
+(every reward-time difference between bindings is on the same kernel
+problem, removing problem-difficulty as a confound), we pick exactly
+those 74 covered problems and emit one rollout per (problem, binding).
 
-Files are xz-compressed (~600-720 KB each, well under git pre-commit
-size limits) and decoded by the runner via stdlib ``lzma``.
+Outputs three xz-compressed jsonl files, ROW-ALIGNED so row ``i`` in
+all three files refers to the same problem_id:
 
-Each row has the minimum fields ``run_27b_breakdown.py`` needs:
+  benchmarks/data_27b/samples_cuda_agent.jsonl.xz   (74 rows)
+  benchmarks/data_27b/samples_pybind11.jsonl.xz     (74 rows)
+  benchmarks/data_27b/samples_tvm_ffi.jsonl.xz      (74 rows)
+
+Plus a ``manifest.json`` next to them with:
+
+  * absolute upstream run path
+  * SHA-256 of upstream ``graded_results_conversations.jsonl``
+  * SHA-256 of each emitted sample file
+  * classification rule + counts
+  * total-rollout breakdown by binding
+
+Per-row schema:
 
   {
     "uid":            "test_example_...",
@@ -41,16 +47,33 @@ Each row has the minimum fields ``run_27b_breakdown.py`` needs:
     "kernel_code":    "<turn[0].response — three-section LLM output>"
   }
 
-Idempotent. Re-running overwrites the JSONL files but the picks are
-deterministic given a fixed run path + a sorted iteration order.
+Classification rule (used by ``classify_binding``):
+
+  * has TVM_FFI_DLL_EXPORT_TYPED_FUNC → tvm_ffi
+  * has PYBIND11_MODULE (with or without REGISTER_BINDING) → cuda_agent
+  * has REGISTER_BINDING only → pybind11
+  * neither → skipped
+
+The (PYBIND11_MODULE + REGISTER_BINDING) "both" case is classified as
+cuda_agent because at runtime the cuda_agent backend skips writing
+its own scaffold whenever the user's APPLY_BINDINGS already contains
+a PYBIND11_MODULE block — so the effective compile path is the
+explicit / cuda_agent one regardless of any leftover REGISTER_BINDING
+boilerplate.
+
+Determinism: for each covered problem we pick the rollout with the
+LOWEST ``sample_id`` for each binding. Re-running this extractor on
+the same upstream produces byte-identical samples.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import lzma
 import re
+from collections import defaultdict
 from pathlib import Path
 from typing import Iterator
 
@@ -62,11 +85,9 @@ DEFAULT_RUN = (
 
 OUT_DIR = Path(__file__).resolve().parent
 
-PER_BINDING_TARGET = 100
+ALL_BINDINGS: tuple[str, ...] = ("cuda_agent", "pybind11", "tvm_ffi")
+BACKEND_FOR = {"cuda_agent": "cuda_agent", "pybind11": "cuda_agent", "tvm_ffi": "tvm_ffi"}
 
-# Regex for detecting binding style on a turn-1 response. The mixedauto
-# model occasionally emits BOTH PYBIND11_MODULE and REGISTER_BINDING in
-# the same response — we count that as ambiguous and skip it.
 _PYBIND11_MODULE_RE = re.compile(r"\bPYBIND11_MODULE\s*\(")
 
 
@@ -76,52 +97,52 @@ def classify_binding(response: str) -> str | None:
     has_tvm_ffi = "TVM_FFI_DLL_EXPORT_TYPED_FUNC" in response
     if has_tvm_ffi:
         return "tvm_ffi"
-    if has_pyb_module and not has_register:
+    if has_pyb_module:
+        # Even if REGISTER_BINDING is also present, the runtime backend
+        # skips its scaffold when PYBIND11_MODULE is present, so the
+        # effective compile shape is the explicit / cuda_agent one.
         return "cuda_agent"
-    if has_register and not has_pyb_module:
+    if has_register:
         return "pybind11"
-    # Either ambiguous (both pyb_module + register_binding) or neither
-    # — not a clean exemplar, skip.
     return None
 
 
-def build_uid_to_outputs_dir(run_root: Path) -> dict[str, Path]:
-    """Build {uid -> eval_outputs/problem_X_sample_Y/} index.
+def sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
-    Each summary.json in those dirs carries the uid we need to join
-    with graded_results_conversations.jsonl.
+
+def build_uid_to_problem(run_root: Path) -> dict[str, tuple[int, int, Path]]:
+    """Build {uid -> (problem_id, sample_id, problem_dir)} from
+    eval_outputs/problem_X_sample_Y/summary.json.
     """
     eval_outputs = run_root / "eval_results/step_0/eval_outputs"
     if not eval_outputs.is_dir():
         raise FileNotFoundError(f"missing eval_outputs at {eval_outputs}")
-    mapping: dict[str, Path] = {}
+    mapping: dict[str, tuple[int, int, Path]] = {}
     for problem_dir in sorted(eval_outputs.iterdir()):
         if not problem_dir.is_dir():
             continue
-        summary_path = problem_dir / "summary.json"
-        if not summary_path.is_file():
+        m = re.match(r"problem_(\d+)_sample_(\d+)$", problem_dir.name)
+        if not m:
             continue
+        problem_id, sample_id = int(m.group(1)), int(m.group(2))
+        summary_path = problem_dir / "summary.json"
         try:
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         uid = summary.get("uid")
         if isinstance(uid, str):
-            mapping[uid] = problem_dir
+            mapping[uid] = (problem_id, sample_id, problem_dir)
     return mapping
 
 
-def parse_problem_sample_id(folder_name: str) -> tuple[int, int] | None:
-    m = re.match(r"problem_(\d+)_sample_(\d+)$", folder_name)
-    if not m:
-        return None
-    return int(m.group(1)), int(m.group(2))
-
-
-def iter_turn1(
-    graded_jsonl: Path,
-) -> Iterator[tuple[str, float, str]]:
-    """Yield (uid, total_score, turn1_response) per row in graded_results."""
+def iter_turn1(graded_jsonl: Path) -> Iterator[tuple[str, float, str]]:
+    """Yield (uid, total_score, turn1_response)."""
     with graded_jsonl.open(encoding="utf-8") as f:
         for line in f:
             try:
@@ -140,88 +161,114 @@ def iter_turn1(
             yield uid, score, resp
 
 
-def extract(run_root: Path, out_dir: Path, target: int) -> dict[str, int]:
+def extract(run_root: Path, out_dir: Path) -> dict:
+    """Pick one rollout per (binding, problem) for problems covered by
+    all three bindings. Write 3 row-aligned xz jsonl files + manifest.
+    """
     graded_jsonl = run_root / "eval_results/step_0/graded_results_conversations.jsonl"
     if not graded_jsonl.is_file():
         raise FileNotFoundError(f"missing graded_results at {graded_jsonl}")
 
-    uid_to_dir = build_uid_to_outputs_dir(run_root)
+    uid_to_problem = build_uid_to_problem(run_root)
 
-    picked: dict[str, list[dict]] = {"cuda_agent": [], "pybind11": [], "tvm_ffi": []}
-    backend_for = {"cuda_agent": "cuda_agent", "pybind11": "cuda_agent", "tvm_ffi": "tvm_ffi"}
-    skipped_no_match = 0
-    skipped_no_reference = 0
+    # per_problem[problem_id][binding] = list of (sample_id, uid, score, resp, problem_dir)
+    per_problem: dict[int, dict[str, list[tuple]]] = defaultdict(lambda: defaultdict(list))
+    total_by_binding: dict[str, int] = defaultdict(int)
+    classified = 0
+    unclassified = 0
 
     for uid, score, response in iter_turn1(graded_jsonl):
         binding = classify_binding(response)
         if binding is None:
+            unclassified += 1
             continue
-        bucket = picked[binding]
-        if len(bucket) >= target:
-            # Already full — keep iterating in case other buckets need
-            # more, but skip this sample.
-            if all(len(picked[b]) >= target for b in picked):
-                break
+        problem_meta = uid_to_problem.get(uid)
+        if problem_meta is None:
             continue
+        problem_id, sample_id, problem_dir = problem_meta
+        per_problem[problem_id][binding].append((sample_id, uid, score, response, problem_dir))
+        total_by_binding[binding] += 1
+        classified += 1
 
-        problem_dir = uid_to_dir.get(uid)
-        if problem_dir is None:
-            skipped_no_match += 1
-            continue
-        ps = parse_problem_sample_id(problem_dir.name)
-        if ps is None:
-            skipped_no_match += 1
-            continue
-        problem_id, sample_id = ps
-
-        ref_path = problem_dir / "reference.py"
-        if not ref_path.is_file():
-            skipped_no_reference += 1
-            continue
-        try:
-            reference_code = ref_path.read_text(encoding="utf-8")
-        except OSError:
-            skipped_no_reference += 1
-            continue
-
-        bucket.append(
-            {
-                "uid": uid,
-                "problem_id": problem_id,
-                "sample_id": sample_id,
-                "binding": binding,
-                "backend": backend_for[binding],
-                "score": score,
-                "reference_code": reference_code,
-                "kernel_code": response,
-            }
-        )
+    # Problems covered by all three bindings.
+    covered = sorted(pid for pid, b in per_problem.items() if set(b.keys()) >= set(ALL_BINDINGS))
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    counts: dict[str, int] = {}
-    for binding, rows in picked.items():
+    sample_paths: dict[str, Path] = {}
+    rows_per_binding: dict[str, list[dict]] = {b: [] for b in ALL_BINDINGS}
+
+    for problem_id in covered:
+        problem_buckets = per_problem[problem_id]
+        for binding in ALL_BINDINGS:
+            # Deterministic pick: lowest sample_id.
+            sample_id, uid, score, response, problem_dir = min(problem_buckets[binding])
+            ref_path = problem_dir / "reference.py"
+            try:
+                reference_code = ref_path.read_text(encoding="utf-8")
+            except OSError:
+                # Should never happen because we already saw summary.json,
+                # but guard anyway.
+                raise
+            rows_per_binding[binding].append(
+                {
+                    "uid": uid,
+                    "problem_id": problem_id,
+                    "sample_id": sample_id,
+                    "binding": binding,
+                    "backend": BACKEND_FOR[binding],
+                    "score": score,
+                    "reference_code": reference_code,
+                    "kernel_code": response,
+                }
+            )
+
+    for binding in ALL_BINDINGS:
         out_path = out_dir / f"samples_{binding}.jsonl.xz"
         with lzma.open(out_path, "wt", encoding="utf-8", preset=9 | lzma.PRESET_EXTREME) as f:
-            for r in rows:
+            for r in rows_per_binding[binding]:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
-        counts[binding] = len(rows)
+        sample_paths[binding] = out_path
 
-    counts["skipped_no_match"] = skipped_no_match
-    counts["skipped_no_reference"] = skipped_no_reference
-    return counts
+    manifest = {
+        "upstream_run": str(run_root),
+        "graded_results_sha256": sha256_of(graded_jsonl),
+        "classification_rule": (
+            "tvm_ffi if TVM_FFI_DLL_EXPORT_TYPED_FUNC present; "
+            "else cuda_agent if PYBIND11_MODULE present (with or without REGISTER_BINDING); "
+            "else pybind11 if REGISTER_BINDING present; else skipped."
+        ),
+        "totals": {
+            "rollouts_classified": classified,
+            "rollouts_unclassified": unclassified,
+            "per_binding_rollouts": dict(total_by_binding),
+            "problems_total": len(per_problem),
+            "problems_covered_by_all_3": len(covered),
+            "samples_per_binding": len(covered),
+        },
+        "covered_problem_ids": covered,
+        "samples": {
+            b: {
+                "path": str(sample_paths[b].relative_to(out_dir)),
+                "sha256": sha256_of(sample_paths[b]),
+                "rows": len(rows_per_binding[b]),
+            }
+            for b in ALL_BINDINGS
+        },
+    }
+    manifest_path = out_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return manifest
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--run", type=Path, default=DEFAULT_RUN)
     p.add_argument("--out-dir", type=Path, default=OUT_DIR)
-    p.add_argument("--per-binding", type=int, default=PER_BINDING_TARGET)
     args = p.parse_args()
 
-    counts = extract(args.run, args.out_dir, args.per_binding)
-    print(json.dumps(counts, indent=2, sort_keys=True))
-    targets_ok = all(counts[b] >= args.per_binding for b in ("cuda_agent", "pybind11", "tvm_ffi"))
-    return 0 if targets_ok else 1
+    manifest = extract(args.run, args.out_dir)
+    print(json.dumps(manifest["totals"], indent=2, sort_keys=True))
+    return 0
 
 
 if __name__ == "__main__":
