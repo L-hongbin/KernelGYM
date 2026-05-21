@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 cd "${ROOT_DIR}"
-bash "${ROOT_DIR}/ensure_venv.sh"
+# bash "${ROOT_DIR}/ensure_venv.sh"
 
 # Keep shell responsibility minimal: activate the existing venv, then hand off to the service CLI.
 # shellcheck disable=SC1091
