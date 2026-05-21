@@ -105,3 +105,26 @@ ruff check .
 ```
 
 Formatting is done by `ruff format`, not Black. Linting is done by `ruff check`. The pre-commit hook includes `ruff-check --fix` and `ruff-format`, plus basic file hygiene hooks.
+
+## Documentation
+
+### Operations
+
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Full single-node and multi-node deployment details (extends the Quick Start above).
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — Local development workflow, test layout, and contribution conventions.
+
+### Design
+
+- [docs/design-doc/COMPILE_ACCELERATION.md](docs/design-doc/COMPILE_ACCELERATION.md) — Manual-ninja compile path, per-object cache, compile artifact cache, split compile/execute.
+- [docs/design-doc/TWO_WORKER_WARM_POOL.md](docs/design-doc/TWO_WORKER_WARM_POOL.md) — GPU subprocess pool architecture (`WORKER_POOL_SIZE=2`, `MAX_TASKS_PER_WORKER=1`) and recycle invariants.
+- [docs/design-doc/REWARD_HACKING_DEFENSES.md](docs/design-doc/REWARD_HACKING_DEFENSES.md) — Decoy-kernel detection and reward-hacking defenses.
+
+### Repository context
+
+- [docs/SOURCE_LINEAGE.md](docs/SOURCE_LINEAGE.md) — Which files were copied from which upstream repo.
+- [docs/IMPLEMENTATION_DIFFERENCES.md](docs/IMPLEMENTATION_DIFFERENCES.md) — Behavioural deltas vs the source repos.
+- [docs/server-result-cache-guard.md](docs/server-result-cache-guard.md) — Rationale for the per-request-hash result-cache guard.
+
+### Benchmarks
+
+- [benchmarks/README.md](benchmarks/README.md) — Compile-speed benchmark scaffold, kernel fixtures, scenarios, and findings log.
