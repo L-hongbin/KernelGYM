@@ -64,9 +64,6 @@ class RewardProfile:
             "KERNELGYM_MANUAL_NINJA_OBJECT_CACHE_INDEX": "redis",
             "KERNELGYM_COMPILE_ARTIFACT_CACHE": "true",
             "KERNELGYM_CORRECTNESS_GPU_INPUTS": "true",
-            "KERNELGYM_CORRECTNESS_MAX_WALL_S": "20",
-            "KERNELGYM_CORRECTNESS_PASS_ON_BUDGET": "true",
-            "KERNELGYM_CORRECTNESS_BUDGET_MIN_PASS_TRIALS": "2",
         }
 
 

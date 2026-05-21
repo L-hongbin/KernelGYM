@@ -25,14 +25,17 @@ def test_functional_reward_profile_matches_runtime_constants() -> None:
     assert values["GPU_DEVICES"] == "[0,1,2,3,4,5,6,7]"
     assert values["DEFAULT_BACKEND"] == "auto"
     assert values["KERNELGYM_CORRECTNESS_GPU_INPUTS"] == "true"
-    assert values["KERNELGYM_CORRECTNESS_MAX_WALL_S"] == "20"
-    assert values["KERNELGYM_CORRECTNESS_PASS_ON_BUDGET"] == "true"
-    assert values["KERNELGYM_CORRECTNESS_BUDGET_MIN_PASS_TRIALS"] == "2"
     assert values["LOG_DIR"] == "logs/v1"
     assert values["PY_LOG_DIR"] == "py_logs/v1"
     assert "GPU_MEMORY_LIMIT" not in values
     assert "CUDA_HOME" not in values
     assert "KERNELGYM_CUDA_AGENT_NVCC_THREADS" not in values
+    # The 2-trial / 20s wall-clock budget pass-on-success mechanism is
+    # intentionally disabled in the v1 profile: stop_on_first_failure remains
+    # the only correctness short-circuit; all configured trials run otherwise.
+    assert "KERNELGYM_CORRECTNESS_MAX_WALL_S" not in values
+    assert "KERNELGYM_CORRECTNESS_PASS_ON_BUDGET" not in values
+    assert "KERNELGYM_CORRECTNESS_BUDGET_MIN_PASS_TRIALS" not in values
 
 
 def test_auto_is_alias_for_default_functional_profile() -> None:

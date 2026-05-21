@@ -252,7 +252,7 @@ def run_and_check_correctness(
             stage_update_fn(f"kernel.correctness.{name}")
 
     if stop_on_first_failure is None:
-        stop_on_first_failure = _env_flag(_CORRECTNESS_EARLY_STOP_ENV, default=False)
+        stop_on_first_failure = _env_flag(_CORRECTNESS_EARLY_STOP_ENV, default=True)
     if max_wall_time_s is None:
         max_wall_time_s = _env_positive_float(_CORRECTNESS_MAX_WALL_S_ENV)
     if pass_on_time_budget is None:
