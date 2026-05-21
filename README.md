@@ -112,6 +112,7 @@ Formatting is done by `ruff format`, not Black. Linting is done by `ruff check`.
 
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Full single-node and multi-node deployment details (extends the Quick Start above).
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — Local development workflow, test layout, and contribution conventions.
+- [docs/HTTP_API.md](docs/HTTP_API.md) — HTTP endpoints, request/response schemas, metadata fields, error model, and `curl` example.
 
 ### Design
 
