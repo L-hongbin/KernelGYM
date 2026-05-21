@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     celery_timezone: str = Field(default="UTC", env="CELERY_TIMEZONE")
 
     default_num_trials: int = Field(default=100, env="DEFAULT_NUM_TRIALS")
-    default_timeout: int = Field(default=90, env="DEFAULT_TIMEOUT")
+    default_timeout: int = Field(default=180, env="DEFAULT_TIMEOUT")
     default_backend: str = Field(default="auto", env="DEFAULT_BACKEND")
     default_toolkit: str = Field(default="kernelbench", env="DEFAULT_TOOLKIT")
     default_backend_adapter: str = Field(default="kernelbench", env="DEFAULT_BACKEND_ADAPTER")
