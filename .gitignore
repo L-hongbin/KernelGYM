@@ -22,3 +22,4 @@ venv/
 .claude
 artifacts/
 wheels/
+benchmarks/results/
