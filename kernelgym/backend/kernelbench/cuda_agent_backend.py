@@ -550,11 +550,9 @@ public:
     @staticmethod
     def _source_is_reusable_object(source_path: Path) -> tuple[bool, str | None]:
         try:
-            text = source_path.read_text(encoding="utf-8", errors="replace")
+            source_path.read_bytes()
         except OSError as exc:
             return False, f"source read failed: {exc}"
-        if "TORCH_EXTENSION_NAME" in text or "PYBIND11_MODULE" in text:
-            return False, "source references module name"
         return True, None
 
     @staticmethod
@@ -584,6 +582,7 @@ public:
         for item in (
             object_name,
             rule,
+            ext_name,
             header_digest,
             torch.__version__,
             str(torch.version.cuda),
@@ -870,7 +869,11 @@ public:
         tmp_path.replace(ready_path)
 
     @staticmethod
-    def _build_extension(work_dir: Path, sources: list[str]) -> Dict[str, Any]:
+    def _build_extension(
+        work_dir: Path,
+        sources: list[str],
+        ext_name_override: str | None = None,
+    ) -> Dict[str, Any]:
         if not sources:
             return {
                 "compiled": False,
@@ -893,7 +896,7 @@ public:
         torch, cpp_ext = _torch_modules()
         extra_cflags = ["-O3", "-std=c++17"]
         extra_cuda_cflags = ["-O3", "--use_fast_math", "--threads", nvcc_threads]
-        ext_name = work_dir.name.replace("-", "_")
+        ext_name = ext_name_override or work_dir.name.replace("-", "_")
         compile_timing = KernelBenchCudaAgentBackend._new_compile_timing(build_dir, build_backend="manual_ninja")
 
         try:
@@ -1014,15 +1017,19 @@ public:
                 "precheck": precheck_info,
             }
 
+        # Always compute the content hash so ext_name is stable across requests
+        # with identical sources. This lets the per-object cache reuse the
+        # binding .o (its PyInit_<name> symbol is bound to this stable name).
+        cache_key = self._artifact_cache_key(
+            model_code=model_code,
+            cuda_sources=cuda_sources,
+            entry_point=entry_point,
+        )
+        stable_ext_name = f"kernelgym_cuda_agent_{cache_key[:16]}"
+
         work_dir: Path
-        cache_key = ""
         ready_path: Path | None = None
         if enable_compile_artifact_cache:
-            cache_key = self._artifact_cache_key(
-                model_code=model_code,
-                cuda_sources=cuda_sources,
-                entry_point=entry_point,
-            )
             cache_entry = self._compile_artifact_cache_root() / cache_key
             ready_path = cache_entry / "ready.json"
             cached_artifact = self._load_cached_artifact(ready_path)
@@ -1042,7 +1049,11 @@ public:
             self._write_runtime_scaffold(work_dir, model_code, cuda_sources)
             self._materialize_sources(work_dir, cuda_sources)
             try:
-                return self._build_extension(work_dir, self._collect_compile_sources(work_dir))
+                return self._build_extension(
+                    work_dir,
+                    self._collect_compile_sources(work_dir),
+                    ext_name_override=stable_ext_name,
+                )
             except Exception as exc:
                 return {"compiled": False, "error": str(exc)}
 
