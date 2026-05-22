@@ -47,6 +47,18 @@ RESULTS_DIR = ROOT / "results"
 
 ALL_BINDINGS = ("cuda_agent", "pybind11", "tvm_ffi")
 
+# Internal keys (above) carry over from the original extractor names;
+# DISPLAY_NAMES is what gets shown in user-facing markdown so the table
+# uses precise terminology. Both ``cuda_agent`` and ``pybind11`` are
+# pybind11-based — the difference is only the submission shape and
+# whether the framework writes its own ``binding.cpp`` scaffold. See
+# benchmarks/27b_breakdown_report.md "Naming" section.
+DISPLAY_NAMES = {
+    "cuda_agent": "pybind11_inline",
+    "pybind11": "pybind11_registry",
+    "tvm_ffi": "tvm_ffi",
+}
+
 # Cross-binding-safe metrics: present on every backend.
 CROSS_BINDING_FIELDS = (
     "elapsed_s",
@@ -235,12 +247,12 @@ def _render_markdown(summaries: dict[str, dict], *, tag: str, censor_at: float) 
     for b in ALL_BINDINGS:
         s = summaries.get(b)
         if not s:
-            lines.append(f"| `{b}` | (no data) | | | | | | | | | |")
+            lines.append(f"| `{DISPLAY_NAMES.get(b, b)}` | (no data) | | | | | | | | | |")
             continue
         sc = s["status_counts"]
         ms = s["speedup_compiled_mean"]
         lines.append(
-            f"| `{b}` | {s['total']} | {s['completed']} | {sc.get('failed', 0)} "
+            f"| `{DISPLAY_NAMES.get(b, b)}` | {s['total']} | {s['completed']} | {sc.get('failed', 0)} "
             f"| {sc.get('timeout', 0)} | {sc.get('runner-exception', 0)} "
             f"| {s['compiled']} | {s['correctness']} | {s['decoy_kernel']} "
             f"| {s['speedup_positive']} "
@@ -265,7 +277,7 @@ def _render_markdown(summaries: dict[str, dict], *, tag: str, censor_at: float) 
                     continue
                 t = s[key][fld]
                 lines.append(
-                    f"| `{b}` | {t['n']} | {_fmt(t['p50'])} | {_fmt(t['mean'])} "
+                    f"| `{DISPLAY_NAMES.get(b, b)}` | {t['n']} | {_fmt(t['p50'])} | {_fmt(t['mean'])} "
                     f"| {_fmt(t['p90'])} | {_fmt(t['p99'])} |"
                 )
             lines.append("")
@@ -286,7 +298,7 @@ def _render_markdown(summaries: dict[str, dict], *, tag: str, censor_at: float) 
             continue
         t = s["kernel_residual_stats"]
         lines.append(
-            f"| `{b}` | {t['n']} | {_fmt(t['p50'])} | {_fmt(t['mean'])} | {_fmt(t['p90'])} | {_fmt(t['p99'])} |"
+            f"| `{DISPLAY_NAMES.get(b, b)}` | {t['n']} | {_fmt(t['p50'])} | {_fmt(t['mean'])} | {_fmt(t['p90'])} | {_fmt(t['p99'])} |"
         )
     lines.append("")
 
@@ -309,10 +321,10 @@ def _render_markdown(summaries: dict[str, dict], *, tag: str, censor_at: float) 
                 continue
             t = s["timing_backend_specific"][fld]
             if t["n"] == 0:
-                lines.append(f"| `{b}` | 0 | — | — | — | — |")
+                lines.append(f"| `{DISPLAY_NAMES.get(b, b)}` | 0 | — | — | — | — |")
             else:
                 lines.append(
-                    f"| `{b}` | {t['n']} | {_fmt(t['p50'])} | {_fmt(t['mean'])} "
+                    f"| `{DISPLAY_NAMES.get(b, b)}` | {t['n']} | {_fmt(t['p50'])} | {_fmt(t['mean'])} "
                     f"| {_fmt(t['p90'])} | {_fmt(t['p99'])} |"
                 )
         lines.append("")

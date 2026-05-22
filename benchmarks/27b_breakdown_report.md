@@ -4,25 +4,71 @@ End-to-end comparison of `/evaluate` reward latency across the three
 submission-shape bindings the reward service supports, using real 27B
 rollouts as the workload.
 
-  * **cuda_agent** — `APPLY_BINDINGS` carries an explicit
+  * **`pybind11_inline`** — `APPLY_BINDINGS` carries an explicit
     `PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)` block (one host C++
-    binding TU compiled).
-  * **pybind11** — `APPLY_BINDINGS` uses `REGISTER_BINDING(...)` + the
-    framework's own `binding.cpp` + `binding_registry.h` scaffold
-    (two host C++ binding TUs compiled).
-  * **tvm_ffi** — `TVM_FFI_DLL_EXPORT_TYPED_FUNC(...)` routed through
-    the separate tvm_ffi backend (which calls `tvm_ffi.cpp.build`,
-    not the manual-ninja path).
+    binding TU compiled). Server backend: `cuda_agent`.
+  * **`pybind11_registry`** — `APPLY_BINDINGS` uses
+    `REGISTER_BINDING(...)` + the framework's own `binding.cpp` +
+    `binding_registry.h` scaffold (two host C++ binding TUs
+    compiled, one extra dispatch level at module init). Server
+    backend: `cuda_agent`.
+  * **`tvm_ffi`** — `TVM_FFI_DLL_EXPORT_TYPED_FUNC(...)` routed
+    through the separate tvm_ffi backend (which calls
+    `tvm_ffi.cpp.build`, not the manual-ninja path). Server
+    backend: `tvm_ffi`.
 
 The 27B model produces all three shapes natively (mixedauto backend
 on the upstream offline-eval run). No mechanical cross-binding
 rewriting — each binding's samples are the **as-emitted LLM output**.
 
+## Naming and toolchain
+
+The three names above describe the **submission shape** (what shows
+up in `APPLY_BINDINGS` of the LLM's response), not three separate
+backends or three different libraries.
+
+| Submission shape | Server-side backend | pybind11 library used |
+|---|---|---|
+| `pybind11_inline` | `cuda_agent` | **pybind11 3.0.1** (bundled with torch) |
+| `pybind11_registry` | `cuda_agent` | **pybind11 3.0.1** (bundled with torch) |
+| `tvm_ffi` | `tvm_ffi` | n/a — uses `tvm_ffi.cpp.build` instead |
+
+So `pybind11_inline` and `pybind11_registry` exercise **the same
+pybind11**, **the same server-side backend**, and **the same
+manual-ninja compile path**. The only thing that differs is whether
+the framework's `binding_registry.h` scaffold gets compiled
+alongside the user's binding TU. There is no "old pybind11" anywhere
+in the comparison — both are pybind11 3.0.1.
+
+The legacy in-repo identifiers (file names, JSONL `binding` field,
+`ALL_BINDINGS` constant in the runner code) still use the original
+labels `cuda_agent` and `pybind11`. The mapping the aggregator
+applies for rendering is:
+
+```python
+DISPLAY_NAMES = {
+    "cuda_agent": "pybind11_inline",
+    "pybind11":   "pybind11_registry",
+    "tvm_ffi":    "tvm_ffi",
+}
+```
+
+Full toolchain pinned for this report:
+
+| Component | Version |
+|---|---|
+| `pybind11` | 3.0.1 (bundled in `torch/include/pybind11/`) |
+| `torch`    | 2.11.0+cu129 |
+| `CUDA`     | 12.9 (V12.9.86) |
+| `Python`   | 3.12.10 |
+| Host compiler (cuda_agent path) | `c++` / GCC 11.4 (Ubuntu 22.04 toolchain on `.40`) |
+| nvcc       | CUDA 12.9 `nvcc` |
+
 ## TL;DR
 
 `conc=8`, 74 paired KernelBench Level 1 problems, server timeout 180s:
 
-| Metric | cuda_agent | pybind11 | tvm_ffi |
+| Metric | pybind11_inline | pybind11_registry | tvm_ffi |
 |---|---:|---:|---:|
 | Compile time p50 (compiled) | 33.21 s | 33.68 s | **2.39 s** |
 | Compile time p99 (compiled) | 45.40 s | 46.09 s | **3.23 s** |
@@ -42,21 +88,23 @@ rewriting — each binding's samples are the **as-emitted LLM output**.
     the same KernelBench problem," not "adapter overhead for identical
     kernels."** Each (problem, binding) row is a different LLM
     rollout, not the same code under different bindings.
-  * The pybind11-vs-cuda_agent **completed-only** p50s look like
-    pybind11 is 2.5× slower at perf-step (12.8 s vs 5.2 s) but that
-    is a **correctness-mix artifact**: cuda_agent has more
-    compiled-but-incorrect rows (perf step ≈ 0.0002 s when
-    correctness fails). The 3 tables below filter on the right
-    completion signal per metric. The genuine pybind11 perf overhead
-    is **~17 %** (17.35 s vs 14.72 s on correctness-passed rows).
+  * The `pybind11_registry`-vs-`pybind11_inline` **completed-only**
+    p50s look like `pybind11_registry` is 2.5× slower at perf-step
+    (12.8 s vs 5.2 s) but that is a **correctness-mix artifact**:
+    `pybind11_inline` has more compiled-but-incorrect rows (perf
+    step ≈ 0.0002 s when correctness fails). The 3 tables below
+    filter on the right completion signal per metric. The genuine
+    `pybind11_registry` perf overhead is **~17 %** (17.35 s vs
+    14.72 s on correctness-passed rows).
   * `tvm_ffi` compile is genuinely **~14× faster** than the manual
     ninja path (`tvm_ffi.cpp.build` vs `cpp_extension`'s ninja).
     Header set is ~47× smaller and tvm_ffi avoids pybind11's template
     instantiation cost.
-  * tvm_ffi's lower completion rate (53 % vs 65 %) is **tvm-specific
-    failure**, not just hard problems: the 5 timeouts (`pid 1, 2, 9,
-    13, 61` — matmul / batched-matmul / 3D-matmul / triu / Conv2d) all
-    hang in tvm_ffi but cuda_agent gets `1, 2, 9` correct.
+  * `tvm_ffi`'s lower completion rate (53 % vs 65 %) is
+    **tvm-specific failure**, not just hard problems: the 5 timeouts
+    (`pid 1, 2, 9, 13, 61` — matmul / batched-matmul / 3D-matmul /
+    triu / Conv2d) all hang in `tvm_ffi` but `pybind11_inline` gets
+    `1, 2, 9` correct.
 
 ## Reproduction
 
@@ -94,7 +142,8 @@ problems covered by all three shapes, and writes:
     upstream `graded_results_conversations.jsonl` + per-file SHA-256
     of the three xz outputs)
 
-Per-row schema:
+Per-row schema (`binding` and `backend` use the **legacy
+identifiers** described in the "Naming and toolchain" section):
 
 ```json
 {
@@ -216,23 +265,23 @@ phase didn't run.
 ### 1. Compile time — `kg_kernel_backend_compile_s`
 
 Rows where `compiled=True` (kernel + binding compiled, whether or
-not correctness later passed). For cuda_agent / pybind11 the
-backend is the manual-ninja `cpp_extension` path; for tvm_ffi it is
-`tvm_ffi.cpp.build`.
+not correctness later passed). For `pybind11_inline` /
+`pybind11_registry` the backend is the manual-ninja
+`cpp_extension` path; for `tvm_ffi` it is `tvm_ffi.cpp.build`.
 
 | Binding | n | p50 | p90 | p99 |
 |---|---:|---:|---:|---:|
-| `cuda_agent` | 48 | 33.21 s | 41.73 s | 45.40 s |
-| `pybind11`   | 42 | 33.68 s | 41.63 s | 46.09 s |
+| `pybind11_inline` | 48 | 33.21 s | 41.73 s | 45.40 s |
+| `pybind11_registry`   | 42 | 33.68 s | 41.63 s | 46.09 s |
 | `tvm_ffi`    | 39 | **2.39 s** | **2.82 s** | **3.23 s** |
 
-`cuda_agent` and `pybind11` are within ~1 % at every percentile —
-the framework scaffold's extra binding TU compile is invisible in
-aggregate (the wall is dominated by `<torch/extension.h>` parsing,
-which both shapes pay). `tvm_ffi` is ~14× faster — `tvm/ffi/*`
-include tree is ~844 KB vs `torch/include` ~40 MB, and the
-`TVM_FFI_DLL_EXPORT_TYPED_FUNC` registration avoids pybind11
-template instantiation.
+`pybind11_inline` and `pybind11_registry` are within ~1 % at every
+percentile — the framework scaffold's extra binding TU compile is
+invisible in aggregate (the wall is dominated by
+`<torch/extension.h>` parsing, which both shapes pay). `tvm_ffi`
+is ~14× faster — `tvm/ffi/*` include tree is ~844 KB vs
+`torch/include` ~40 MB, and the `TVM_FFI_DLL_EXPORT_TYPED_FUNC`
+registration avoids pybind11 template instantiation.
 
 ### 2. Correctness test time — `kg_kernel_correctness_s`
 
@@ -242,8 +291,8 @@ compares.
 
 | Binding | n | p50 | p90 | p99 |
 |---|---:|---:|---:|---:|
-| `cuda_agent` | 48 | 0.26 s | 0.62 s | 0.79 s |
-| `pybind11`   | 42 | 0.30 s | 0.58 s | 0.69 s |
+| `pybind11_inline` | 48 | 0.26 s | 0.62 s | 0.79 s |
+| `pybind11_registry`   | 42 | 0.30 s | 0.58 s | 0.69 s |
 | `tvm_ffi`    | 39 | 0.54 s | 0.71 s | **7.22 s** |
 
 Sub-second across the board for all three bindings. `tvm_ffi` p99 =
@@ -259,17 +308,17 @@ runs.
 
 | Binding | n | p50 | p90 | p99 |
 |---|---:|---:|---:|---:|
-| `cuda_agent` | 26 | 14.72 s | 22.73 s | 25.56 s |
-| `pybind11`   | 30 | 17.35 s | 26.89 s | 32.35 s |
+| `pybind11_inline` | 26 | 14.72 s | 22.73 s | 25.56 s |
+| `pybind11_registry`   | 30 | 17.35 s | 26.89 s | 32.35 s |
 | `tvm_ffi`    | 27 | 19.25 s | 27.68 s | **104.47 s** |
 
-`pybind11` is ~17 % slower than `cuda_agent` at p50 and ~18 % at
-p90 — the only metric where pybind11's extra dispatch path (through
-the framework's `BindingRegistry::applyBindings` lookup) shows up
-in aggregate. Note this is **NOT** the 2.5× difference a naive
-"completed-only" filter would imply — that artifact comes from
-cuda_agent's larger pool of compiled-but-incorrect rows whose
-profile step never ran.
+`pybind11_registry` is ~17 % slower than `pybind11_inline` at p50
+and ~18 % at p90 — the only metric where the framework scaffold's
+extra dispatch path (through `BindingRegistry::applyBindings`)
+shows up in aggregate. Note this is **NOT** the 2.5× difference a
+naive "completed-only" filter would imply — that artifact comes
+from `pybind11_inline`'s larger pool of compiled-but-incorrect
+rows whose profile step never ran.
 
 `tvm_ffi` p99 = 104 s is 1-2 outlier kernels that are dramatically
 slower than the torch reference. Censoring at the 180 s timeout
@@ -280,8 +329,8 @@ diagnostic visibility.
 
 | Binding | Total | Compiled | Correct | Failed | Timeout | Mean speedup (correct-only) |
 |---|---:|---:|---:|---:|---:|---:|
-| `cuda_agent` | 74 | 48 (65 %) | 26 | 22 | 0 | **1.19** |
-| `pybind11`   | 74 | 42 (57 %) | 30 | 26 | 1 | **1.20** |
+| `pybind11_inline` | 74 | 48 (65 %) | 26 | 22 | 0 | **1.19** |
+| `pybind11_registry`   | 74 | 42 (57 %) | 30 | 26 | 1 | **1.20** |
 | `tvm_ffi`    | 74 | 39 (53 %) | 27 | 26 | 5 | **1.02** |
 
 Plus ~4-5 rows per binding with `http_status=400` from the FastAPI
@@ -290,12 +339,12 @@ validation). These are counted as "failed" by the upstream pipeline
 but lack a server-side status string; the aggregator counts them
 under `status=null`.
 
-**`cuda_agent` and `pybind11` produce essentially the same mean
-speedup on correct kernels (1.19 vs 1.20)** — binding shape does
-not bias the speedup metric. `tvm_ffi`'s lower 1.02 reflects worse
-27B kernel quality at the same KernelBench problems (the model is
-less good at TVM-FFI submissions, not that the binding makes the
-kernel slow).
+**`pybind11_inline` and `pybind11_registry` produce essentially
+the same mean speedup on correct kernels (1.19 vs 1.20)** —
+submission shape does not bias the speedup metric. `tvm_ffi`'s
+lower 1.02 reflects worse 27B kernel quality at the same
+KernelBench problems (the model is less good at TVM-FFI
+submissions, not that the binding makes the kernel slow).
 
 ## Caveats (what this benchmark is NOT)
 
@@ -303,28 +352,28 @@ These are real and apply to anyone reading the headline numbers:
 
 1. **Not "same kernel, different binding"** — each (problem,
    binding) row is a different LLM rollout. The model emits
-   different C++ for cuda_agent vs pybind11 vs tvm_ffi formats. The
-   comparison is "for a given problem, what's the reward cost of the
-   shape the 27B picked?"
+   different C++ for `pybind11_inline` vs `pybind11_registry` vs
+   `tvm_ffi` formats. The comparison is "for a given problem,
+   what's the reward cost of the shape the 27B picked?"
 2. **74 / 100 sub-sampled** — only problems where the 27B emitted
    all three binding shapes (in at least one of its 8 rollouts) are
    included. 26 problems excluded; among those, every classified
-   sample includes pybind11 — so the included set is mildly biased
-   toward problems where the model emits a clean cuda_agent or
-   tvm_ffi output.
+   sample includes `pybind11_registry` (REGISTER_BINDING) — so the
+   included set is mildly biased toward problems where the model
+   emits a clean `pybind11_inline` or `tvm_ffi` output.
 3. **Lowest sample_id picked per (problem, binding)** —
    deterministic but not random. Mean sample_id for the picked
-   rollouts: pybind11 1.23, cuda_agent 2.08, tvm_ffi 2.62. If
-   rollout index correlates with prompt warmth or any sampling
-   effect, that's a sample-selection bias.
+   rollouts: `pybind11_registry` 1.23, `pybind11_inline` 2.08,
+   `tvm_ffi` 2.62. If rollout index correlates with prompt warmth
+   or any sampling effect, that's a sample-selection bias.
 4. **Completed-only filters can mislead** — see the aggregator's
    `aggregate_official_c8.md` for the alternative "all-attempts
    censored at 180 s" table. The 3 tables above already filter on
    the right completion signal per metric.
-5. **Per-row compile_s noise is ~50 %** — same kernel on a different
-   pass can compile in 23 s vs 41 s (max delta in our two passes).
-   Aggregate p50/p90/p99 are stable to within ~5 % across passes,
-   though.
+5. **Per-row compile_s noise is ~50 %** — the same uid on a
+   different pass can compile in 23 s vs 41 s (max delta in our
+   two passes). Aggregate p50/p90/p99 are stable to within ~5 %
+   across passes, though.
 
 ## Concurrency stability — `conc=3` vs `conc=8`
 
@@ -333,21 +382,21 @@ in seconds):
 
 | Metric | binding | p50 c3 | p50 c8 | Δ p50 |
 |---|---|---:|---:|---:|
-| compile | cuda_agent | 31.57 | 33.21 | +1.6 |
-| compile | pybind11   | 31.92 | 33.68 | +1.8 |
-| compile | tvm_ffi    | 2.39  | 2.39  | 0.0 |
-| correct | cuda_agent | 0.26  | 0.26  | 0.0 |
-| correct | pybind11   | 0.32  | 0.30  | −0.02 |
-| correct | tvm_ffi    | 0.49  | 0.54  | +0.05 |
-| profile | cuda_agent | 15.04 | 14.72 | −0.32 |
-| profile | pybind11   | 16.34 | 17.35 | +1.01 |
-| profile | tvm_ffi    | 18.03 | 19.25 | +1.22 |
+| compile | `pybind11_inline`   | 31.57 | 33.21 | +1.6 |
+| compile | `pybind11_registry` | 31.92 | 33.68 | +1.8 |
+| compile | `tvm_ffi`           | 2.39  | 2.39  | 0.0 |
+| correct | `pybind11_inline`   | 0.26  | 0.26  | 0.0 |
+| correct | `pybind11_registry` | 0.32  | 0.30  | −0.02 |
+| correct | `tvm_ffi`           | 0.49  | 0.54  | +0.05 |
+| profile | `pybind11_inline`   | 15.04 | 14.72 | −0.32 |
+| profile | `pybind11_registry` | 16.34 | 17.35 | +1.01 |
+| profile | `tvm_ffi`           | 18.03 | 19.25 | +1.22 |
 
 **Aggregates are stable to ~5 %** between the two concurrency
 settings. Per-row noise is larger (up to 25 s for individual
-cuda_agent compiles), but the distribution stays put: same number
-of fast outliers, same number of slow outliers, randomly assigned
-across uids.
+`pybind11_inline` compiles), but the distribution stays put: same
+number of fast outliers, same number of slow outliers, randomly
+assigned across uids.
 
 **Status counts are byte-identical across the two passes for all
 three bindings**, so the comparison itself is deterministic — only
