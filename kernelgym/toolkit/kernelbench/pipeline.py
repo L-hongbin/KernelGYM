@@ -355,6 +355,7 @@ def _run_performance_step(
                         ),
                         "triton_kernels_in_profiling": [],
                         "total_kernel_run_time_in_profiling_us": 0,
+                        "total_run_time_in_profiling_us": 0,
                         "custom_kernel_cuda_time_in_profiling_us": 0,
                     }
                 print(
@@ -374,6 +375,10 @@ def _run_performance_step(
                 total_kernel_run_time_in_profiling_us = coverage_result_dict[
                     "total_kernel_run_time_in_profiling_us"
                 ]
+                total_run_time_in_profiling_us = coverage_result_dict.get(
+                    "total_run_time_in_profiling_us",
+                    total_kernel_run_time_in_profiling_us,
+                )
                 custom_kernel_time_in_profiling_us = coverage_result_dict[
                     "custom_kernel_cuda_time_in_profiling_us"
                 ]
@@ -390,6 +395,9 @@ def _run_performance_step(
                     "total_kernel_run_time_in_profiling_us"
                 ] = total_kernel_run_time_in_profiling_us
                 metadata[
+                    "total_run_time_in_profiling_us"
+                ] = total_run_time_in_profiling_us
+                metadata[
                     "custom_kernel_time_in_profiling_us"
                 ] = custom_kernel_time_in_profiling_us
                 ratio_time = (
@@ -401,7 +409,7 @@ def _run_performance_step(
                 metadata[
                     "custom_kernel_time_coverage"
                 ] = (
-                    f"Custom kernel time: {custom_kernel_time_in_profiling_us:.2f}us / Total time: {total_kernel_run_time_in_profiling_us:.2f}us, Coverage: {ratio_time:.2%}"
+                    f"Custom kernel time: {custom_kernel_time_in_profiling_us:.2f}us / Total kernel CUDA time: {total_kernel_run_time_in_profiling_us:.2f}us, Coverage: {ratio_time:.2%}"
                 )
 
                 precheck_kernel_used = bool(metadata.get("is_kernel_used"))

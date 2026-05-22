@@ -82,7 +82,8 @@ def compute_triton_kernel_coverage(matched_triton_kernels: List[str], profilling
 
     kernels_in_profiling = profilling_result["kernels"]
 
-    total_time = 0.0
+    total_kernel_cuda_time = 0.0
+    total_run_time = 0.0
     matched_cuda_time = 0.0
     triton_kernels_in_profiling = []
 
@@ -90,7 +91,8 @@ def compute_triton_kernel_coverage(matched_triton_kernels: List[str], profilling
         prof_name = prof_kernel["name"]
         cuda_time = float(prof_kernel["cuda_time_us"])
         cpu_time = float(prof_kernel["cpu_time_us"])
-        total_time += cuda_time + cpu_time
+        total_kernel_cuda_time += cuda_time
+        total_run_time += cuda_time + cpu_time
 
         if any(_matches_profiler_name(kernel_name, prof_name) for kernel_name in kernel_names):
             triton_kernels_in_profiling.append(prof_name)
@@ -106,7 +108,8 @@ def compute_triton_kernel_coverage(matched_triton_kernels: List[str], profilling
     return {
         "num_custom_kernels": num_custom_kernels,
         "num_total_kernels": len(kernels_in_profiling),
-        "total_kernel_run_time_in_profiling_us": total_time,
+        "total_kernel_run_time_in_profiling_us": total_kernel_cuda_time,
+        "total_run_time_in_profiling_us": total_run_time,
         "custom_kernel_cuda_time_in_profiling_us": matched_cuda_time,
         "triton_kernels_not_in_profiling": triton_kernels_not_in_profiling,
         "triton_kernels_in_profiling": triton_kernels_in_profiling,
@@ -115,7 +118,8 @@ def compute_triton_kernel_coverage(matched_triton_kernels: List[str], profilling
 
 def compute_cuda_kernel_coverage(profilling_result: Dict[str, Any]):
     kernels_in_profiling = profilling_result.get("kernels", [])
-    total_time = 0.0
+    total_kernel_cuda_time = 0.0
+    total_run_time = 0.0
     matched_cuda_time = 0.0
     custom_kernels_in_profiling = []
     aten_cuda_time = 0.0
@@ -124,7 +128,8 @@ def compute_cuda_kernel_coverage(profilling_result: Dict[str, Any]):
         prof_name = prof_kernel.get("name", "")
         cuda_time = float(prof_kernel.get("cuda_time_us", 0.0))
         cpu_time = float(prof_kernel.get("cpu_time_us", 0.0))
-        total_time += cuda_time + cpu_time
+        total_kernel_cuda_time += cuda_time
+        total_run_time += cuda_time + cpu_time
 
         if _is_nontrivial_aten_event(prof_name):
             aten_cuda_time = max(aten_cuda_time, cuda_time)
@@ -147,7 +152,8 @@ def compute_cuda_kernel_coverage(profilling_result: Dict[str, Any]):
     return {
         "num_custom_kernels": len(custom_kernels_in_profiling),
         "num_total_kernels": len(kernels_in_profiling),
-        "total_kernel_run_time_in_profiling_us": total_time,
+        "total_kernel_run_time_in_profiling_us": total_kernel_cuda_time,
+        "total_run_time_in_profiling_us": total_run_time,
         "custom_kernel_cuda_time_in_profiling_us": matched_cuda_time,
         "triton_kernels_not_in_profiling": [],
         "triton_kernels_in_profiling": [],

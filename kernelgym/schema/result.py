@@ -90,6 +90,7 @@ class KernelEvaluationResult:
             "profiler_matches",
             "custom_kernel_time_in_profiling_us",
             "total_kernel_run_time_in_profiling_us",
+            "total_run_time_in_profiling_us",
             "custom_kernel_time_coverage",
         ):
             if key in metadata and metadata[key] is not None and not isinstance(
