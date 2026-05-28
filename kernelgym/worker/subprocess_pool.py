@@ -355,6 +355,7 @@ class SubprocessWorkerPool:
         self.idle_workers: List[PersistentWorker] = []
         self.busy_workers: List[PersistentWorker] = []
         self.pending_replacements = 0
+        self._top_up_sequence = 0
 
         # 统计
         self.total_tasks_processed = 0
@@ -377,6 +378,234 @@ class SubprocessWorkerPool:
         self._reaper_thread.start()
 
         logger.info(f"[GPU {device_id}] Worker pool initialized with {pool_size} workers")
+
+    def _next_top_up_worker_id(self) -> str:
+        """Return a unique worker id for capacity top-up spares."""
+        self._top_up_sequence += 1
+        return f"{self.worker_prefix}_{self.device_id}_topup_{self._top_up_sequence}"
+
+    def _ensure_capacity_locked(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Schedule spare creation until workers + pending reaches pool_size.
+
+        The caller must hold ``self.lock``. This maintains the lower-bound
+        side of the warm-pool invariant; the existing replacement accounting
+        already prevents the pool from growing above ``pool_size``.
+        """
+        while len(self.workers) + self.pending_replacements < self.pool_size:
+            worker_id = self._next_top_up_worker_id()
+            self.pending_replacements += 1
+            logger.warning(
+                f"[GPU {self.device_id}] Pool below configured size; scheduling top-up spare "
+                f"(workers={len(self.workers)}, idle={len(self.idle_workers)}, "
+                f"busy={len(self.busy_workers)}, pending={self.pending_replacements}, "
+                f"pool_size={self.pool_size}, new_worker={worker_id})"
+            )
+            self._start_replenishment_thread(
+                old_worker=None,
+                old_process=None,
+                old_pid=None,
+                worker_id=worker_id,
+                loop=loop,
+                reason="top-up",
+            )
+
+    def _start_replenishment_thread(
+        self,
+        *,
+        old_worker: Optional[PersistentWorker],
+        old_process: Optional[mp.Process],
+        old_pid: Optional[int],
+        worker_id: str,
+        loop: asyncio.AbstractEventLoop,
+        reason: str,
+    ) -> None:
+        """Start one background replacement/top-up worker creation thread.
+
+        ``pending_replacements`` must already have been incremented by the
+        caller before this is invoked.
+        """
+
+        old_wid = worker_id if old_worker is None else old_worker.worker_id
+
+        def _background_replenish():
+            """Create one replacement/top-up worker and register it."""
+            if old_process is not None:
+                try:
+                    if old_worker is not None:
+                        old_worker.task_queue.put({"command": "GRACEFUL_SHUTDOWN"}, timeout=2)
+                except Exception:
+                    pass
+                try:
+                    if old_worker is not None:
+                        old_worker.task_queue.put({"command": "SHUTDOWN"}, timeout=1)
+                except Exception:
+                    pass
+
+                try:
+                    old_process.join(timeout=5)
+                except Exception:
+                    pass
+
+                if old_process.is_alive():
+                    try:
+                        old_process.terminate()
+                        old_process.join(timeout=3)
+                    except Exception:
+                        pass
+
+                if old_process.is_alive():
+                    try:
+                        old_process.kill()
+                        old_process.join(timeout=5)
+                    except Exception:
+                        pass
+
+                if old_pid is not None:
+                    try:
+                        os.kill(old_pid, signal.SIGKILL)
+                    except (ProcessLookupError, OSError):
+                        pass
+
+                try:
+                    old_process.join(timeout=5)
+                except Exception:
+                    pass
+                if old_pid is not None:
+                    try:
+                        os.waitpid(old_pid, 0)
+                    except Exception:
+                        pass
+                try:
+                    old_process.close()
+                except Exception:
+                    pass
+
+                logger.info(f"[{old_wid}] Old process pid={old_pid} cleanup done")
+
+            def _process_still_alive() -> bool:
+                if old_pid is None:
+                    return False
+                try:
+                    os.kill(old_pid, 0)
+                    return True
+                except ProcessLookupError:
+                    return False
+                except OSError:
+                    return True
+
+            if _process_still_alive():
+                logger.warning(
+                    f"[{old_wid}] Worker pid={old_pid} still alive after shutdown(timeout=5); escalating to SIGKILL"
+                )
+                try:
+                    if old_process is not None:
+                        old_process.kill()
+                        logger.warning(f"[{old_wid}] Sent process.kill() to pid={old_pid}")
+                except Exception as kill_exc:
+                    logger.warning(f"[{old_wid}] process.kill() failed: {kill_exc}")
+
+                if old_pid is not None and _process_still_alive():
+                    try:
+                        os.kill(old_pid, signal.SIGKILL)
+                        logger.warning(f"[{old_wid}] Sent os.kill(SIGKILL) to pid={old_pid}")
+                    except ProcessLookupError:
+                        logger.warning(f"[{old_wid}] pid={old_pid} already gone before os.kill")
+                    except Exception as os_kill_exc:
+                        logger.warning(f"[{old_wid}] os.kill(SIGKILL) failed for pid={old_pid}: {os_kill_exc}")
+
+                try:
+                    if old_process is not None:
+                        old_process.join(timeout=10)
+                        logger.warning(f"[{old_wid}] Reaped killed worker pid={old_pid}")
+                except Exception as reap_exc:
+                    logger.warning(f"[{old_wid}] Failed to reap pid={old_pid}: {reap_exc}")
+                    if old_pid is not None:
+                        try:
+                            os.waitpid(old_pid, os.WNOHANG)
+                            logger.warning(f"[{old_wid}] os.waitpid fallback for pid={old_pid}")
+                        except ChildProcessError:
+                            pass
+                        except Exception:
+                            pass
+
+                if old_pid is not None:
+                    try:
+                        os.kill(old_pid, 0)
+                        logger.error(
+                            f"[{old_wid}] KILL VERIFICATION FAILED: pid={old_pid} still alive after SIGKILL + join"
+                        )
+                    except ProcessLookupError:
+                        logger.info(f"[{old_wid}] KILL VERIFIED: pid={old_pid} confirmed dead")
+                    except OSError as verify_exc:
+                        logger.warning(f"[{old_wid}] KILL VERIFY INCONCLUSIVE for pid={old_pid}: {verify_exc}")
+
+            if old_process is not None:
+                try:
+                    old_process.close()
+                except (ValueError, Exception):
+                    pass
+
+            if old_pid is not None:
+                try:
+                    os.kill(old_pid, 0)
+                    logger.error(
+                        f"[{old_wid}] VRAM LEAK RISK: pid={old_pid} still "
+                        f"alive after shutdown + SIGKILL + reap escalation"
+                    )
+                except (ProcessLookupError, OSError):
+                    pass
+
+            if old_process is not None:
+                time.sleep(2.0)
+
+            try:
+                new_worker = PersistentWorker(
+                    worker_id,
+                    self.device_id,
+                    f"(pool_size={self.pool_size}, max_tasks={self.max_tasks_per_worker}, {reason})",
+                    max_tasks_per_worker=self.max_tasks_per_worker,
+                )
+            except Exception as e:
+                logger.error(
+                    f"[{worker_id}] Failed to create {reason} spare: {e}. Pool now has {len(self.workers)} workers"
+                )
+
+                async def _mark_replacement_failed():
+                    async with self.lock:
+                        self.pending_replacements = max(0, self.pending_replacements - 1)
+                        self._ensure_capacity_locked(loop)
+
+                asyncio.run_coroutine_threadsafe(_mark_replacement_failed(), loop)
+                return
+
+            async def _register():
+                shutdown_new_worker = False
+                async with self.lock:
+                    self.pending_replacements = max(0, self.pending_replacements - 1)
+                    if len(self.workers) < self.pool_size:
+                        self.workers.append(new_worker)
+                        self.idle_workers.append(new_worker)
+                        self.total_workers_restarted += 1
+                        logger.info(
+                            f"[{new_worker.worker_id}] Background spare ready — "
+                            f"pool: workers={len(self.workers)} idle={len(self.idle_workers)} "
+                            f"busy={len(self.busy_workers)} pending={self.pending_replacements} "
+                            f"(total restarts: {self.total_workers_restarted})"
+                        )
+                    else:
+                        shutdown_new_worker = True
+                        logger.warning(
+                            f"[{new_worker.worker_id}] Replacement no longer needed "
+                            f"(workers={len(self.workers)}, pool_size={self.pool_size}); shutting it down"
+                        )
+                    self._ensure_capacity_locked(loop)
+                if shutdown_new_worker:
+                    await asyncio.to_thread(new_worker.shutdown, 10)
+
+            asyncio.run_coroutine_threadsafe(_register(), loop)
+
+        t = threading.Thread(target=_background_replenish, daemon=True)
+        t.start()
 
     def _init_workers(self):
         """初始化所有 workers"""
@@ -602,6 +831,7 @@ class SubprocessWorkerPool:
                                 f"(workers={len(self.workers)}, pool_size={self.pool_size}); shutting it down"
                             )
                             shutdown_extra_worker = True
+                    self._ensure_capacity_locked(asyncio.get_running_loop())
                 if shutdown_extra_worker and emergency_worker is not None:
                     await asyncio.to_thread(emergency_worker.shutdown, 10)
 
@@ -622,6 +852,7 @@ class SubprocessWorkerPool:
             if worker.is_alive():
                 if worker not in self.idle_workers:
                     self.idle_workers.append(worker)
+            self._ensure_capacity_locked(asyncio.get_running_loop())
 
     async def _restart_worker(self, worker: PersistentWorker):
         """
@@ -670,230 +901,19 @@ class SubprocessWorkerPool:
                     f"pool_size={self.pool_size})"
                 )
 
-        # --- slow: fire-and-forget background replenishment ------------
-        # CRITICAL: capture the actual Process object and PID eagerly,
-        # BEFORE entering the background thread.  The old code captured
-        # ``old_worker`` (an alias for the *same* PersistentWorker object)
-        # and dereferenced ``old_worker.process`` lazily inside the
-        # thread.  By that time, ``shutdown()`` may have called
-        # ``.close()`` on the Process, putting it in an invalid state
-        # where ``.kill()`` / ``.is_alive()`` / ``.join()`` raise
-        # ValueError.  Capturing the raw objects here avoids that class
-        # of bugs entirely.
-        old_worker = worker
-        old_process = worker.process  # multiprocessing.Process – may be None
-        old_pid = old_process.pid if old_process is not None else None
-        old_wid = worker.worker_id  # immutable str, safe to read later
-        _loop = asyncio.get_running_loop()
-
-        def _background_replenish():
-            """Run in a daemon thread — shuts down old worker, waits for
-            GPU release, creates a new spare, and re-registers it.
-
-            CRITICAL: uses only ``old_process`` / ``old_pid`` captured
-            before the thread started. Never touches ``old_worker.process``
-            which may have been replaced by a new spare by now.
-            """
-            # 1. Shut down the old process directly (not via old_worker.shutdown()
-            #    which would operate on old_worker.process — potentially replaced)
-            if old_process is not None:
-                try:
-                    # Send graceful shutdown via the old worker's queue
-                    old_worker.task_queue.put({"command": "GRACEFUL_SHUTDOWN"}, timeout=2)
-                except Exception:
-                    pass
-                try:
-                    old_worker.task_queue.put({"command": "SHUTDOWN"}, timeout=1)
-                except Exception:
-                    pass
-
-                # Wait for exit, then escalate
-                try:
-                    old_process.join(timeout=5)
-                except Exception:
-                    pass
-
-                if old_process.is_alive():
-                    try:
-                        old_process.terminate()
-                        old_process.join(timeout=3)
-                    except Exception:
-                        pass
-
-                if old_process.is_alive():
-                    try:
-                        old_process.kill()
-                        old_process.join(timeout=5)
-                    except Exception:
-                        pass
-
-                # Fallback: direct os.kill
-                try:
-                    os.kill(old_pid, signal.SIGKILL)
-                except (ProcessLookupError, OSError):
-                    pass
-
-                # Always try to reap
-                try:
-                    old_process.join(timeout=5)
-                except Exception:
-                    pass
-                try:
-                    os.waitpid(old_pid, 0)
-                except Exception:
-                    pass
-                try:
-                    old_process.close()
-                except Exception:
-                    pass
-
-                logger.info(f"[{old_wid}] Old process pid={old_pid} cleanup done")
-
-            # 2. Verify the old process is actually dead; escalate if not.
-            #    All checks use ``old_process`` / ``old_pid`` captured
-            #    before the thread started — never ``old_worker.process``.
-            def _process_still_alive() -> bool:
-                """Check whether the old worker subprocess is still running."""
-                if old_pid is None:
-                    return False
-                try:
-                    os.kill(old_pid, 0)
-                    return True
-                except ProcessLookupError:
-                    return False
-                except OSError:
-                    # Permission error etc — assume alive to be safe
-                    return True
-
-            if _process_still_alive():
-                logger.warning(
-                    f"[{old_wid}] Worker pid={old_pid} still alive after shutdown(timeout=5); escalating to SIGKILL"
-                )
-                # Force kill via the captured Process handle
-                try:
-                    if old_process is not None:
-                        old_process.kill()  # sends SIGKILL for mp.Process
-                        logger.warning(f"[{old_wid}] Sent process.kill() to pid={old_pid}")
-                except Exception as kill_exc:
-                    logger.warning(f"[{old_wid}] process.kill() failed: {kill_exc}")
-
-                # Fallback: os.kill with SIGKILL (works even if the
-                # Process object is in a bad state after close())
-                if old_pid is not None and _process_still_alive():
-                    try:
-                        os.kill(old_pid, signal.SIGKILL)
-                        logger.warning(f"[{old_wid}] Sent os.kill(SIGKILL) to pid={old_pid}")
-                    except ProcessLookupError:
-                        logger.warning(f"[{old_wid}] pid={old_pid} already gone before os.kill")
-                    except Exception as os_kill_exc:
-                        logger.warning(f"[{old_wid}] os.kill(SIGKILL) failed for pid={old_pid}: {os_kill_exc}")
-
-                # Reap the zombie to avoid pid table leak and release CUDA VRAM
-                try:
-                    if old_process is not None:
-                        old_process.join(timeout=10)
-                        logger.warning(f"[{old_wid}] Reaped killed worker pid={old_pid}")
-                except Exception as reap_exc:
-                    logger.warning(f"[{old_wid}] Failed to reap pid={old_pid}: {reap_exc}")
-                    # Last resort: try os.waitpid directly
-                    if old_pid is not None:
-                        try:
-                            os.waitpid(old_pid, os.WNOHANG)
-                            logger.warning(f"[{old_wid}] os.waitpid fallback for pid={old_pid}")
-                        except ChildProcessError:
-                            pass  # already reaped
-                        except Exception:
-                            pass
-
-                # Verification: confirm the kill actually worked
-                if old_pid is not None:
-                    try:
-                        os.kill(old_pid, 0)
-                        logger.error(
-                            f"[{old_wid}] KILL VERIFICATION FAILED: pid={old_pid} still alive after SIGKILL + join"
-                        )
-                    except ProcessLookupError:
-                        logger.info(f"[{old_wid}] KILL VERIFIED: pid={old_pid} confirmed dead")
-                    except OSError as verify_exc:
-                        logger.warning(f"[{old_wid}] KILL VERIFY INCONCLUSIVE for pid={old_pid}: {verify_exc}")
-
-            # Release multiprocessing.Process internal resources
-            if old_process is not None:
-                try:
-                    old_process.close()
-                except (ValueError, Exception):
-                    pass
-
-            # Safety-net check: log if the process is somehow still alive
-            if old_pid is not None:
-                try:
-                    os.kill(old_pid, 0)
-                    # Still alive — log error but don't block replacement
-                    logger.error(
-                        f"[{old_wid}] VRAM LEAK RISK: pid={old_pid} still "
-                        f"alive after shutdown + SIGKILL + reap escalation"
-                    )
-                except (ProcessLookupError, OSError):
-                    pass  # confirmed dead — good
-
-            # 3. Wait for GPU driver to reclaim VRAM from the dead process
-            time.sleep(2.0)
-
-            # 4. Create a replacement spare worker
-            try:
-                new_worker = PersistentWorker(
-                    old_wid,
-                    self.device_id,
-                    f"(pool_size={self.pool_size}, max_tasks={self.max_tasks_per_worker}, restart)",
-                    max_tasks_per_worker=self.max_tasks_per_worker,
-                )
-            except Exception as e:
-                logger.error(
-                    f"[{old_wid}] Failed to create replacement spare: {e}. Pool now has {len(self.workers)} workers"
-                )
-
-                async def _mark_replacement_failed():
-                    async with self.lock:
-                        self.pending_replacements = max(0, self.pending_replacements - 1)
-
-                asyncio.run_coroutine_threadsafe(_mark_replacement_failed(), _loop)
-                return
-
-            # 5. Register the new spare back into the pool (thread-safe
-            #    via the asyncio event-loop).
-            async def _register():
-                shutdown_new_worker = False
-                async with self.lock:
-                    self.pending_replacements = max(0, self.pending_replacements - 1)
-                    if len(self.workers) < self.pool_size:
-                        self.workers.append(new_worker)
-                        self.idle_workers.append(new_worker)
-                        self.total_workers_restarted += 1
-                        logger.info(
-                            f"[{new_worker.worker_id}] Background spare ready — "
-                            f"pool: workers={len(self.workers)} idle={len(self.idle_workers)} "
-                            f"busy={len(self.busy_workers)} pending={self.pending_replacements} "
-                            f"(total restarts: {self.total_workers_restarted})"
-                        )
-                    else:
-                        shutdown_new_worker = True
-                        logger.warning(
-                            f"[{new_worker.worker_id}] Replacement no longer needed "
-                            f"(workers={len(self.workers)}, pool_size={self.pool_size}); shutting it down"
-                        )
-                if shutdown_new_worker:
-                    await asyncio.to_thread(new_worker.shutdown, 10)
-
-            # Schedule the coroutine on the event loop from this thread.
-            asyncio.run_coroutine_threadsafe(_register(), _loop)
-
         if not should_replenish:
             await asyncio.to_thread(worker.shutdown, 10)
             return
 
-        t = threading.Thread(target=_background_replenish, daemon=True)
-
-        t.start()
+        old_process = worker.process
+        self._start_replenishment_thread(
+            old_worker=worker,
+            old_process=old_process,
+            old_pid=old_process.pid if old_process is not None else None,
+            worker_id=worker.worker_id,
+            loop=asyncio.get_running_loop(),
+            reason="restart",
+        )
 
     def _zombie_reaper_loop(self):
         """Periodically reap zombie child processes.

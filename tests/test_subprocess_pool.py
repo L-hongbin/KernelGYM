@@ -40,6 +40,11 @@ class _NoOpThread:
         self.started = True
 
 
+async def _drain_loop() -> None:
+    for _ in range(5):
+        await asyncio.sleep(0.01)
+
+
 def _pool_without_processes(*, pool_size: int = 1) -> SubprocessWorkerPool:
     pool = SubprocessWorkerPool.__new__(SubprocessWorkerPool)
     pool.device_id = 0
@@ -50,6 +55,7 @@ def _pool_without_processes(*, pool_size: int = 1) -> SubprocessWorkerPool:
     pool.idle_workers = []
     pool.busy_workers = []
     pool.pending_replacements = 0
+    pool._top_up_sequence = 0
     pool.total_tasks_processed = 0
     pool.total_workers_restarted = 0
     pool.pool_start_time = time.time()
@@ -244,5 +250,87 @@ def test_pool_size_2_no_emergency_when_pending_already_in_flight(monkeypatch) ->
 
         assert await pool._get_idle_worker(timeout=0.2) is None
         assert pool.pending_replacements == 2
+
+    asyncio.run(scenario())
+
+
+def test_pool_size_2_degraded_recycle_schedules_top_up(monkeypatch) -> None:
+    """If the pool has already degraded to one worker, a recycle should
+    schedule the direct replacement plus another top-up spare."""
+
+    async def scenario() -> None:
+        pool = _pool_without_processes(pool_size=2)
+        recycling = FakeWorker("recycling", alive=False)
+        pool.workers = [recycling]
+        pool.busy_workers = [recycling]
+
+        created: list[FakeWorker] = []
+
+        def fake_persistent_worker(worker_id, *_args, **_kwargs):  # noqa: ANN001
+            worker = FakeWorker(worker_id, alive=True)
+            created.append(worker)
+            return worker
+
+        threads: list[_NoOpThread] = []
+
+        def fake_thread(*args, **kwargs):  # noqa: ANN002, ANN003
+            t = _NoOpThread(*args, **kwargs)
+            threads.append(t)
+            return t
+
+        monkeypatch.setattr(subprocess_pool, "PersistentWorker", fake_persistent_worker)
+        monkeypatch.setattr(subprocess_pool.threading, "Thread", fake_thread)
+
+        await pool._restart_worker(recycling)  # type: ignore[arg-type]
+        assert pool.pending_replacements == 1
+        assert len(threads) == 1
+
+        threads[0].target()
+        await _drain_loop()
+
+        assert pool.workers == [created[0]]
+        assert pool.idle_workers == [created[0]]
+        assert pool.pending_replacements == 1
+        assert len(threads) == 2
+        assert threads[1].started is True
+        assert len(pool.workers) + pool.pending_replacements == pool.pool_size
+
+    asyncio.run(scenario())
+
+
+def test_pool_size_2_failed_replacement_keeps_top_up_pending(monkeypatch) -> None:
+    """A failed replacement must not leave the pool permanently undersized."""
+
+    async def scenario() -> None:
+        pool = _pool_without_processes(pool_size=2)
+        recycling = FakeWorker("recycling", alive=False)
+        pool.workers = [recycling]
+        pool.busy_workers = [recycling]
+
+        def fake_persistent_worker(*_args, **_kwargs):  # noqa: ANN002, ANN003
+            raise RuntimeError("spawn failed")
+
+        threads: list[_NoOpThread] = []
+
+        def fake_thread(*args, **kwargs):  # noqa: ANN002, ANN003
+            t = _NoOpThread(*args, **kwargs)
+            threads.append(t)
+            return t
+
+        monkeypatch.setattr(subprocess_pool, "PersistentWorker", fake_persistent_worker)
+        monkeypatch.setattr(subprocess_pool.threading, "Thread", fake_thread)
+
+        await pool._restart_worker(recycling)  # type: ignore[arg-type]
+        assert pool.pending_replacements == 1
+        assert len(threads) == 1
+
+        threads[0].target()
+        await _drain_loop()
+
+        assert pool.workers == []
+        assert pool.idle_workers == []
+        assert pool.pending_replacements == 2
+        assert len(threads) == 3
+        assert len(pool.workers) + pool.pending_replacements == pool.pool_size
 
     asyncio.run(scenario())
