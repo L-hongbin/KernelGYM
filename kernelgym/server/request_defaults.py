@@ -1,0 +1,24 @@
+"""Runtime request defaults applied before workflow execution."""
+
+from __future__ import annotations
+
+from typing import Any, Dict
+
+
+def apply_runtime_defaults(
+    payload: Dict[str, Any],
+    *,
+    workflow_name: str,
+    split_compile_and_execute: bool,
+) -> Dict[str, Any]:
+    """Apply deployment-level defaults to an external workflow payload."""
+    if payload.get("resources") is None:
+        payload["resources"] = None
+    if (
+        (workflow_name or "kernelbench") == "kernelbench"
+        and split_compile_and_execute
+        and not payload.get("pure_compile_task")
+        and not payload.get("task_stage")
+    ):
+        payload["split_compile_and_execute"] = True
+    return payload

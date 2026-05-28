@@ -29,6 +29,7 @@ from .models import (
 )
 from .utils import get_system_health, get_system_metrics, format_timestamp
 from kernelgym.server.task_manager import TaskManager
+from kernelgym.server.request_defaults import apply_runtime_defaults
 from kernelgym.server.request_hash import request_hash
 from kernelgym.server.scheduler import TaskManagerScheduler
 from kernelgym.workflow import get_workflow_controller
@@ -342,8 +343,12 @@ async def _execute_workflow(
     if task_id:
         payload = dict(payload)
         payload["task_id"] = task_id
-    if isinstance(payload, dict) and payload.get("resources") is None:
-        payload["resources"] = None
+    if isinstance(payload, dict):
+        payload = apply_runtime_defaults(
+            payload,
+            workflow_name=workflow_name or "kernelbench",
+            split_compile_and_execute=settings.split_compile_and_execute,
+        )
     task_id = task_id or payload.get("task_id")
     if not task_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_id is required")

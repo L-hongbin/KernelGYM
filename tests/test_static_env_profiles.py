@@ -23,7 +23,9 @@ def test_functional_reward_profile_matches_runtime_constants() -> None:
     assert values["REDIS_KEY_PREFIX"] == profiles.REDIS_KEY_PREFIX
     assert values["METRICS_PORT"] == str(profiles.METRICS_PORT)
     assert values["GPU_DEVICES"] == "[0,1,2,3,4,5,6,7]"
+    assert values["CPU_COMPILE_WORKERS"] == "24"
     assert values["DEFAULT_BACKEND"] == "auto"
+    assert values["SPLIT_COMPILE_AND_EXECUTE"] == "true"
     assert values["KERNELGYM_CORRECTNESS_GPU_INPUTS"] == "true"
     assert values["LOG_DIR"] == "logs/v1"
     assert values["PY_LOG_DIR"] == "py_logs/v1"

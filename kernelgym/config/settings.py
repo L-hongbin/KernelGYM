@@ -141,6 +141,11 @@ class Settings(BaseSettings):
         env="CPU_COMPILE_WORKERS",
         description="Number of CPU workers that consume compile-stage tasks.",
     )
+    split_compile_and_execute: bool = Field(
+        default=False,
+        env="SPLIT_COMPILE_AND_EXECUTE",
+        description="Force KernelBench requests through CPU compile + GPU execute split mode.",
+    )
 
     log_dir: str = Field(default="logs", env="LOG_DIR")
     log_to_file: bool = Field(default=True, env="LOG_TO_FILE")
