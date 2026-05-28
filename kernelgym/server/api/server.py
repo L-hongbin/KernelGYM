@@ -842,8 +842,9 @@ async def worker_heartbeat(
         except Exception:
             pass
 
-        # Update heartbeat in load balancer（仅当注册信息一致且未冲突时）
-        await task_manager.worker_load_balancer.update_worker_heartbeat(worker_id)
+        # Keep /workers/status and the load balancer in sync. The task manager
+        # updates Redis, worker_registry, and worker_load_balancer together.
+        await task_manager.update_worker_heartbeat(worker_id)
         lb_keys = list(task_manager.worker_load_balancer.available_workers.keys())
         logger.info(f"Heartbeat updated for {worker_id}; LB now has: {lb_keys}")
         return {"success": True, "message": f"Heartbeat updated for {worker_id}"}

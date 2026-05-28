@@ -19,6 +19,7 @@ from kernelgym.utils.error_classifier import classify_error
 from kernelgym.utils.task_status import task_status_from_result_payload
 
 logger = logging.getLogger("kernelgym.cpu_worker")
+KEY_PREFIX = settings.redis_key_prefix
 
 
 class CPUCompileWorker:
@@ -62,15 +63,29 @@ class CPUCompileWorker:
         while self.running:
             try:
                 await self.task_manager.update_worker_heartbeat(self.worker_id)
+                await self._update_worker_status(online=True)
             except Exception as exc:
                 logger.warning("CPU worker heartbeat failed: %s", exc)
             await asyncio.sleep(10)
+
+    async def _update_worker_status(self, online: bool) -> None:
+        await self.redis.hset(
+            f"{KEY_PREFIX}:worker:{self.worker_id}",
+            mapping={
+                "online": "true" if online else "false",
+                "status": "online" if online else "offline",
+                "last_heartbeat": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "current_task": self.current_task or "",
+                "device": "cpu",
+            },
+        )
 
     async def _process_task(self, task_data: Dict[str, Any]) -> None:
         task_id = task_data["task_id"]
         self.current_task = task_id
         started = time.time()
         try:
+            await self._update_worker_status(online=True)
             task_data.setdefault("task_stage", "compile")
             task_data.setdefault("required_resource", "cpu")
             task_data.setdefault("pure_compile_task", True)
@@ -105,6 +120,7 @@ class CPUCompileWorker:
             await self.task_manager.complete_task(task_id, result)
         finally:
             self.current_task = None
+            await self._update_worker_status(online=True)
 
 
 async def main() -> None:

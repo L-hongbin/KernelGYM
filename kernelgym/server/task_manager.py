@@ -658,8 +658,28 @@ class TaskManager:
                 return data
         return {}
 
+    @staticmethod
+    def _decode_redis_hash(data: Dict[Any, Any]) -> Dict[str, Any]:
+        decoded: Dict[str, Any] = {}
+        for key, value in data.items():
+            if isinstance(key, bytes):
+                key = key.decode("utf-8", errors="replace")
+            if isinstance(value, bytes):
+                value = value.decode("utf-8", errors="replace")
+            decoded[str(key)] = value
+        return decoded
+
     async def get_workers_status(self) -> Dict[str, Any]:
-        return self.worker_registry
+        workers = {worker_id: dict(info) for worker_id, info in self.worker_registry.items()}
+        for prefix in self._prefixes_for_read():
+            async for key in self.redis.scan_iter(f"{prefix}:worker:*"):
+                key_text = key.decode("utf-8", errors="replace") if isinstance(key, bytes) else str(key)
+                worker_id = key_text.rsplit(":worker:", 1)[-1]
+                data = await self.redis.hgetall(key)
+                if not data:
+                    continue
+                workers.setdefault(worker_id, {}).update(self._decode_redis_hash(data))
+        return workers
 
     async def update_worker_heartbeat(self, worker_id: str) -> None:
         now = datetime.now().isoformat()
