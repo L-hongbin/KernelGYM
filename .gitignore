@@ -23,3 +23,5 @@ venv/
 artifacts/
 wheels/
 benchmarks/results/
+*.bundle
+dump.rdb
