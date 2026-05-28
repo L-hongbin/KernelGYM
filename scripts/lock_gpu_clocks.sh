@@ -4,7 +4,7 @@ set -euo pipefail
 GPU_CLOCK="${KERNELGYM_GPU_CLOCK:-2700}"
 POWER_LIMIT="${KERNELGYM_POWER_LIMIT:-400}"
 NVIDIA_SMI="${KERNELGYM_NVIDIA_SMI:-nvidia-smi}"
-SUDO=()
+SUDO=(sudo)
 DRY_RUN=0
 PERSISTENCE=1
 
@@ -14,10 +14,6 @@ usage() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --sudo)
-            SUDO=(sudo)
-            shift
-            ;;
         --dry-run)
             DRY_RUN=1
             shift

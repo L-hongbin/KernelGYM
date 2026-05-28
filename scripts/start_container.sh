@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 NAME="${KERNELGYM_CONTAINER_NAME:-kernelgym-reward}"
-IMAGE="${KERNELGYM_CONTAINER_IMAGE:-192.168.14.129:80/library/slime:nightly-dev-20260430b}"
+IMAGE="${KERNELGYM_CONTAINER_IMAGE:-192.168.14.129:80/library/slime:nightly-dev-20260526a}"
 CUDA_PATH="${KERNELGYM_CUDA_PATH:-/usr/local/cuda-12.9}"
 SHM_SIZE="${KERNELGYM_SHM_SIZE:-256g}"
 REPLACE="${KERNELGYM_CONTAINER_REPLACE:-1}"

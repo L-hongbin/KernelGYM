@@ -5,6 +5,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 cd "${ROOT_DIR}"
 
+# Repair image-level interpreter paths before activating the repo-local venv.
+bash "${ROOT_DIR}/set_env.sh"
+
 # Assume the venv has been bootstrapped already (bash ensure_venv.sh). Here we
 # only: make sure redis-server is installed (cheap; no-op when already there),
 # activate the venv, scrub the env so the host's torch tree doesn't shadow us,

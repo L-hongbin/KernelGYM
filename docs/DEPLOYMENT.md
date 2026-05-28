@@ -19,6 +19,9 @@ KernelGYM reward-only supports two deployment modes. Runtime env values come fro
 - If CUDA wheel dependencies cannot be fetched directly, `ensure_venv.sh` retries with
   `http://192.168.28.186:7897` on external nodes. Override with `KERNELGYM_PROXY` or
   `KERNELGYM_FALLBACK_PROXY` only when needed.
+- `set_env.sh` repairs the Python interpreter path used by the shared repo-local `.venv`: newer images provide
+  `/usr/bin/python3.12`, while older `.venv/bin/python` links through `/usr/local/bin/python3`. The deploy wrapper
+  runs `set_env.sh` before activating `.venv` so the existing environment remains usable after replacing containers.
 - Do not reuse older KernelGYM or drkernel virtual environments.
 
 Create the environment in the runtime where reward will execute (run from the repo root):
@@ -79,13 +82,14 @@ The generated container command uses:
 - `-v /nfs:/nfs`;
 - a read-only mount of `/usr/local/cuda-12.9`.
 
-The default container image is `192.168.14.129:80/library/slime:nightly-dev-20260430b`.
+The default container image is `192.168.14.129:80/library/slime:nightly-dev-20260526a`.
 If the image already has CUDA 12.9, the explicit CUDA mount is harmless. The environment bootstrap still
 validates `/usr/local/cuda-12.9/bin/nvcc` inside the container before installing the CUDA 12.9 wheel set.
 
 Inside the container (run from the repo root):
 
 ```bash
+bash set_env.sh
 bash ensure_venv.sh --recreate
 source .venv/bin/activate
 python -m kernelgym.cli.service start-local --profile v1
@@ -105,6 +109,7 @@ Use this mode when the operator is already in the runtime container. Do not star
 container. From the repo root, create `.venv` and start services directly:
 
 ```bash
+bash set_env.sh
 bash ensure_venv.sh --recreate
 source .venv/bin/activate
 python -m kernelgym.cli.service start-local --profile v1

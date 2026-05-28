@@ -31,7 +31,7 @@ External physical hosts require GPU clock locking and container startup before
 the reward service starts. The current container image is:
 
 ```text
-192.168.14.129:80/library/slime:nightly-dev-20260430b
+192.168.14.129:80/library/slime:nightly-dev-20260526a
 ```
 
 ## Fixed Runtime Ports
