@@ -103,10 +103,14 @@ def test_render_summary_reports_queue_and_busy_counts(capsys) -> None:
 
     assert exit_code == 0
     out = capsys.readouterr().out
-    assert "queue_count" in out
-    assert "5" in out
+    assert "queue_count" not in out
+    assert "queue_pending" not in out
+    assert "active_tasks" not in out
+    assert "uptime_s" not in out
     assert "gpu_busy" in out
-    assert "cpu_busy" in out
+    assert "cpu_busy" not in out
+    assert "cpu_workers_busy" in out
+    assert "1/2" in out
     assert out.count("1") >= 2
 
 
@@ -210,7 +214,8 @@ def test_render_summary_uses_processing_fallback_for_unknown_busy(capsys) -> Non
     assert exit_code == 0
     out = capsys.readouterr().out
     assert "gpu_busy" in out
-    assert "cpu_busy" in out
+    assert "cpu_busy" not in out
+    assert "cpu_workers_busy" in out
     assert "unknown" not in out
 
 
@@ -248,6 +253,20 @@ def test_short_gpu_name_removes_vendor_prefix() -> None:
     assert check_node._short_gpu_name("NVIDIA H100 80GB HBM3") == "H100 80GB HBM3"
 
 
+def test_short_hostname_removes_ai_prefix() -> None:
+    check_node = load_check_node()
+
+    assert check_node._short_hostname("ai-16-39") == "16-39"
+    assert check_node._short_hostname("worker-1") == "worker-1"
+
+
+def test_short_task_id_removes_parallel_task_prefix() -> None:
+    check_node = load_check_node()
+
+    assert check_node._short_task_id("parallel_task_001434_2700a1c8_kernel") == "001434_2700a1c8_kernel"
+    assert check_node._short_task_id("manual_task") == "manual_task"
+
+
 def test_render_verbose_omits_fresh_column(capsys) -> None:
     check_node = load_check_node()
     health = {
@@ -266,7 +285,7 @@ def test_render_verbose_omits_fresh_column(capsys) -> None:
             "device": "cuda:0",
             "status": "online",
             "last_heartbeat": "2026-05-27T11:59:30",
-            "current_task": "task-0",
+            "current_task": "parallel_task_001434_2700a1c8_kernel",
             "node_id": "v1",
             "hostname": "ai-16-39",
         },
@@ -275,14 +294,69 @@ def test_render_verbose_omits_fresh_column(capsys) -> None:
             "status": "online",
             "last_heartbeat": "2026-05-27T11:59:30",
         },
+        "worker_cpu_1": {
+            "device": "cpu",
+            "status": "processing",
+            "last_heartbeat": "2026-05-27T11:59:30",
+            "current_task": "cpu-task",
+        },
     }
 
     check_node.render_verbose(health, workers, max_heartbeat_age_s=180)
 
     out = capsys.readouterr().out
     assert "fresh" not in out
+    assert "available" not in out
     assert "age_s" in out
     assert "RTX 4090" in out
+    assert "0.4GB" in out
+    assert "1.9%" not in out
+    assert "16-39" in out
+    assert "ai-16-39" not in out
+    assert "001434_2700a1c8_kernel" in out
+    assert "parallel_task_001434_2700a1c8_kernel" not in out
+    assert "/workers/status" not in out
+    assert "cpu_workers_busy:" not in out
+    assert "worker_id" not in out
+
+
+def test_render_verbose_keeps_multi_node_workers_with_same_cuda_device(capsys) -> None:
+    check_node = load_check_node()
+    health = {
+        "timestamp": "2026-05-27T12:00:00Z",
+        "gpu_status": {
+            "cuda:0": {
+                "name": "NVIDIA GeForce RTX 4090",
+                "memory_used": "0.4GB",
+                "memory_used_percent": "1.9%",
+                "available": True,
+            }
+        },
+    }
+    workers = {
+        "worker_gpu_0": {
+            "device": "cuda:0",
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+        },
+        "v1-worker-1_gpu_0": {
+            "device": "cuda:0",
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+            "node_id": "v1-worker-1",
+            "hostname": "ai-16-39",
+        },
+    }
+
+    check_node.render_verbose(health, workers, max_heartbeat_age_s=180)
+
+    out = capsys.readouterr().out
+    assert "worker_gpu_0" not in out
+    assert "v1-worker-1_gpu_0" not in out
+    assert out.count("cuda:0") == 2
+    assert "16-39" in out
+    assert "ai-16-39" not in out
+    assert "/workers/status" not in out
 
 
 def test_merge_gpu_status_prefers_local_nvidia_smi_values() -> None:

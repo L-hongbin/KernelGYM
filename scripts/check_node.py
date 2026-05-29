@@ -53,6 +53,21 @@ def _short_gpu_name(name: object) -> str:
     return text
 
 
+def _short_hostname(hostname: object) -> str:
+    text = str(hostname or "")
+    if text.startswith("ai-"):
+        return text[len("ai-") :]
+    return text
+
+
+def _short_task_id(task_id: object) -> str:
+    text = str(task_id or "")
+    prefix = "parallel_task_"
+    if text.startswith(prefix):
+        return text[len(prefix) :]
+    return text
+
+
 def _parse_timestamp(value: object) -> datetime | None:
     """Parse service timestamps as naive local datetimes for age checks."""
     if not isinstance(value, str) or not value.strip():
@@ -346,11 +361,9 @@ def render_summary(
     top = "UP" if node_ok else "WARN"
     processing_by_resource = queue.get("processing_by_resource") or {}
     gpu_busy = _busy_count(gpu_workers)
-    cpu_busy = _busy_count(cpu_workers)
+    cpu_workers_busy = sum(1 for info in cpu_workers.values() if _worker_is_busy(info))
     if gpu_busy == "unknown" and isinstance(processing_by_resource, dict):
         gpu_busy = processing_by_resource.get("gpu", "unknown")
-    if cpu_busy == "unknown" and isinstance(processing_by_resource, dict):
-        cpu_busy = processing_by_resource.get("cpu", "unknown")
     fields: list[tuple[str, object]] = [
         ("status", top),
         ("url", base),
@@ -360,8 +373,6 @@ def render_summary(
         ("gpu_workers_fresh", f"{fresh}/{len(gpu_workers)}"),
         ("stale_gpu_workers", stale),
         ("max_heartbeat_age_s", max_heartbeat_age_s),
-        ("queue_count", _queue_count(queue)),
-        ("queue_pending", queue.get("pending", 0)),
         ("queue_processing", queue.get("processing", 0)),
         (
             "queue_gpu_pending",
@@ -376,9 +387,7 @@ def render_summary(
             else "?",
         ),
         ("gpu_busy", gpu_busy),
-        ("cpu_busy", cpu_busy),
-        ("active_tasks", health.get("active_tasks", 0)),
-        ("uptime_s", health.get("uptime", 0)),
+        ("cpu_workers_busy", f"{cpu_workers_busy}/{len(cpu_workers)}"),
     ]
     label_w = max(len(k) for k, _ in fields) + 1
     for key, value in fields:
@@ -390,53 +399,44 @@ def render_verbose(health: dict, workers: dict, max_heartbeat_age_s: int) -> Non
     """Render `/health.gpu_status` and `/workers/status` as ASCII tables."""
     now = _parse_timestamp(health.get("timestamp")) or datetime.now()
     gpus = health.get("gpu_status", {}) or {}
-    gpu_workers = {
-        str(info.get("device")): (wid, info)
+    gpu_workers = [
+        (wid, info)
         for wid, info in workers.items()
         if isinstance(info, dict) and _is_gpu_worker(wid, info) and info.get("device")
-    }
+    ]
     gpu_rows: list[list[str]] = []
-    for dev in sorted(set(gpus) | set(gpu_workers), key=_device_key):
+
+    def add_gpu_row(dev: str, worker_info: dict | None = None) -> None:
         raw = gpus.get(dev)
         if isinstance(raw, dict):
             memory_used = raw.get("memory_used")
-            memory_used_percent = raw.get("memory_used_percent", "?")
-            memory_display = (
-                f"{memory_used} ({memory_used_percent})" if memory_used not in (None, "", "?") else memory_used_percent
-            )
+            memory_display = str(memory_used) if memory_used not in (None, "", "?") else "?"
             name = _short_gpu_name(raw.get("name", "?"))
-            available = "yes" if raw.get("available") else "no"
         else:
             # Degraded entries (typically an error string from the server when
             # torch.cuda can't query the device) — surface as ERROR with the
             # raw message in the name column so it's still visible.
             name = _short_gpu_name(raw) if raw is not None else "?"
             memory_display = "?"
-            available = "ERROR" if raw is not None else "?"
 
-        worker_id = ""
         worker_status = ""
         worker_age = ""
         current_task = ""
         node_id = ""
         hostname = ""
-        worker_entry = gpu_workers.get(dev)
-        if worker_entry:
-            worker_id, worker_info = worker_entry
+        if worker_info:
             age_s = _worker_heartbeat_age_s(worker_info, now)
             worker_status = str(worker_info.get("status", "?"))
             worker_age = "?" if age_s is None else f"{age_s:.0f}"
-            current_task = str(worker_info.get("current_task", ""))
+            current_task = _short_task_id(worker_info.get("current_task", ""))
             node_id = str(worker_info.get("node_id", ""))
-            hostname = str(worker_info.get("hostname", ""))
+            hostname = _short_hostname(worker_info.get("hostname", ""))
 
         gpu_rows.append(
             [
                 dev,
                 name,
                 memory_display,
-                available,
-                worker_id,
                 worker_status,
                 worker_age,
                 current_task,
@@ -444,14 +444,27 @@ def render_verbose(health: dict, workers: dict, max_heartbeat_age_s: int) -> Non
                 hostname,
             ]
         )
+
+    def gpu_worker_sort_key(item: tuple[str, dict]) -> tuple[str, tuple[int, str], str]:
+        worker_id, info = item
+        node = str(info.get("hostname") or info.get("node_id") or "")
+        return (node, _device_key(str(info.get("device", ""))), worker_id)
+
+    worker_devices: set[str] = set()
+    for worker_id, worker_info in sorted(gpu_workers, key=gpu_worker_sort_key):
+        dev = str(worker_info.get("device"))
+        worker_devices.add(dev)
+        add_gpu_row(dev, worker_info)
+
+    for dev in sorted(set(gpus) - worker_devices, key=_device_key):
+        add_gpu_row(dev)
+
     render_table(
         "gpu status",
         [
             "device",
             "name",
             "memory_used",
-            "available",
-            "worker_id",
             "status",
             "age_s",
             "current_task",
@@ -460,33 +473,6 @@ def render_verbose(health: dict, workers: dict, max_heartbeat_age_s: int) -> Non
         ],
         gpu_rows,
     )
-
-    cpu_worker_rows: list[list[str]] = []
-    other_worker_rows: list[list[str]] = []
-    for wid, info in sorted(workers.items(), key=lambda item: _device_key(item[0])):
-        if isinstance(info, dict):
-            if _is_gpu_worker(wid, info):
-                continue
-            age_s = _worker_heartbeat_age_s(info, now)
-            row = [
-                wid,
-                info.get("device", "?"),
-                info.get("status", "?"),
-                "?" if age_s is None else f"{age_s:.0f}",
-                info.get("current_task", ""),
-                info.get("node_id", "?"),
-                info.get("hostname", "?"),
-            ]
-            if _is_cpu_worker(wid, info):
-                cpu_worker_rows.append(row)
-            else:
-                other_worker_rows.append(row)
-        else:
-            other_worker_rows.append([wid, "?", "ERROR", "?", str(info), "?", "?"])
-    headers = ["worker_id", "device", "status", "age_s", "current_task", "node_id", "hostname"]
-    render_table("/workers/status cpu", headers, cpu_worker_rows)
-    if other_worker_rows:
-        render_table("/workers/status other", headers, other_worker_rows)
 
 
 def main() -> int:
