@@ -235,6 +235,41 @@ def test_pool_size_2_get_idle_returns_spare_during_recycle(monkeypatch) -> None:
     asyncio.run(scenario())
 
 
+def test_pool_size_2_get_idle_tops_up_when_only_one_worker_remains(monkeypatch) -> None:
+    """Checking out the only idle worker must start a top-up immediately.
+
+    Otherwise a busy worker can sit alone until it returns, which defeats the
+    warm-spare invariant under sustained load.
+    """
+
+    async def scenario() -> None:
+        pool = _pool_without_processes(pool_size=2)
+        only_worker = FakeWorker("only", alive=True)
+        pool.workers = [only_worker]
+        pool.idle_workers = [only_worker]
+
+        threads: list[_NoOpThread] = []
+
+        def fake_thread(*args, **kwargs):  # noqa: ANN002, ANN003
+            t = _NoOpThread(*args, **kwargs)
+            threads.append(t)
+            return t
+
+        monkeypatch.setattr(subprocess_pool.threading, "Thread", fake_thread)
+
+        worker = await pool._get_idle_worker(timeout=1.0)
+
+        assert worker is only_worker
+        assert pool.busy_workers == [only_worker]
+        assert pool.idle_workers == []
+        assert pool.pending_replacements == 1
+        assert len(threads) == 1
+        assert threads[0].started is True
+        assert len(pool.workers) + pool.pending_replacements == pool.pool_size
+
+    asyncio.run(scenario())
+
+
 def test_pool_size_2_no_emergency_when_pending_already_in_flight(monkeypatch) -> None:
     """With pool_size=2 and pending_replacements=2 (both replacements in
     flight), _get_idle_worker waits without spawning an emergency."""

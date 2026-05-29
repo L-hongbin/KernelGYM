@@ -790,6 +790,7 @@ class SubprocessWorkerPool:
                 if self.idle_workers:
                     worker = self.idle_workers.pop(0)
                     self.busy_workers.append(worker)
+                    self._ensure_capacity_locked(asyncio.get_running_loop())
                     return worker
 
                 needs_emergency_worker = (
