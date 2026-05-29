@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import logging
 import signal
+import socket
 import time
 from typing import Any, Dict, Optional
 
@@ -33,6 +34,8 @@ class CPUCompileWorker:
         self.current_task: Optional[str] = None
         self.toolkit_cache: Dict[str, Any] = {}
         self.backend_cache: Dict[str, Any] = {}
+        self.hostname = socket.gethostname()
+        self.node_id = settings.node_id or self.hostname
 
     def _signal_handler(self, signum, frame):
         logger.info("CPU worker %s received signal %s", self.worker_id, signum)
@@ -42,7 +45,7 @@ class CPUCompileWorker:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         self.running = True
-        await self.task_manager.register_worker(self.worker_id, "cpu")
+        await self.task_manager.register_worker(self.worker_id, "cpu", node_id=self.node_id, hostname=self.hostname)
         heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         try:
             while self.running:
@@ -77,6 +80,8 @@ class CPUCompileWorker:
                 "last_heartbeat": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "current_task": self.current_task or "",
                 "device": "cpu",
+                "node_id": self.node_id,
+                "hostname": self.hostname,
             },
         )
 
@@ -101,6 +106,8 @@ class CPUCompileWorker:
             result = self.toolkit_cache[toolkit_name].evaluate(task_data, backend=self.backend_cache[backend_name])
             metadata = result.setdefault("metadata", {})
             metadata["cpu_worker_id"] = self.worker_id
+            metadata["compile_node_id"] = self.node_id
+            metadata["compile_hostname"] = self.hostname
             metadata["cpu_worker_run_s"] = time.time() - started
             await self.task_manager.complete_task(task_id, result)
         except Exception as exc:
@@ -112,7 +119,12 @@ class CPUCompileWorker:
                 "correctness": False,
                 "decoy_kernel": False,
                 "kernel_runtime": -1.0,
-                "metadata": {"error": str(exc), "cpu_worker_id": self.worker_id},
+                "metadata": {
+                    "error": str(exc),
+                    "cpu_worker_id": self.worker_id,
+                    "compile_node_id": self.node_id,
+                    "compile_hostname": self.hostname,
+                },
                 "status": task_status_from_result_payload({"status": "failed", "error_code": error_code}).value,
                 "error_message": f"CPU compile task failed: {exc}",
                 "error_code": error_code,

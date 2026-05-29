@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 from collections import defaultdict
 from typing import Any
@@ -15,6 +16,7 @@ class FakeRedis:
     def __init__(self) -> None:
         self.hashes: dict[str, dict[bytes, bytes]] = {}
         self.lists: dict[str, list[str]] = defaultdict(list)
+        self.counters: dict[str, int] = defaultdict(int)
 
     @staticmethod
     def _bytes(value: Any) -> bytes:
@@ -67,6 +69,17 @@ class FakeRedis:
                 del self.hashes[key]
         return removed
 
+    async def scan_iter(self, pattern: str):
+        import fnmatch
+
+        for key in sorted(self.hashes):
+            if fnmatch.fnmatch(key, pattern):
+                yield key
+
+    async def incr(self, key: str) -> int:
+        self.counters[key] += 1
+        return self.counters[key]
+
 
 def _patch_registry(monkeypatch) -> None:
     monkeypatch.setattr(task_manager_module, "list_toolkits", lambda: ["kernelbench"])
@@ -111,6 +124,71 @@ def test_task_manager_routes_compile_and_execute_by_resource(monkeypatch) -> Non
         }
         task_hash = await redis.hgetall(f"{manager.task_prefix}compile-task")
         assert task_hash[b"status"] == TaskStatus.PROCESSING.value.encode()
+
+    asyncio.run(scenario())
+
+
+def test_task_manager_honors_required_node_affinity(monkeypatch) -> None:
+    async def scenario() -> None:
+        _patch_registry(monkeypatch)
+        redis = FakeRedis()
+        manager = TaskManager(redis)  # type: ignore[arg-type]
+        await manager.register_worker("gpu-node-a", "cuda:0", node_id="node-a", hostname="host-a")
+        await manager.register_worker("gpu-node-b", "cuda:0", node_id="node-b", hostname="host-b")
+
+        await manager.submit_task(
+            {
+                **_base_payload("node-b-task"),
+                "task_stage": "execute",
+                "node_affinity": "required",
+                "target_node_id": "node-b",
+            }
+        )
+
+        assert await manager.get_next_task("gpu-node-a", resources=["gpu"]) is None
+        matched = await manager.get_next_task("gpu-node-b", resources=["gpu"])
+        assert matched is not None
+        assert matched["task_id"] == "node-b-task"
+
+    asyncio.run(scenario())
+
+
+def test_task_manager_selects_idle_gpu_worker(monkeypatch) -> None:
+    async def scenario() -> None:
+        _patch_registry(monkeypatch)
+        redis = FakeRedis()
+        manager = TaskManager(redis)  # type: ignore[arg-type]
+        await manager.register_worker("gpu-busy", "cuda:0", node_id="node-a", hostname="host-a")
+        await manager.register_worker("gpu-idle", "cuda:1", node_id="node-b", hostname="host-b")
+        await redis.hset(f"{manager.worker_prefix}gpu-busy", mapping={"current_task": "task"})
+        await redis.hset(f"{manager.worker_prefix}gpu-idle", mapping={"current_task": ""})
+
+        selected = await manager.select_idle_worker("gpu")
+
+        assert selected is not None
+        assert selected["worker_id"] == "gpu-idle"
+        assert selected["node_id"] == "node-b"
+
+    asyncio.run(scenario())
+
+
+def test_task_manager_selects_busy_gpu_worker_by_task_id(monkeypatch) -> None:
+    async def scenario() -> None:
+        _patch_registry(monkeypatch)
+        redis = FakeRedis()
+        manager = TaskManager(redis)  # type: ignore[arg-type]
+        await manager.register_worker("gpu-a", "cuda:0", node_id="node-a", hostname="host-a")
+        await manager.register_worker("gpu-b", "cuda:1", node_id="node-b", hostname="host-b")
+        await redis.hset(f"{manager.worker_prefix}gpu-a", mapping={"current_task": "task-a"})
+        await redis.hset(f"{manager.worker_prefix}gpu-b", mapping={"current_task": "task-b"})
+
+        task_id = "parallel_task_001692_bf77c294_kernel"
+        selected = await manager.select_worker_by_task_id("gpu", task_id)
+
+        digest = hashlib.sha256(task_id.encode("utf-8")).digest()
+        expected_worker_id = ["gpu-a", "gpu-b"][int.from_bytes(digest[:8], "big") % 2]
+        assert selected is not None
+        assert selected["worker_id"] == expected_worker_id
 
     asyncio.run(scenario())
 

@@ -6,6 +6,7 @@ This is a minimal, generic scheduler-backed task manager without workflow semant
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -116,6 +117,66 @@ class TaskManager:
 
     def _key(self, prefix: str, suffix: str) -> str:
         return f"{prefix}:{suffix}"
+
+    @staticmethod
+    def _decode_value(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return str(value)
+
+    @classmethod
+    def _node_identity(cls, worker_info: Dict[Any, Any]) -> tuple[str, str]:
+        node_id = cls._decode_value(worker_info.get("node_id") or worker_info.get(b"node_id"))
+        hostname = cls._decode_value(worker_info.get("hostname") or worker_info.get(b"hostname"))
+        return node_id, hostname
+
+    @staticmethod
+    def _parse_datetime(value: str) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+
+    @classmethod
+    def _task_node_affinity(cls, task_json: Dict[str, Any]) -> tuple[str, str, bool]:
+        affinity = str(task_json.get("node_affinity") or "").strip().lower()
+        node_id = str(
+            task_json.get("target_node_id")
+            or task_json.get("artifact_node_id")
+            or task_json.get("preferred_node_id")
+            or ""
+        ).strip()
+        hostname = str(task_json.get("target_hostname") or task_json.get("artifact_hostname") or "").strip()
+        required = affinity == "required" or bool(node_id or hostname)
+        return node_id, hostname, required
+
+    @classmethod
+    def _task_matches_worker_node(cls, task_json: Dict[str, Any], worker_info: Dict[Any, Any]) -> bool:
+        required_node_id, required_hostname, required = cls._task_node_affinity(task_json)
+        if not required:
+            return True
+        worker_node_id, worker_hostname = cls._node_identity(worker_info)
+        node_ok = not required_node_id or required_node_id in {worker_node_id, worker_hostname}
+        host_ok = not required_hostname or required_hostname in {worker_hostname, worker_node_id}
+        return node_ok and host_ok
+
+    async def _load_task_data(
+        self, task_id: str
+    ) -> tuple[str | None, Dict[bytes, bytes] | None, Dict[str, Any] | None]:
+        for prefix in self._prefixes_for_read():
+            candidate_key = f"{prefix}:task:{task_id}"
+            data = await self.redis.hgetall(candidate_key)
+            if not data:
+                continue
+            raw = data.get(b"data")
+            if not raw:
+                return candidate_key, data, None
+            return candidate_key, data, json.loads(raw.decode())
+        return None, None, None
 
     async def initialize(self):
         logger.info("TaskManager initialized")
@@ -390,47 +451,49 @@ class TaskManager:
 
     async def get_next_task(self, worker_id: str, resources: Optional[list[str]] = None) -> Optional[Dict[str, Any]]:
         resources = resources or ["gpu"]
-        task_id = None
+        worker_info = await self.get_worker_data(worker_id)
+        scan_limit = max(1, getattr(settings, "worker_queue_wait_scan_limit", 200))
+
         for prefix in self._prefixes_for_read():
             worker_queue_key = f"{prefix}:queue:worker:{worker_id}"
-            task_id = await self.redis.rpop(worker_queue_key)
-            if task_id is not None:
-                break
+            direct_task_id = await self.redis.rpop(worker_queue_key)
+            if direct_task_id is not None:
+                task_id = direct_task_id.decode() if isinstance(direct_task_id, bytes) else direct_task_id
+                task_key, _task_data, task_json = await self._load_task_data(task_id)
+                if not task_key or task_json is None:
+                    return None
+                started_at = datetime.now().isoformat()
+                await self.redis.hset(
+                    task_key,
+                    mapping={"status": TaskStatus.PROCESSING.value, "started_at": started_at},
+                )
+                return task_json
 
             for resource in resources:
                 queue_key = f"{prefix}:queue:resource:{resource}"
-                task_id = await self.redis.rpop(queue_key)
-                if task_id is not None:
-                    break
-            if task_id is not None:
-                break
-
-        if task_id is None:
-            return None
-
-        if isinstance(task_id, bytes):
-            task_id = task_id.decode()
-
-        task_data = None
-        task_key = None
-        for prefix in self._prefixes_for_read():
-            candidate_key = f"{prefix}:task:{task_id}"
-            data = await self.redis.hgetall(candidate_key)
-            if data:
-                task_key = candidate_key
-                task_data = data
-                break
-        if not task_data or not task_key:
-            return None
-
-        raw = task_data.get(b"data")
-        if not raw:
-            return None
-
-        task_json = json.loads(raw.decode())
-        started_at = datetime.now().isoformat()
-        await self.redis.hset(task_key, mapping={"status": TaskStatus.PROCESSING.value, "started_at": started_at})
-        return task_json
+                deferred_task_ids: list[str] = []
+                try:
+                    for _ in range(scan_limit):
+                        queued_task_id = await self.redis.rpop(queue_key)
+                        if queued_task_id is None:
+                            break
+                        task_id = queued_task_id.decode() if isinstance(queued_task_id, bytes) else queued_task_id
+                        task_key, _task_data, task_json = await self._load_task_data(task_id)
+                        if not task_key or task_json is None:
+                            continue
+                        if not self._task_matches_worker_node(task_json, worker_info):
+                            deferred_task_ids.append(task_id)
+                            continue
+                        started_at = datetime.now().isoformat()
+                        await self.redis.hset(
+                            task_key,
+                            mapping={"status": TaskStatus.PROCESSING.value, "started_at": started_at},
+                        )
+                        return task_json
+                finally:
+                    for deferred_task_id in deferred_task_ids:
+                        await self.redis.lpush(queue_key, deferred_task_id)
+        return None
 
     async def complete_task(self, task_id: str, result: Dict[str, Any], request_hash: Optional[str] = None):
         timing_start = time.time()
@@ -680,6 +743,99 @@ class TaskManager:
                     continue
                 workers.setdefault(worker_id, {}).update(self._decode_redis_hash(data))
         return workers
+
+    async def _resource_worker_candidates(
+        self,
+        resource: str,
+        *,
+        idle_only: bool,
+        target_node_id: Optional[str] = None,
+        target_hostname: Optional[str] = None,
+        max_heartbeat_age_s: int = 30,
+    ) -> list[tuple[str, Dict[str, Any]]]:
+        now = datetime.now()
+        candidates: list[tuple[str, Dict[str, Any]]] = []
+        for worker_id, info in (await self.get_workers_status()).items():
+            device = str(info.get("device") or "")
+            if resource == "gpu" and not device.startswith("cuda:"):
+                continue
+            if resource == "cpu" and device != "cpu":
+                continue
+            if str(info.get("status") or "").lower() != "online":
+                continue
+            if idle_only and str(info.get("current_task") or "").strip():
+                continue
+            heartbeat = self._parse_datetime(str(info.get("last_heartbeat") or ""))
+            if heartbeat is None or (now - heartbeat).total_seconds() > max_heartbeat_age_s:
+                continue
+            node_id, hostname = self._node_identity(info)
+            if target_node_id and target_node_id not in {node_id, hostname}:
+                continue
+            if target_hostname and target_hostname not in {hostname, node_id}:
+                continue
+            candidates.append((worker_id, info))
+        candidates.sort(key=lambda item: item[0])
+        return candidates
+
+    async def select_idle_worker(
+        self,
+        resource: str,
+        *,
+        target_node_id: Optional[str] = None,
+        target_hostname: Optional[str] = None,
+        max_heartbeat_age_s: int = 30,
+    ) -> Optional[Dict[str, Any]]:
+        candidates = await self._resource_worker_candidates(
+            resource,
+            idle_only=True,
+            target_node_id=target_node_id,
+            target_hostname=target_hostname,
+            max_heartbeat_age_s=max_heartbeat_age_s,
+        )
+        if not candidates:
+            return None
+        index = 0
+        try:
+            index = int(await self.redis.incr(f"{self.key_prefix}:worker_select:{resource}:rr")) - 1
+        except Exception:
+            pass
+        worker_id, info = candidates[index % len(candidates)]
+        node_id, hostname = self._node_identity(info)
+        return {
+            "worker_id": worker_id,
+            "device": str(info.get("device") or ""),
+            "node_id": node_id,
+            "hostname": hostname,
+        }
+
+    async def select_worker_by_task_id(
+        self,
+        resource: str,
+        task_id: str,
+        *,
+        target_node_id: Optional[str] = None,
+        target_hostname: Optional[str] = None,
+        max_heartbeat_age_s: int = 30,
+    ) -> Optional[Dict[str, Any]]:
+        candidates = await self._resource_worker_candidates(
+            resource,
+            idle_only=False,
+            target_node_id=target_node_id,
+            target_hostname=target_hostname,
+            max_heartbeat_age_s=max_heartbeat_age_s,
+        )
+        if not candidates:
+            return None
+        digest = hashlib.sha256(str(task_id).encode("utf-8")).digest()
+        index = int.from_bytes(digest[:8], "big") % len(candidates)
+        worker_id, info = candidates[index]
+        node_id, hostname = self._node_identity(info)
+        return {
+            "worker_id": worker_id,
+            "device": str(info.get("device") or ""),
+            "node_id": node_id,
+            "hostname": hostname,
+        }
 
     async def update_worker_heartbeat(self, worker_id: str) -> None:
         now = datetime.now().isoformat()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from typing import Any, Dict, Optional
 from pathlib import Path
 import json
@@ -234,6 +235,11 @@ class KernelBenchWorkflowController(WorkflowController):
         scheduler: SchedulerAPI,
     ) -> Dict[str, Any]:
         execute_options = self._kernel_execution_options(eval_task, compile_only=False)
+        target_worker = await self._select_split_target_gpu(scheduler, eval_task.task_id)
+        if target_worker is None:
+            return self._failed_result(eval_task.task_id, "no fresh GPU worker available for split compile/execute")
+        target_node_id = str(target_worker.get("node_id") or target_worker.get("hostname") or "")
+        target_hostname = str(target_worker.get("hostname") or "")
         compile_payload = kernel_task.to_dict()
         compile_payload.update(
             {
@@ -246,6 +252,11 @@ class KernelBenchWorkflowController(WorkflowController):
                 "pure_compile_task": True,
                 "return_internal_compile_artifact": True,
                 "enable_compile_artifact_cache": eval_task.enable_compile_artifact_cache,
+                "node_affinity": "required",
+                "target_node_id": target_node_id,
+                "target_hostname": target_hostname,
+                "target_gpu_worker_id": target_worker.get("worker_id", ""),
+                "target_gpu_selection_strategy": target_worker.get("selection_strategy", ""),
             }
         )
         compile_payload.update(self._kernel_execution_options(eval_task, compile_only=True))
@@ -272,6 +283,14 @@ class KernelBenchWorkflowController(WorkflowController):
         if not isinstance(compile_artifact, dict):
             return self._failed_result(eval_task.task_id, "compile stage did not return a reusable compile_artifact")
 
+        artifact_node_id = str(compile_metadata.get("compile_node_id") or target_node_id)
+        artifact_hostname = str(compile_metadata.get("compile_hostname") or target_hostname)
+        compile_artifact = dict(compile_artifact)
+        compile_artifact["artifact_node_id"] = artifact_node_id
+        compile_artifact["artifact_hostname"] = artifact_hostname
+        compile_artifact["target_gpu_worker_id"] = target_worker.get("worker_id", "")
+        compile_artifact["target_gpu_selection_strategy"] = target_worker.get("selection_strategy", "")
+
         execute_payload = kernel_task.to_dict()
         execute_payload.update(
             {
@@ -284,6 +303,13 @@ class KernelBenchWorkflowController(WorkflowController):
                 "compile_artifact": compile_artifact,
                 "pure_compile_task": False,
                 "enable_compile_artifact_cache": eval_task.enable_compile_artifact_cache,
+                "node_affinity": "required",
+                "target_node_id": artifact_node_id,
+                "target_hostname": artifact_hostname,
+                "artifact_node_id": artifact_node_id,
+                "artifact_hostname": artifact_hostname,
+                "target_gpu_worker_id": target_worker.get("worker_id", ""),
+                "target_gpu_selection_strategy": target_worker.get("selection_strategy", ""),
             }
         )
         execute_payload.update(execute_options)
@@ -302,6 +328,33 @@ class KernelBenchWorkflowController(WorkflowController):
             metadata.pop("_internal_compile_artifact", None)
             execute_result["metadata"] = metadata
         return execute_result
+
+    async def _select_split_target_gpu(self, scheduler: SchedulerAPI, task_id: str) -> Optional[Dict[str, Any]]:
+        selector = getattr(scheduler, "select_idle_worker", None)
+        if not callable(selector):
+            logger.warning("Scheduler does not expose select_idle_worker; split task will run without node affinity")
+            return {}
+        try:
+            worker = await selector("gpu", timeout=0, poll_interval=0.5)
+            if worker:
+                worker = dict(worker)
+                worker["selection_strategy"] = "idle"
+                return worker
+
+            fallback_selector = getattr(scheduler, "select_worker_by_task_id", None)
+            if callable(fallback_selector):
+                worker = await fallback_selector("gpu", task_id)
+                if worker:
+                    worker = dict(worker)
+                    worker["selection_strategy"] = "task_id_mod"
+                    return worker
+
+            return None
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Failed to select split target GPU worker: %s", exc)
+            return None
 
     def _cached_reference_result(self, eval_task: EvaluationTask, runtime: float) -> ReferenceTimingResult:
         return ReferenceTimingResult(

@@ -44,3 +44,27 @@ class TaskManagerScheduler(SchedulerAPI):
 
     async def cancel(self, task_id: str) -> bool:
         return await self._task_manager.cancel_task(task_id)
+
+    async def select_idle_worker(
+        self,
+        resource: str,
+        *,
+        timeout: Optional[float] = None,
+        poll_interval: Optional[float] = None,
+    ) -> Optional[Dict[str, Any]]:
+        start = time.monotonic()
+        interval = self._poll_interval if poll_interval is None else poll_interval
+        while True:
+            worker = await self._task_manager.select_idle_worker(resource)
+            if worker:
+                return worker
+            if timeout is not None and (time.monotonic() - start) >= timeout:
+                return None
+            await asyncio.sleep(interval)
+
+    async def select_worker_by_task_id(
+        self,
+        resource: str,
+        task_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        return await self._task_manager.select_worker_by_task_id(resource, task_id)
