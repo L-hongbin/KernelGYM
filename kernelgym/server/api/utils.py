@@ -1,6 +1,8 @@
 """Utility functions for KernelGym API server."""
 
 import logging
+import shutil
+import subprocess
 from datetime import datetime
 from typing import Dict, Any
 
@@ -17,6 +19,66 @@ def format_timestamp(dt: datetime) -> str:
 
 
 async def get_gpu_info() -> Dict[str, Any]:
+    nvidia_smi_info = _get_gpu_info_from_nvidia_smi()
+    if nvidia_smi_info is not None:
+        return nvidia_smi_info
+    return _get_gpu_info_from_torch()
+
+
+def _get_gpu_info_from_nvidia_smi() -> Dict[str, Any] | None:
+    """Read whole-device GPU memory/utilization instead of this process only."""
+    if not shutil.which("nvidia-smi"):
+        return None
+    try:
+        completed = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,name,memory.used,memory.total,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.warning("nvidia-smi GPU query failed: %s", exc)
+        return None
+    if completed.returncode != 0:
+        logger.warning("nvidia-smi GPU query failed: %s", completed.stderr.strip())
+        return None
+
+    gpu_info: Dict[str, Any] = {}
+    for line in completed.stdout.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) != 5:
+            continue
+        try:
+            index = int(parts[0])
+            memory_used_mib = float(parts[2])
+            memory_total_mib = float(parts[3])
+            utilization = float(parts[4])
+        except ValueError:
+            continue
+        if index not in settings.gpu_devices:
+            continue
+        used_gib = memory_used_mib / 1024
+        total_gib = memory_total_mib / 1024
+        used_percent = (memory_used_mib / memory_total_mib) * 100 if memory_total_mib else 0.0
+        gpu_info[f"cuda:{index}"] = {
+            "name": parts[1],
+            "memory_total": f"{total_gib:.1f}GB",
+            "memory_used": f"{used_gib:.1f}GB",
+            "memory_used_percent": f"{used_percent:.1f}%",
+            "utilization_gpu_percent": f"{utilization:.1f}%",
+            "available": True,
+            "source": "nvidia-smi",
+        }
+    return gpu_info or None
+
+
+def _get_gpu_info_from_torch() -> Dict[str, Any]:
     try:
         if not torch.cuda.is_available():
             return {"error": "CUDA not available"}
@@ -40,6 +102,7 @@ async def get_gpu_info() -> Dict[str, Any]:
                         "memory_reserved": f"{memory_reserved / (1024**3):.1f}GB",
                         "memory_used_percent": f"{memory_used_percent:.1f}%",
                         "available": True,
+                        "source": "torch",
                     }
                 except Exception as exc:
                     gpu_info[device] = {"error": str(exc), "available": False}

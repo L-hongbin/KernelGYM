@@ -212,3 +212,103 @@ def test_render_summary_uses_processing_fallback_for_unknown_busy(capsys) -> Non
     assert "gpu_busy" in out
     assert "cpu_busy" in out
     assert "unknown" not in out
+
+
+def test_nvidia_smi_gpu_snapshot_reports_whole_device_memory(monkeypatch) -> None:
+    check_node = load_check_node()
+    monkeypatch.setattr(
+        check_node.shutil, "which", lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None
+    )
+
+    class Completed:
+        returncode = 0
+        stdout = "2, NVIDIA GeForce RTX 4090, 19343, 24564, 99\n"
+
+    monkeypatch.setattr(check_node.subprocess, "run", lambda *_args, **_kwargs: Completed())
+
+    snapshot = check_node._nvidia_smi_gpu_snapshot()
+
+    assert snapshot == {
+        "cuda:2": {
+            "name": "NVIDIA GeForce RTX 4090",
+            "memory_total": "24.0GB",
+            "memory_used": "18.9GB",
+            "memory_used_percent": "78.7%",
+            "utilization_gpu_percent": "99.0%",
+            "available": True,
+            "source": "nvidia-smi",
+        }
+    }
+
+
+def test_short_gpu_name_removes_vendor_prefix() -> None:
+    check_node = load_check_node()
+
+    assert check_node._short_gpu_name("NVIDIA GeForce RTX 4090") == "RTX 4090"
+    assert check_node._short_gpu_name("NVIDIA H100 80GB HBM3") == "H100 80GB HBM3"
+
+
+def test_render_verbose_omits_fresh_column(capsys) -> None:
+    check_node = load_check_node()
+    health = {
+        "timestamp": "2026-05-27T12:00:00Z",
+        "gpu_status": {
+            "cuda:0": {
+                "name": "NVIDIA GeForce RTX 4090",
+                "memory_used": "0.4GB",
+                "memory_used_percent": "1.9%",
+                "available": True,
+            }
+        },
+    }
+    workers = {
+        "worker_gpu_0": {
+            "device": "cuda:0",
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+            "current_task": "task-0",
+            "node_id": "v1",
+            "hostname": "ai-16-39",
+        },
+        "worker_cpu_0": {
+            "device": "cpu",
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+        },
+    }
+
+    check_node.render_verbose(health, workers, max_heartbeat_age_s=180)
+
+    out = capsys.readouterr().out
+    assert "fresh" not in out
+    assert "age_s" in out
+    assert "RTX 4090" in out
+
+
+def test_merge_gpu_status_prefers_local_nvidia_smi_values() -> None:
+    check_node = load_check_node()
+    health = {
+        "gpu_status": {
+            "cuda:2": {
+                "name": "NVIDIA GeForce RTX 4090",
+                "memory_total": "23.5GB",
+                "memory_used_percent": "0.0%",
+                "available": True,
+            }
+        }
+    }
+    local_gpus = {
+        "cuda:2": {
+            "memory_total": "24.0GB",
+            "memory_used": "18.9GB",
+            "memory_used_percent": "78.7%",
+            "source": "nvidia-smi",
+        }
+    }
+
+    merged = check_node._merge_gpu_status(health, local_gpus)
+
+    assert merged["gpu_status"]["cuda:2"]["memory_total"] == "24.0GB"
+    assert merged["gpu_status"]["cuda:2"]["memory_used"] == "18.9GB"
+    assert merged["gpu_status"]["cuda:2"]["memory_used_percent"] == "78.7%"
+    assert merged["gpu_status"]["cuda:2"]["source"] == "nvidia-smi"
