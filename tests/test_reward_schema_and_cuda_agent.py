@@ -2,6 +2,7 @@ from kernelgym.common import Backend
 from kernelgym.backend.kernelbench.cuda_agent_backend import KernelBenchCudaAgentBackend
 from kernelgym.backend.kernelbench import tvm_ffi_backend
 from kernelgym.backend.kernelbench.tvm_ffi_backend import KernelBenchTvmFfiBackend
+from kernelgym.schema.result import KernelEvaluationResult
 from kernelgym.server.api.models import EvaluationRequest
 from kernelgym.toolkit.validation import precheck_cuda_agent_submission
 
@@ -33,6 +34,63 @@ def test_evaluation_request_defaults_to_auto_backend() -> None:
     )
 
     assert request.backend == Backend.AUTO
+
+
+def test_result_serialization_includes_detected_device_info(monkeypatch) -> None:
+    from kernelgym.utils import device_info
+
+    detected = {
+        "gpu_name": "Detected GPU",
+        "compute_capability": "9.0",
+        "cuda_version": "12.8",
+        "driver_version": "570.1",
+        "nvcc_version": "12.8",
+    }
+    monkeypatch.setenv(device_info.DEVICE_INFO_ENV, device_info.encode_device_info(detected))
+    device_info.current_device_info.cache_clear()
+
+    result = KernelEvaluationResult(
+        task_id="t",
+        base_task_id="t",
+        compiled=True,
+        correctness=True,
+        decoy_kernel=False,
+        kernel_runtime=1.0,
+        metadata={"device": "cuda:0"},
+    ).to_dict()
+
+    assert result["metadata"]["device_info"] == detected
+    device_info.current_device_info.cache_clear()
+
+
+def test_result_serialization_preserves_existing_device_info(monkeypatch) -> None:
+    from kernelgym.utils import device_info
+
+    existing = {
+        "gpu_name": "Worker GPU",
+        "compute_capability": "8.0",
+        "cuda_version": "12.9",
+        "driver_version": "575.1",
+        "nvcc_version": "12.9",
+    }
+    monkeypatch.setenv(
+        device_info.DEVICE_INFO_ENV,
+        device_info.encode_device_info({**existing, "gpu_name": "API GPU"}),
+    )
+    device_info.current_device_info.cache_clear()
+
+    result = KernelEvaluationResult(
+        task_id="t",
+        base_task_id="t",
+        compiled=True,
+        correctness=True,
+        decoy_kernel=False,
+        kernel_runtime=1.0,
+        metadata={"device_info": existing},
+    ).to_dict()
+
+    assert result["metadata"]["device_info"] == existing
+    device_info.current_device_info.cache_clear()
 
 
 def test_cuda_agent_parser_strips_think_blocks_and_uses_last_complete_group() -> None:

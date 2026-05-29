@@ -67,3 +67,35 @@ def test_deploy_node_start_primary_waits_for_health(monkeypatch) -> None:
         ),
         ("wait_api", "127.0.0.1"),
     ]
+
+
+def test_deploy_node_start_worker_passes_cpu_compile_workers(monkeypatch) -> None:
+    deploy_node = load_deploy_node()
+    calls = []
+    monkeypatch.setattr(
+        deploy_node,
+        "run",
+        lambda command, allow_failure=False: calls.append(("run", command, allow_failure)),
+    )
+    monkeypatch.setattr(deploy_node, "wait_api", lambda addr: calls.append(("wait_api", addr)))
+
+    deploy_node.start_worker("192.168.16.40", 1, cpu_compile_workers=7)
+
+    assert calls[-1] == (
+        "run",
+        [
+            deploy_node.sys.executable,
+            "-m",
+            "kernelgym.cli.service",
+            "start-worker-node",
+            "--profile",
+            "v1",
+            "--master-addr",
+            "192.168.16.40",
+            "--node-rank",
+            "1",
+            "--cpu-compile-workers",
+            "7",
+        ],
+        False,
+    )

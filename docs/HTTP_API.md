@@ -138,6 +138,7 @@ Split compile/execute (advanced, see [COMPILE_ACCELERATION](design-doc/COMPILE_A
 | Key | Meaning |
 |---|---|
 | `device`, `gpu_name` | GPU the run landed on |
+| `device_info` | Device metadata detected at service startup from torch, `nvidia-smi`, and `nvcc` |
 | `kg_kernel_total_s` | Total task time inside the GPU worker |
 | `kg_kernel_backend_compile_s` | Compile + import (or `dlopen` on cache hit) |
 | `kg_kernel_backend_load_s` | Pure `dlopen` portion |

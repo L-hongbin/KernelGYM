@@ -27,6 +27,10 @@ CUDA 12.9 runtime dependencies are pinned in `requirements-cuda129.txt`, includi
 That file intentionally does not specify public index URLs; internal deployments must provide package indexes through
 image, pip/uv config, or environment.
 
+Startup supports `--cpu-compile-workers N` / `--cpu-workers N` on `deploy_node.sh`, `kernelgym.cli.service start-local`, and `kernelgym.cli.service start-worker-node`; this overrides the profile's `CPU_COMPILE_WORKERS` value for that launch.
+
+Evaluation-result metadata includes `device_info` detected at service startup from torch, `nvidia-smi`, and `nvcc`, then passed to API/worker processes through `KERNELGYM_DEVICE_INFO`.
+
 External physical hosts require GPU clock locking and container startup before
 the reward service starts. The current container image is:
 

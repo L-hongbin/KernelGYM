@@ -35,6 +35,7 @@ from kernelgym.deployment_profiles import (
     get_profile,
     profile_names,
 )
+from kernelgym.utils.device_info import DEVICE_INFO_ENV, detect_device_info, encode_device_info
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 TORCH_CUDA_ARCH_LIST_ENV = "TORCH_CUDA_ARCH_LIST"
@@ -166,7 +167,7 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
             ),
         ),
         ("Network", ("API_HOST", "API_PORT", "API_WORKERS", "API_RELOAD")),
-        ("GPU", ("GPU_DEVICES", "NODE_ID")),
+        ("GPU", ("GPU_DEVICES", "NODE_ID", "KERNELGYM_DEVICE_INFO")),
         ("Redis", ("REDIS_HOST", "REDIS_PORT", "REDIS_DB", "REDIS_PASSWORD", "REDIS_KEY_PREFIX")),
         ("Worker pool", ("WORKER_POOL_SIZE", "MAX_TASKS_PER_WORKER", "CPU_COMPILE_WORKERS")),
         ("Defaults", ("DEFAULT_TOOLKIT", "DEFAULT_BACKEND_ADAPTER", "DEFAULT_BACKEND")),
@@ -201,6 +202,25 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _apply_runtime_overrides(values: dict[str, str], args: argparse.Namespace) -> dict[str, str]:
+    updated = dict(values)
+    cpu_compile_workers = getattr(args, "cpu_compile_workers", None)
+    if cpu_compile_workers is not None:
+        if cpu_compile_workers < 0:
+            raise SystemExit("--cpu-compile-workers must be >= 0")
+        updated["CPU_COMPILE_WORKERS"] = str(cpu_compile_workers)
+    return updated
+
+
+def _with_device_info(values: dict[str, str]) -> dict[str, str]:
+    if values.get(DEVICE_INFO_ENV):
+        return values
+    configured = os.environ.get(DEVICE_INFO_ENV, "").strip()
+    updated = dict(values)
+    updated[DEVICE_INFO_ENV] = configured or encode_device_info(detect_device_info())
+    return updated
+
+
 def _update_env_file(path: Path, updates: dict[str, str]) -> None:
     values = _read_env_file(path)
     values.update(updates)
@@ -230,6 +250,7 @@ def _port_is_open(host: str, port: int, timeout: float = 1.0) -> bool:
 
 def _service_env(values: dict[str, str]) -> dict[str, str]:
     values = _with_torch_cuda_arch_list(values)
+    values = _with_device_info(values)
     env = os.environ.copy()
     env.update(values)
     env["API_PORT"] = str(API_PORT)
@@ -370,7 +391,7 @@ def cmd_start_local(args: argparse.Namespace) -> int:
     if not args.no_stop_first:
         cmd_stop(argparse.Namespace(profile=args.profile))
 
-    values = _profile_values(args.profile)
+    values = _apply_runtime_overrides(_profile_values(args.profile), args)
     if args.log_dir:
         values["LOG_DIR"] = args.log_dir
     if args.eval_results_path:
@@ -492,6 +513,7 @@ def cmd_start_worker_node(args: argparse.Namespace) -> int:
         values = _worker_profile_values(
             getattr(args, "profile", "auto"), master_addr, getattr(args, "node_rank", None)
         )
+    values = _apply_runtime_overrides(values, args)
     values = _with_torch_cuda_arch_list(values)
     _check_worker_connectivity(values)
 
@@ -557,6 +579,7 @@ def build_parser() -> argparse.ArgumentParser:
     start_local.add_argument("--profile", default="auto", help=f"auto or known profile: {', '.join(profile_names())}")
     start_local.add_argument("--log-dir", default=None)
     start_local.add_argument("--eval-results-path", default=None)
+    start_local.add_argument("--cpu-compile-workers", "--cpu-workers", type=int, default=None)
     start_local.add_argument("--no-stop-first", action="store_true")
     start_local.set_defaults(func=cmd_start_local)
 
@@ -565,6 +588,7 @@ def build_parser() -> argparse.ArgumentParser:
     worker_node.add_argument("--profile", default="auto", help=f"auto or known profile: {', '.join(profile_names())}")
     worker_node.add_argument("--master-addr", default=None)
     worker_node.add_argument("--node-rank", default=None)
+    worker_node.add_argument("--cpu-compile-workers", "--cpu-workers", type=int, default=None)
     worker_node.set_defaults(func=cmd_start_worker_node)
 
     stop = subparsers.add_parser("stop", help="stop local KernelGym processes and clear Redis keys")

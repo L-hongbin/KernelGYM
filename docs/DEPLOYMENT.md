@@ -41,6 +41,13 @@ Use `--profile v1`:
 python -m kernelgym.cli.service start-local --profile v1
 ```
 
+Override CPU compile-worker count at startup when the profile default is not appropriate. `--cpu-workers` is accepted as a short alias for `--cpu-compile-workers`.
+
+```bash
+python -m kernelgym.cli.service start-local --profile v1 --cpu-compile-workers 8
+bash deploy_node.sh --nnodes 1 --cpu-compile-workers 8
+```
+
 To stop the running service (kills the API, monitor, GPU/CPU workers, and clears Redis state with the `kernelgym:` prefix):
 
 ```bash
@@ -138,7 +145,7 @@ bash deploy_node.sh --nnodes 2 --node-rank 0 --master-addr 192.168.16.40
 bash deploy_node.sh --nnodes 2 --node-rank 1 --master-addr 192.168.16.40
 ```
 
-The script is intended to run from inside containers. For multi-node deployment, run it manually on every node with that node's `--node-rank`. The node matching `--master-addr` must use rank `0` and becomes primary; other ranks become worker-only.
+The script is intended to run from inside containers. For multi-node deployment, run it manually on every node with that node's `--node-rank`. The node matching `--master-addr` must use rank `0` and becomes primary; other ranks become worker-only. `--cpu-compile-workers N` / `--cpu-workers N` is forwarded to both primary and worker-only node startup.
 
 ## Verification
 

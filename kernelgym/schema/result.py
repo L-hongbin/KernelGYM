@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 
 from kernelgym.common import ErrorCode
 from kernelgym.toolkit.kernelbench.exec_types import KernelExecResult
+from kernelgym.utils.device_info import with_device_info
 
 from .serialization import coerce_error_code, make_json_safe, serialize_error_code
 
@@ -29,8 +30,7 @@ class ReferenceTimingResult:
 
     def to_dict(self) -> Dict[str, Any]:
         result = asdict(self)
-        if result.get("metadata"):
-            result["metadata"] = make_json_safe(result["metadata"])
+        result["metadata"] = make_json_safe(with_device_info(result.get("metadata")))
         result["error_code"] = serialize_error_code(result.get("error_code"))
         return result
 
@@ -57,8 +57,7 @@ class KernelEvaluationResult:
 
     def to_dict(self) -> Dict[str, Any]:
         result = asdict(self)
-        if result.get("metadata"):
-            result["metadata"] = make_json_safe(result["metadata"])
+        result["metadata"] = make_json_safe(with_device_info(result.get("metadata")))
         result["error_code"] = serialize_error_code(result.get("error_code"))
         return result
 
@@ -165,8 +164,7 @@ class EvaluationResult:
 
     def to_dict(self) -> Dict[str, Any]:
         result = asdict(self)
-        if result.get("metadata"):
-            result["metadata"] = make_json_safe(result["metadata"])
+        result["metadata"] = make_json_safe(with_device_info(result.get("metadata")))
         result["error_code"] = serialize_error_code(result.get("error_code"))
         return result
 

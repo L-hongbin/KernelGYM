@@ -8,14 +8,26 @@ def test_service_parser_exposes_expected_commands() -> None:
     assert "start-local" in help_text
     assert "start-worker-node" in help_text
     assert "stop" in help_text
-    start_args = parser.parse_args(["start-local", "--profile", "v1", "--no-stop-first"])
+    start_args = parser.parse_args(["start-local", "--profile", "v1", "--cpu-workers", "4", "--no-stop-first"])
     worker_args = parser.parse_args(
-        ["start-worker-node", "--profile", "v1", "--master-addr", "192.168.16.40", "--node-rank", "1"]
+        [
+            "start-worker-node",
+            "--profile",
+            "v1",
+            "--master-addr",
+            "192.168.16.40",
+            "--node-rank",
+            "1",
+            "--cpu-compile-workers",
+            "6",
+        ]
     )
     stop_args = parser.parse_args(["stop", "--profile", "v1"])
     assert start_args.profile == "v1"
+    assert start_args.cpu_compile_workers == 4
     assert worker_args.master_addr == "192.168.16.40"
     assert worker_args.node_rank == "1"
+    assert worker_args.cpu_compile_workers == 6
     assert stop_args.profile == "v1"
 
 
@@ -54,6 +66,7 @@ def test_service_env_respects_configured_torch_cuda_arch_list(monkeypatch) -> No
         "_detect_visible_torch_cuda_arch_list",
         lambda: (_ for _ in ()).throw(AssertionError("should not auto-detect")),
     )
+    monkeypatch.setattr(service, "detect_device_info", lambda: {"gpu_name": "Detected GPU"})
 
     env = service._service_env({"TORCH_CUDA_ARCH_LIST": "8.9"})
 
@@ -63,10 +76,36 @@ def test_service_env_respects_configured_torch_cuda_arch_list(monkeypatch) -> No
 def test_service_env_detects_torch_cuda_arch_list(monkeypatch) -> None:
     monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
     monkeypatch.setattr(service, "_detect_visible_torch_cuda_arch_list", lambda: "8.9")
+    monkeypatch.setattr(service, "detect_device_info", lambda: {"gpu_name": "Detected GPU"})
 
     env = service._service_env({})
 
     assert env["TORCH_CUDA_ARCH_LIST"] == "8.9"
+
+
+def test_service_env_detects_device_info(monkeypatch) -> None:
+    detected = {
+        "gpu_name": "Detected GPU",
+        "compute_capability": "8.0",
+        "cuda_version": "12.9",
+        "driver_version": "575.1",
+        "nvcc_version": "12.9",
+    }
+    monkeypatch.setattr(service, "_detect_visible_torch_cuda_arch_list", lambda: "")
+    monkeypatch.setattr(service, "detect_device_info", lambda: detected)
+
+    env = service._service_env({})
+
+    assert service.json.loads(env["KERNELGYM_DEVICE_INFO"]) == detected
+
+
+def test_runtime_overrides_can_set_cpu_compile_workers() -> None:
+    values = service._apply_runtime_overrides(
+        {"CPU_COMPILE_WORKERS": "24"},
+        type("Args", (), {"cpu_compile_workers": 3})(),
+    )
+
+    assert values["CPU_COMPILE_WORKERS"] == "3"
 
 
 def test_write_env_file_groups_torch_cuda_arch_list(tmp_path) -> None:
@@ -134,13 +173,20 @@ def test_start_worker_node_generates_values_from_profile(monkeypatch) -> None:
     args = type(
         "Args",
         (),
-        {"server_env": None, "profile": "auto", "master_addr": "192.168.16.40", "node_rank": "1"},
+        {
+            "server_env": None,
+            "profile": "auto",
+            "master_addr": "192.168.16.40",
+            "node_rank": "1",
+            "cpu_compile_workers": 5,
+        },
     )()
     assert service.cmd_start_worker_node(args) == 0
 
     assert captured_envs[0]["API_HOST"] == "192.168.16.40"
     assert captured_envs[0]["REDIS_HOST"] == "192.168.16.40"
     assert captured_envs[0]["NODE_ID"] == "v1-worker-1"
+    assert captured_envs[0]["CPU_COMPILE_WORKERS"] == "5"
 
 
 def test_format_torch_cuda_arch_list_deduplicates_and_filters() -> None:

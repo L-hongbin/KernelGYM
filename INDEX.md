@@ -26,6 +26,7 @@ This file indexes stable repository docs and evidence locations.
 | `kernelgym/backend/kernelbench/cuda_agent_backend.py` | CUDA-Agent parsing, validation scaffold, compile/load backend. |
 | `kernelgym/backend/kernelbench/tvm_ffi_backend.py` | TVM-FFI compile/load backend and compile artifact cache. |
 | `kernelgym/toolkit/kernelbench/pipeline.py` | KernelBench compile/load/correctness/performance pipeline. |
+| `kernelgym/utils/device_info.py` | Startup/runtime device metadata detection and serialized-result injection. |
 | `kernelgym/workflow/kernelbench.py` | Server-side KernelBench workflow orchestration. |
 | `kernelgym/server/task_manager.py` | Redis task queue and worker coordination. |
 | `kernelgym/worker/gpu_worker.py` | Worker-side task execution and failure handling. |

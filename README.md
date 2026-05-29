@@ -28,7 +28,7 @@ bash ensure_venv.sh
 bash deploy_node.sh --nnodes 1
 ```
 
-`deploy_node.sh` activates `.venv`, scrubs `LD_LIBRARY_PATH` / `PYTHONPATH` of host-Python torch trees, runs `scripts/validate_runtime.py`, then starts the API server (`:20111`), worker monitor, 8 GPU workers, and 2 CPU compile workers.
+`deploy_node.sh` activates `.venv`, scrubs `LD_LIBRARY_PATH` / `PYTHONPATH` of host-Python torch trees, runs `scripts/validate_runtime.py`, then starts the API server (`:20111`), worker monitor, 8 GPU workers, and the profile's CPU compile workers. Override that count with `--cpu-compile-workers N` or `--cpu-workers N`.
 
 ### 3. Verify
 
