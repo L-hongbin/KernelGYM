@@ -92,6 +92,8 @@ bash deploy_node.sh --nnodes 2 --node-rank 0 --master-addr 192.168.16.40   # on 
 bash deploy_node.sh --nnodes 2 --node-rank 1 --master-addr 192.168.16.40   # on worker
 ```
 
+See [docs/DEPLOYMENT.md#multi-node-tutorial](docs/DEPLOYMENT.md#multi-node-tutorial) for the full runbook, including host/container preparation, startup order, verification, and common mistakes.
+
 ## Development Setup
 
 Install the pre-commit hooks and run the test suite from inside the activated `.venv`:

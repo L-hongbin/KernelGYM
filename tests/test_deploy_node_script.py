@@ -69,6 +69,28 @@ def test_deploy_node_start_primary_waits_for_health(monkeypatch) -> None:
     ]
 
 
+def test_deploy_node_start_primary_enables_redis_remote_access(monkeypatch) -> None:
+    deploy_node = load_deploy_node()
+    calls = []
+    monkeypatch.setattr(deploy_node, "run", lambda command: calls.append(("run", command)))
+    monkeypatch.setattr(deploy_node, "wait_api", lambda addr: calls.append(("wait_api", addr)))
+
+    deploy_node.start_primary(0, redis_remote_access=True)
+
+    assert calls[0] == (
+        "run",
+        [
+            deploy_node.sys.executable,
+            "-m",
+            "kernelgym.cli.service",
+            "start-local",
+            "--profile",
+            "v1",
+            "--redis-remote-access",
+        ],
+    )
+
+
 def test_deploy_node_start_worker_passes_cpu_compile_workers(monkeypatch) -> None:
     deploy_node = load_deploy_node()
     calls = []

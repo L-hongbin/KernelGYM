@@ -89,12 +89,20 @@ def _append_cpu_compile_workers(command: list[str], cpu_compile_workers: int | N
     return [*command, "--cpu-compile-workers", str(cpu_compile_workers)]
 
 
-def start_primary(node_rank: int | None, cpu_compile_workers: int | None = None) -> None:
+def start_primary(
+    node_rank: int | None,
+    cpu_compile_workers: int | None = None,
+    *,
+    redis_remote_access: bool = False,
+) -> None:
     # Rank 0 runs API, Redis, monitor, and local workers through the service CLI.
     section(f"Start primary node rank={node_rank if node_rank is not None else 'auto'}")
+    command = [sys.executable, "-m", "kernelgym.cli.service", "start-local", "--profile", "v1"]
+    if redis_remote_access:
+        command.append("--redis-remote-access")
     run(
         _append_cpu_compile_workers(
-            [sys.executable, "-m", "kernelgym.cli.service", "start-local", "--profile", "v1"],
+            command,
             cpu_compile_workers,
         )
     )
@@ -161,7 +169,7 @@ def main() -> int:
     if not is_master and args.node_rank == 0:
         raise SystemExit("--node-rank 0 must run on the node matching --master-addr")
     if is_master:
-        start_primary(args.node_rank, args.cpu_compile_workers)
+        start_primary(args.node_rank, args.cpu_compile_workers, redis_remote_access=True)
     else:
         start_worker(args.master_addr, args.node_rank, args.cpu_compile_workers)
     return 0

@@ -8,7 +8,9 @@ def test_service_parser_exposes_expected_commands() -> None:
     assert "start-local" in help_text
     assert "start-worker-node" in help_text
     assert "stop" in help_text
-    start_args = parser.parse_args(["start-local", "--profile", "v1", "--cpu-workers", "4", "--no-stop-first"])
+    start_args = parser.parse_args(
+        ["start-local", "--profile", "v1", "--cpu-workers", "4", "--redis-remote-access", "--no-stop-first"]
+    )
     worker_args = parser.parse_args(
         [
             "start-worker-node",
@@ -25,6 +27,7 @@ def test_service_parser_exposes_expected_commands() -> None:
     stop_args = parser.parse_args(["stop", "--profile", "v1"])
     assert start_args.profile == "v1"
     assert start_args.cpu_compile_workers == 4
+    assert start_args.redis_remote_access is True
     assert worker_args.master_addr == "192.168.16.40"
     assert worker_args.node_rank == "1"
     assert worker_args.cpu_compile_workers == 6
@@ -102,10 +105,21 @@ def test_service_env_detects_device_info(monkeypatch) -> None:
 def test_runtime_overrides_can_set_cpu_compile_workers() -> None:
     values = service._apply_runtime_overrides(
         {"CPU_COMPILE_WORKERS": "24"},
-        type("Args", (), {"cpu_compile_workers": 3})(),
+        type("Args", (), {"cpu_compile_workers": 3, "redis_remote_access": True})(),
     )
 
     assert values["CPU_COMPILE_WORKERS"] == "3"
+    assert values["KERNELGYM_REDIS_REMOTE_ACCESS"] == "true"
+
+
+def test_ensure_redis_configures_remote_access_for_existing_redis(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(service, "_port_is_open", lambda host, port: True)
+    monkeypatch.setattr(service, "_configure_redis_remote_access", lambda values: calls.append(values))
+
+    service._ensure_redis({"KERNELGYM_REDIS_REMOTE_ACCESS": "true"})
+
+    assert calls == [{"KERNELGYM_REDIS_REMOTE_ACCESS": "true"}]
 
 
 def test_write_env_file_groups_torch_cuda_arch_list(tmp_path) -> None:

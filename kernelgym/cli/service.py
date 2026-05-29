@@ -168,7 +168,17 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
         ),
         ("Network", ("API_HOST", "API_PORT", "API_WORKERS", "API_RELOAD")),
         ("GPU", ("GPU_DEVICES", "NODE_ID", "KERNELGYM_DEVICE_INFO")),
-        ("Redis", ("REDIS_HOST", "REDIS_PORT", "REDIS_DB", "REDIS_PASSWORD", "REDIS_KEY_PREFIX")),
+        (
+            "Redis",
+            (
+                "REDIS_HOST",
+                "REDIS_PORT",
+                "REDIS_DB",
+                "REDIS_PASSWORD",
+                "REDIS_KEY_PREFIX",
+                "KERNELGYM_REDIS_REMOTE_ACCESS",
+            ),
+        ),
         ("Worker pool", ("WORKER_POOL_SIZE", "MAX_TASKS_PER_WORKER", "CPU_COMPILE_WORKERS")),
         ("Defaults", ("DEFAULT_TOOLKIT", "DEFAULT_BACKEND_ADAPTER", "DEFAULT_BACKEND")),
         ("Logging", ("LOG_LEVEL", "LOG_DIR", "PY_LOG_DIR")),
@@ -209,6 +219,8 @@ def _apply_runtime_overrides(values: dict[str, str], args: argparse.Namespace) -
         if cpu_compile_workers < 0:
             raise SystemExit("--cpu-compile-workers must be >= 0")
         updated["CPU_COMPILE_WORKERS"] = str(cpu_compile_workers)
+    if getattr(args, "redis_remote_access", False):
+        updated["KERNELGYM_REDIS_REMOTE_ACCESS"] = "true"
     return updated
 
 
@@ -298,7 +310,10 @@ def _redis_client(values: dict[str, str]) -> Any | None:
 def _ensure_redis(values: dict[str, str]) -> None:
     host = values.get("REDIS_HOST", "localhost")
     port = REDIS_PORT
+    remote_access = str(values.get("KERNELGYM_REDIS_REMOTE_ACCESS", "")).strip().lower() in {"1", "true", "yes", "on"}
     if _port_is_open(host, port):
+        if remote_access:
+            _configure_redis_remote_access(values)
         return
     if host not in {"localhost", "127.0.0.1"}:
         raise SystemExit(f"Redis is not reachable at {host}:{port}. Start it before launching workers.")
@@ -306,8 +321,26 @@ def _ensure_redis(values: dict[str, str]) -> None:
     if not redis_server:
         raise SystemExit("redis-server not found; install Redis or set REDIS_HOST/REDIS_PORT to an existing server.")
     command = [redis_server, "--port", str(port), "--daemonize", "yes"]
+    if remote_access:
+        command.extend(["--bind", "0.0.0.0", "--protected-mode", "no"])
     subprocess.run(command, check=True)
     time.sleep(1)
+    if remote_access:
+        _configure_redis_remote_access(values)
+
+
+def _configure_redis_remote_access(values: dict[str, str]) -> None:
+    client = _redis_client(values)
+    if client is None:
+        raise SystemExit("redis Python package is required to configure multi-node Redis access.")
+    try:
+        client.config_set("protected-mode", "no")
+    except Exception as exc:
+        raise SystemExit(f"Failed to disable Redis protected-mode for multi-node access: {exc}") from exc
+    try:
+        client.config_set("bind", "0.0.0.0")
+    except Exception:
+        pass
 
 
 def _api_base(values: dict[str, str]) -> str:
@@ -580,6 +613,7 @@ def build_parser() -> argparse.ArgumentParser:
     start_local.add_argument("--log-dir", default=None)
     start_local.add_argument("--eval-results-path", default=None)
     start_local.add_argument("--cpu-compile-workers", "--cpu-workers", type=int, default=None)
+    start_local.add_argument("--redis-remote-access", action="store_true")
     start_local.add_argument("--no-stop-first", action="store_true")
     start_local.set_defaults(func=cmd_start_local)
 
