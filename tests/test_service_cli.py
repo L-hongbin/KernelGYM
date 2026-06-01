@@ -62,6 +62,40 @@ def test_worker_profile_values_reuses_deployment_profile() -> None:
     assert values["KERNELGYM_NODE_RANK"] == "1"
 
 
+def test_with_hostname_log_dirs_nests_under_host(monkeypatch) -> None:
+    monkeypatch.setattr(service, "_hostname", lambda: "node7")
+
+    values = service._with_hostname_log_dirs(
+        {
+            "LOG_DIR": "logs/v1",
+            "PY_LOG_DIR": "py_logs/v1",
+            "EVAL_RESULTS_PATH": "logs/v1/eval_results.jsonl",
+        }
+    )
+
+    assert values["LOG_DIR"] == "logs/v1/node7"
+    assert values["PY_LOG_DIR"] == "py_logs/v1/node7"
+    assert values["EVAL_RESULTS_PATH"] == "logs/v1/node7/eval_results.jsonl"
+
+
+def test_with_hostname_log_dirs_is_idempotent(monkeypatch) -> None:
+    monkeypatch.setattr(service, "_hostname", lambda: "node7")
+
+    once = service._with_hostname_log_dirs({"LOG_DIR": "logs/v1", "EVAL_RESULTS_PATH": "logs/v1/eval_results.jsonl"})
+    twice = service._with_hostname_log_dirs(once)
+
+    assert twice == once
+
+
+def test_with_hostname_log_dirs_skips_missing_keys(monkeypatch) -> None:
+    monkeypatch.setattr(service, "_hostname", lambda: "node7")
+
+    values = service._with_hostname_log_dirs({"NODE_ID": "v1"})
+
+    assert "LOG_DIR" not in values
+    assert "EVAL_RESULTS_PATH" not in values
+
+
 def test_service_env_respects_configured_torch_cuda_arch_list(monkeypatch) -> None:
     monkeypatch.setenv("TORCH_CUDA_ARCH_LIST", "9.0")
     monkeypatch.setattr(
@@ -201,6 +235,42 @@ def test_start_worker_node_generates_values_from_profile(monkeypatch) -> None:
     assert captured_envs[0]["REDIS_HOST"] == "192.168.16.40"
     assert captured_envs[0]["NODE_ID"] == "v1-worker-1"
     assert captured_envs[0]["CPU_COMPILE_WORKERS"] == "5"
+
+
+def test_start_worker_node_writes_logs_under_hostname_subdir(monkeypatch) -> None:
+    captured_logs = []
+    monkeypatch.setattr(service, "_hostname", lambda: "node7")
+    monkeypatch.setattr(service, "_check_worker_connectivity", lambda values: None)
+    monkeypatch.setattr(
+        service,
+        "_http_post_json",
+        lambda url: {"node_id": "v1-worker-1", "hostname": "v1-worker-1"},
+    )
+    monkeypatch.setattr(service, "_http_get_json", lambda url: {})
+
+    def fake_launch(command, log_file, env):
+        captured_logs.append((log_file, env))
+        return 12345
+
+    monkeypatch.setattr(service, "_launch_background", fake_launch)
+
+    args = type(
+        "Args",
+        (),
+        {
+            "server_env": None,
+            "profile": "auto",
+            "master_addr": "192.168.16.40",
+            "node_rank": "1",
+            "cpu_compile_workers": 0,
+        },
+    )()
+    assert service.cmd_start_worker_node(args) == 0
+
+    log_file, env = captured_logs[0]
+    assert log_file.parent.name == "node7"
+    assert log_file.parent.parent.name == "v1-worker-1-worker"
+    assert env["LOG_DIR"].endswith("/node7")
 
 
 def test_format_torch_cuda_arch_list_deduplicates_and_filters() -> None:

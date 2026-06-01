@@ -72,6 +72,28 @@ def _worker_profile_values(profile_name: str, master_addr: str, node_rank: str |
     return values
 
 
+def _with_hostname_log_dirs(values: dict[str, str]) -> dict[str, str]:
+    """Nest log output under a per-host subdirectory.
+
+    Nodes share this repo over NFS, so writing straight to ``logs/<profile>``
+    makes every host clobber the same files. Each host instead gets its own
+    ``logs/<profile>/<hostname>/`` subtree. Idempotent: paths already ending in
+    the current hostname are left untouched.
+    """
+    host = _hostname()
+    updated = dict(values)
+    for key in ("LOG_DIR", "PY_LOG_DIR"):
+        base = updated.get(key)
+        if base and Path(base).name != host:
+            updated[key] = str(Path(base) / host)
+    eval_path = updated.get("EVAL_RESULTS_PATH")
+    if eval_path:
+        path = Path(eval_path)
+        if path.parent.name != host:
+            updated["EVAL_RESULTS_PATH"] = str(path.parent / host / path.name)
+    return updated
+
+
 def _default_env_file() -> Path:
     host_env = ROOT_DIR / f".env.{_hostname()}"
     return host_env if host_env.exists() else ROOT_DIR / ".env"
@@ -429,6 +451,7 @@ def cmd_start_local(args: argparse.Namespace) -> int:
         values["LOG_DIR"] = args.log_dir
     if args.eval_results_path:
         values["EVAL_RESULTS_PATH"] = args.eval_results_path
+    values = _with_hostname_log_dirs(values)
     env = _service_env(values)
     log_dir = ROOT_DIR / values.get("LOG_DIR", "logs")
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -572,9 +595,12 @@ def cmd_start_worker_node(args: argparse.Namespace) -> int:
     if updates:
         values.update(updates)
 
+    values.setdefault("LOG_DIR", "logs")
+    values.setdefault("PY_LOG_DIR", "py_logs")
+    values = _with_hostname_log_dirs(values)
     env = _service_env(values)
     env.pop("GPU_ARCH", None)
-    log_dir = ROOT_DIR / "logs"
+    log_dir = ROOT_DIR / values.get("LOG_DIR", "logs")
     log_dir.mkdir(parents=True, exist_ok=True)
     pid = _launch_background(
         [sys.executable, "-m", "kernelgym.worker.gpu_worker"], log_dir / "worker_manager.log", env

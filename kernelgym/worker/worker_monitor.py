@@ -26,6 +26,7 @@ import signal
 from pathlib import Path
 
 from kernelgym.config import settings
+from kernelgym.config.settings import PROJECT_ROOT
 
 KEY_PREFIX = settings.redis_key_prefix
 from kernelgym.config import setup_logging
@@ -432,8 +433,12 @@ except Exception as e:
                     "--persistent",
                 ]
 
-            # Ensure logs directory exists and append logs to the same pattern as manual start
-            logs_dir = Path("logs")
+            # Ensure logs directory exists and append logs to the same pattern as manual start.
+            # Honor the configured (host-nested) LOG_DIR so monitor-restarted workers land
+            # in the same per-host subdirectory as everything else.
+            logs_dir = Path(settings.log_dir)
+            if not logs_dir.is_absolute():
+                logs_dir = PROJECT_ROOT / settings.log_dir
             logs_dir.mkdir(parents=True, exist_ok=True)
             log_file_path = logs_dir / f"{worker_id}.log"
             # Start worker as subprocess with stdout/stderr redirected to log file
