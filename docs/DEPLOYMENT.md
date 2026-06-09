@@ -45,7 +45,7 @@ Override CPU compile-worker count at startup when the profile default is not app
 
 ```bash
 python -m kernelgym.cli.service start-local --profile v1 --cpu-compile-workers 8
-bash deploy_node.sh --nnodes 1 --cpu-compile-workers 8
+bash deploy_node.sh --cpu-compile-workers 8
 ```
 
 To stop the running service (kills the API, monitor, GPU/CPU workers, and clears Redis state with the `kernelgym:` prefix):
@@ -58,7 +58,7 @@ kernelgym-service stop --profile v1
 bash stop_node.sh
 ```
 
-A typical restart cycle inside the container is `bash stop_node.sh && bash deploy_node.sh --nnodes 1`.
+A typical restart cycle inside the container is `bash stop_node.sh && bash deploy_node.sh`.
 
 The deployment convenience script is container-only. It runs `ensure_venv.sh`, sources `.venv/bin/activate`, and always stops existing KernelGym worker processes before starting worker-only nodes.
 
@@ -105,7 +105,7 @@ python -m kernelgym.cli.service start-local --profile v1
 The same startup can be run with:
 
 ```bash
-bash deploy_node.sh --nnodes 1
+bash deploy_node.sh
 ```
 
 Worker-only multi-node deployment uses `deploy_node.sh` from inside each container after `.venv` exists.
@@ -125,31 +125,31 @@ python -m kernelgym.cli.service start-local --profile v1
 After `.venv` exists, the single-node convenience entrypoint is:
 
 ```bash
-bash deploy_node.sh --nnodes 1
+bash deploy_node.sh
 ```
 
-Worker-only containers follow the same rule: use `scripts/deploy_node.sh --nnodes N` from inside each container.
+Worker-only nodes follow the same rule: use `bash deploy_node.sh --join <primary>` from inside each container.
 
 ## Convenience Scripts
 
-Single node:
+Single node (local-only, no remote workers):
 
 ```bash
-bash deploy_node.sh --nnodes 1
+bash deploy_node.sh
 ```
 
-Multiple nodes, short form:
+Cluster — the size is dynamic, so there is no node count to declare:
 
 ```bash
-bash deploy_node.sh --nnodes 2 --node-rank 0 --master-addr 192.168.16.40
-bash deploy_node.sh --nnodes 2 --node-rank 1 --master-addr 192.168.16.40
+bash deploy_node.sh --cluster              # on the primary, ready for joins
+bash deploy_node.sh --join 192.168.16.40   # on each worker node (primary's address)
 ```
 
-The script is intended to run from inside containers. For multi-node deployment, run it manually on every node with that node's `--node-rank`. The node matching `--master-addr` must use rank `0` and becomes primary; other ranks become worker-only. `--cpu-compile-workers N` / `--cpu-workers N` is forwarded to both primary and worker-only node startup.
+The script is intended to run from inside containers, one invocation per host. `--cluster` makes the primary accept remote workers; `--join <primary>` brings a node in with a server-allocated id (no rank). `--cpu-compile-workers N` / `--cpu-workers N` is forwarded to both. The older `--nnodes N --node-rank R --master-addr <ip>` form still works but is deprecated in favor of `--cluster` / `--join`.
 
 ## Multi-Node Tutorial
 
-This tutorial assumes two physical reward nodes, `192.168.16.40` as the primary and `192.168.16.39` as the worker-only node. Replace the addresses and ranks for larger clusters. The primary hosts Redis and the HTTP API on fixed ports; every worker-only node connects back to the primary and registers its local GPU/CPU workers.
+This tutorial assumes two physical reward nodes, `192.168.16.40` as the primary and `192.168.16.39` as the worker-only node. Replace the addresses and add more nodes the same way for larger clusters. The primary hosts Redis and the HTTP API on fixed ports; every worker-only node connects back to the primary and registers its local GPU/CPU workers.
 
 ### 1. Prepare each physical host
 
@@ -181,13 +181,13 @@ bash ensure_venv.sh --recreate
 
 ### 3. Start the primary node first
 
-On the node whose IP is `--master-addr`, use rank `0`:
+On the primary, start it cluster-ready:
 
 ```bash
-bash deploy_node.sh --nnodes 2 --node-rank 0 --master-addr 192.168.16.40
+bash deploy_node.sh --cluster
 ```
 
-For multi-node primary startup, `deploy_node.sh` automatically enables Redis remote access on port `20110` by forwarding `--redis-remote-access` to the service CLI. This disables Redis protected mode inside the container so worker-only nodes can connect to the primary Redis instance. Single-node startup does not enable this flag.
+`--cluster` enables Redis remote access on port `20110` (forwards `--redis-remote-access` to the service CLI), which disables Redis protected mode inside the container so worker nodes can connect to the primary Redis. A plain `deploy_node.sh` (single node) does not enable this.
 
 Wait until the primary reports API readiness:
 
@@ -195,27 +195,21 @@ Wait until the primary reports API readiness:
 API ready: http://127.0.0.1:20111/health
 ```
 
-### 4. Start each worker-only node
+### 4. Start each worker node
 
-On every non-primary node, use a unique nonzero rank and the same `--master-addr`:
-
-```bash
-bash deploy_node.sh --nnodes 2 --node-rank 1 --master-addr 192.168.16.40
-```
-
-For three or more nodes, increment ranks:
+On every non-primary node, point it at the primary — no rank, no count:
 
 ```bash
-bash deploy_node.sh --nnodes 3 --node-rank 0 --master-addr 192.168.16.40   # primary
-bash deploy_node.sh --nnodes 3 --node-rank 1 --master-addr 192.168.16.40   # worker A
-bash deploy_node.sh --nnodes 3 --node-rank 2 --master-addr 192.168.16.40   # worker B
+bash deploy_node.sh --join 192.168.16.40
 ```
 
-If a worker-only node should use fewer CPU compile workers than the profile default, pass the same override on that node:
+Add as many nodes as you like the same way; each gets a stable, server-allocated id. If a worker node should use fewer CPU compile workers than the profile default, pass the override on that node:
 
 ```bash
-bash deploy_node.sh --nnodes 2 --node-rank 1 --master-addr 192.168.16.40 --cpu-workers 8
+bash deploy_node.sh --join 192.168.16.40 --cpu-workers 8
 ```
+
+(The deprecated `--nnodes N --node-rank R --master-addr <ip>` form is still accepted for all of the above.)
 
 ### 5. Verify from the primary
 
@@ -262,6 +256,62 @@ For worker-only nodes, `deploy_node.sh` already runs the service stop path befor
 - If worker startup reaches `/health` but fails with `Cannot connect to Redis` or a Redis protected-mode error, restart the primary with the multi-node command above so Redis accepts remote worker connections.
 - Do not run the deployment script on the physical host shell; use it inside the runtime container after `/nfs` and CUDA are mounted.
 - If `check_node.sh` briefly shows one stale worker after a long smoke test, wait one heartbeat interval and rerun it before treating the node as unhealthy.
+
+## Hot-Plugging Nodes
+
+Worker nodes can join or leave a running cluster without restarting the primary and without interrupting in-flight tasks. Everything is done with `deploy_node.sh` / `stop_node.sh` per host; you do not edit Redis by hand. A joining node's workers start pulling from the shared queues within one heartbeat; a leaving node's workers drop out of the load balancer within the heartbeat timeout.
+
+### Start the primary so nodes can join
+
+Start the primary with `--cluster` so its Redis accepts remote workers (a plain `deploy_node.sh` binds Redis locally and no remote node can connect). There is **no node count** — the cluster size is dynamic:
+
+```bash
+bash deploy_node.sh --cluster   # primary, ready for nodes to join
+```
+
+The primary runs standalone until others join. (`--cluster` simply enables remote Redis access; the old `--nnodes 2 --node-rank 0 --master-addr <self>` form still works but is deprecated.)
+
+### Add a worker node
+
+On the new node, inside the container, after `.venv` exists, point it at the primary:
+
+```bash
+bash deploy_node.sh --join 192.168.16.40    # 192.168.16.40 = primary address
+```
+
+No rank or count: the server auto-allocates a stable per-hostname node id (idempotent across re-joins). The primary keeps serving; the node registers its GPU/CPU workers and they appear in `workers/status` within a heartbeat. Verify from the primary with `bash check_node.sh -v`. (Legacy `--nnodes N --node-rank R --master-addr <ip>` is still accepted.)
+
+### Remove a worker node
+
+On that node, stop its local services:
+
+```bash
+bash stop_node.sh
+```
+
+This stops only that node's workers (it is host-local). They unregister and leave the primary's `workers/status`; any that were mid-task drop from the load balancer within the heartbeat timeout. The rest of the cluster is unaffected.
+
+### Stop the whole cluster
+
+`stop_node.sh` is **host-local** — it kills the local KernelGym processes and clears the Redis state it can reach; it does **not** reach across the network to other hosts. Running it on the primary therefore stops the primary and wipes shared Redis but leaves worker-node processes running (orphaned, no longer heartbeating). To tear a cluster down cleanly, run `stop_node.sh` on each worker node first, then on the primary (this order is also why the [restart step](#6-restart-or-stop) stops workers before the primary). There is no built-in single-command, cluster-wide stop.
+
+### Advanced: add or remove one worker without a node restart
+
+`deploy_node.sh` operates at node granularity (it restarts all of a node's workers). On the **primary** only, the `worker_monitor --persistent` reconciles a desired-state set `kernelgym:expected_workers` every `WORKER_MONITOR_INTERVAL` (30 s), so you can add or retire a single GPU/CPU worker without disturbing the node's other workers:
+
+```bash
+# add one GPU worker on cuda:3 (monitor launches it within ~30 s)
+redis-cli -p 20110 SADD kernelgym:expected_workers worker_gpu_3
+redis-cli -p 20110 HSET kernelgym:expected_worker:worker_gpu_3 device cuda:3 hostname "$(hostname)" node_id v1
+
+# retire it: drop from desired state FIRST (else the monitor respawns it), then stop the process
+curl -s -X POST 'http://127.0.0.1:20111/worker/evict_from_lb?worker_id=worker_gpu_3'   # optional drain
+redis-cli -p 20110 SREM kernelgym:expected_workers worker_gpu_3
+redis-cli -p 20110 DEL  kernelgym:expected_worker:worker_gpu_3
+PID=$(redis-cli -p 20110 HGET kernelgym:worker_process:worker_gpu_3 pid); [ -n "$PID" ] && kill -TERM "$PID"
+```
+
+`POST /worker/evict_from_lb?worker_id=<id>` alone just drains a worker from the load balancer (no kill, no respawn) to quarantine a flaky one. This expected-worker set exists only on the primary; do **not** add worker-only-node ids to it, or the primary would try to launch them locally with the wrong device.
 
 ## Verification
 

@@ -56,15 +56,23 @@ def _profile_values(profile_name: str) -> dict[str, str]:
 def _worker_profile_values(profile_name: str, master_addr: str, node_rank: str | None = None) -> dict[str, str]:
     values = _profile_values(profile_name)
     base_node_id = values["NODE_ID"]
-    node_id = f"{base_node_id}-worker-{node_rank}" if node_rank is not None else f"{base_node_id}-worker"
+    if node_rank is not None:
+        node_id = f"{base_node_id}-worker-{node_rank}"
+    else:
+        # No rank given (e.g. `deploy_node.sh --join <primary>`): leave NODE_ID empty
+        # so cmd_start_worker_node omits node_name and the server auto-allocates a
+        # stable per-hostname node id. This makes the node count fully dynamic — no
+        # rank/nnodes ceremony — while staying idempotent across re-joins of a host.
+        node_id = ""
+    log_base = node_id or base_node_id
     values.update(
         {
             "API_HOST": master_addr,
             "REDIS_HOST": master_addr,
             "NODE_ID": node_id,
             "WORKER_NAME_PREFIX": node_id,
-            "LOG_DIR": f"logs/{node_id}-worker",
-            "PY_LOG_DIR": f"py_logs/{node_id}-worker",
+            "LOG_DIR": f"logs/{log_base}-worker",
+            "PY_LOG_DIR": f"py_logs/{log_base}-worker",
         }
     )
     if node_rank is not None:
