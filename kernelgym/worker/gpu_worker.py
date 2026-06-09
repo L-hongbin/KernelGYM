@@ -10,6 +10,7 @@ import json
 import logging
 import signal
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -28,7 +29,7 @@ from kernelgym.utils.task_status import task_status_from_result_payload
 from aiohttp import ClientConnectorError, ClientResponseError
 
 # Import Worker Pool for persistent subprocess workers
-from kernelgym.worker.subprocess_pool import SubprocessWorkerPool
+from kernelgym.worker.subprocess_pool import SubprocessWorkerPool, TaskCancelledError
 
 logger = logging.getLogger("kernelgym.worker")
 
@@ -368,6 +369,21 @@ class GPUWorker:
                 original_task_id = task_id.rsplit("_retry", 1)[0]
                 await self.task_manager.retry_manager.clear_retry_history(original_task_id)
 
+        except TaskCancelledError:
+            # Task was cancelled mid-flight: the CUDA subprocess has been killed.
+            # Record a terminal cancelled result so any waiter (e.g. the workflow
+            # controller blocked in scheduler.wait on this sub-task) returns
+            # promptly instead of hanging until the task timeout.
+            from kernelgym.common import ErrorCode
+
+            logger.info(f"Worker {self.worker_id} task {task_id} cancelled; recording cancelled result")
+            cancelled_result = self._build_failed_result(task_data, "Task cancelled", ErrorCode.SYSTEM_ERROR.value)
+            try:
+                await self.task_manager.complete_task(task_id, cancelled_result)
+            except Exception as record_err:  # pragma: no cover - best effort
+                logger.warning(f"Failed to record cancelled result for {task_id}: {record_err}")
+            self.stats["tasks_failed"] += 1
+
         except Exception as e:
             # Task failed
             error_message = f"Task processing failed: {str(e)}"
@@ -550,6 +566,36 @@ class GPUWorker:
         payload["kg_stage_metadata_path"] = str(path)
         return payload
 
+    async def _cancellation_watcher(self, task_id: str, cancel_event: threading.Event, base_task_id: str = "") -> None:
+        """Poll Redis for a cancellation marker and signal the pool to abort.
+
+        Runs concurrently with the in-flight task. The server may mark either
+        this sub-task's id or its workflow parent (``base_task_id``, set when an
+        ``/evaluate`` request is cancelled) as cancelled. On either signal,
+        ``cancel_event`` is set, which makes the worker pool kill the CUDA
+        subprocess and raise ``TaskCancelledError``.
+        """
+        interval = max(0.25, float(getattr(settings, "cancel_poll_interval_sec", 1.0)))
+        watch_ids = [task_id]
+        if base_task_id and base_task_id != task_id:
+            watch_ids.append(base_task_id)
+        try:
+            while not cancel_event.is_set():
+                try:
+                    for watch_id in watch_ids:
+                        if await self.task_manager.is_task_cancelled(watch_id):
+                            logger.warning(
+                                f"Worker {self.worker_id} detected cancellation "
+                                f"(marker={watch_id}) for task {task_id}; aborting in-flight execution"
+                            )
+                            cancel_event.set()
+                            return
+                except Exception as e:  # pragma: no cover - polling is best effort
+                    logger.debug(f"Cancellation watcher error for task {task_id}: {e}")
+                await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            raise
+
     async def _run_toolkit_task(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
         """Run task payload through worker pool."""
         per_task_timeout_sec = self.per_task_timeout_sec
@@ -557,11 +603,23 @@ class GPUWorker:
             logger.info(f"[Worker] Load per_task_timeout from payload: {task_data['timeout']}")
             per_task_timeout_sec = task_data["timeout"]
 
-        result_data = await self.worker_pool.execute_task(
-            task_data,
-            timeout=per_task_timeout_sec,
-            max_retries=2,
-        )
+        task_id = task_data.get("task_id", "unknown")
+        base_task_id = str(task_data.get("base_task_id") or "")
+        cancel_event = threading.Event()
+        watcher = asyncio.create_task(self._cancellation_watcher(task_id, cancel_event, base_task_id))
+        try:
+            result_data = await self.worker_pool.execute_task(
+                task_data,
+                timeout=per_task_timeout_sec,
+                max_retries=2,
+                cancel_event=cancel_event,
+            )
+        finally:
+            watcher.cancel()
+            try:
+                await watcher
+            except asyncio.CancelledError:
+                pass
 
         if not result_data.get("success", False):
             error_type = result_data.get("error_type", "Unknown")

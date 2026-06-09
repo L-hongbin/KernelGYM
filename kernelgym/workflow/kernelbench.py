@@ -46,7 +46,28 @@ class KernelBenchWorkflowController(WorkflowController):
         validation["workflow"] = "kernelbench"
         return validation
 
+    async def _is_cancelled(self, scheduler: SchedulerAPI, base_id: str) -> bool:
+        try:
+            return bool(base_id) and await scheduler.is_cancelled(base_id)
+        except Exception:  # pragma: no cover - cancellation check is best effort
+            return False
+
+    def _cancelled_result(self, task_id: str) -> Dict[str, Any]:
+        return self._failed_result(task_id, "Task cancelled", ErrorCode.SYSTEM_ERROR.value)
+
     async def handle_request(self, input_data: Dict[str, Any], scheduler: SchedulerAPI) -> Dict[str, Any]:
+        # Register the workflow so its parent id (which has no task hash while
+        # sub-tasks run) is recognizable as cancellable by cancel_task.
+        base_id = str(input_data.get("task_id") or "")
+        if base_id:
+            await scheduler.begin_workflow(base_id)
+        try:
+            return await self._run_workflow(input_data, scheduler)
+        finally:
+            if base_id:
+                await scheduler.end_workflow(base_id)
+
+    async def _run_workflow(self, input_data: Dict[str, Any], scheduler: SchedulerAPI) -> Dict[str, Any]:
         eval_task = EvaluationTask.from_dict(input_data)
         self._resolve_auto_backend(eval_task)
         state = WorkflowState({"base_task_id": eval_task.task_id})
@@ -58,6 +79,11 @@ class KernelBenchWorkflowController(WorkflowController):
         if not validation["valid"]:
             message = validation["errors"][0] if validation["errors"] else "Validation failed"
             result = self._validation_failed_result(eval_task.task_id, message)
+            self._persist_result(eval_task, result)
+            return result
+
+        if await self._is_cancelled(scheduler, eval_task.task_id):
+            result = self._cancelled_result(eval_task.task_id)
             self._persist_result(eval_task, result)
             return result
 
@@ -81,7 +107,12 @@ class KernelBenchWorkflowController(WorkflowController):
                 metadata={"base_task_id": eval_task.task_id},
             )
             kernel_task_id = await scheduler.submit(kernel_task_spec)
-            kernel_result_dict = await scheduler.wait(kernel_task_id)
+            kernel_result_dict = await scheduler.wait_unless_cancelled(kernel_task_id, eval_task.task_id)
+
+        if await self._is_cancelled(scheduler, eval_task.task_id):
+            result = self._cancelled_result(eval_task.task_id)
+            self._persist_result(eval_task, result)
+            return result
 
         if not kernel_result_dict:
             result = self._failed_result(eval_task.task_id, "kernel result missing")
@@ -154,6 +185,11 @@ class KernelBenchWorkflowController(WorkflowController):
                     resources=eval_task.resources,
                 )
 
+        if ref_result is None and ref_task is not None and await self._is_cancelled(scheduler, eval_task.task_id):
+            result = self._cancelled_result(eval_task.task_id)
+            self._persist_result(eval_task, result)
+            return result
+
         if ref_result is None and ref_task is not None:
             ref_payload = ref_task.to_dict()
             ref_payload["task_type"] = "reference_timing"
@@ -166,7 +202,11 @@ class KernelBenchWorkflowController(WorkflowController):
                 metadata={"base_task_id": eval_task.task_id},
             )
             ref_task_id = await scheduler.submit(ref_task_spec)
-            ref_result_dict = await scheduler.wait(ref_task_id)
+            ref_result_dict = await scheduler.wait_unless_cancelled(ref_task_id, eval_task.task_id)
+            if await self._is_cancelled(scheduler, eval_task.task_id):
+                result = self._cancelled_result(eval_task.task_id)
+                self._persist_result(eval_task, result)
+                return result
             if ref_result_dict:
                 if "error_message" in ref_result_dict and "reference_runtime" not in ref_result_dict:
                     result = self._kernel_only_result(eval_task, kernel_result)
@@ -267,7 +307,10 @@ class KernelBenchWorkflowController(WorkflowController):
             metadata={"base_task_id": eval_task.task_id, "stage": "compile"},
         )
         compile_task_id = await scheduler.submit(compile_task_spec)
-        compile_result = await scheduler.wait(compile_task_id)
+        compile_result = await scheduler.wait_unless_cancelled(compile_task_id, eval_task.task_id)
+        if compile_result is None:
+            # Cancelled while the (uninterruptible) CPU compile was queued/running.
+            return self._cancelled_result(eval_task.task_id)
         if not compile_result:
             return self._failed_result(eval_task.task_id, "compile result missing")
 
@@ -313,6 +356,8 @@ class KernelBenchWorkflowController(WorkflowController):
             }
         )
         execute_payload.update(execute_options)
+        if await self._is_cancelled(scheduler, eval_task.task_id):
+            return self._cancelled_result(eval_task.task_id)
         execute_task_spec = TaskSpec(
             kind="kernelbench.kernel.execute",
             payload=execute_payload,
@@ -320,7 +365,9 @@ class KernelBenchWorkflowController(WorkflowController):
             metadata={"base_task_id": eval_task.task_id, "stage": "execute", "compile_task_id": compile_task_id},
         )
         execute_task_id = await scheduler.submit(execute_task_spec)
-        execute_result = await scheduler.wait(execute_task_id)
+        execute_result = await scheduler.wait_unless_cancelled(execute_task_id, eval_task.task_id)
+        if execute_result is None:
+            return self._cancelled_result(eval_task.task_id)
         if execute_result:
             execute_result = dict(execute_result)
             metadata = dict(execute_result.get("metadata") or {})

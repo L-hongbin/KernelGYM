@@ -45,6 +45,36 @@ class TaskManagerScheduler(SchedulerAPI):
     async def cancel(self, task_id: str) -> bool:
         return await self._task_manager.cancel_task(task_id)
 
+    async def begin_workflow(self, base_id: str) -> None:
+        await self._task_manager.register_workflow(base_id)
+
+    async def end_workflow(self, base_id: str) -> None:
+        await self._task_manager.unregister_workflow(base_id)
+
+    async def is_cancelled(self, task_id: str) -> bool:
+        return await self._task_manager.is_task_cancelled(task_id)
+
+    async def wait_unless_cancelled(
+        self, task_id: str, base_id: str, timeout: Optional[float] = None
+    ) -> Optional[Dict[str, Any]]:
+        start = time.monotonic()
+        while True:
+            result = await self._task_manager.get_task_result(task_id)
+            if result:
+                return result
+            if base_id and await self._task_manager.is_task_cancelled(base_id):
+                # Pull this specific child out of its queue (and mark it terminal)
+                # so it can't be dispatched and run orphaned after the parent
+                # cancel marker eventually expires.
+                try:
+                    await self._task_manager.cancel_task(task_id)
+                except Exception:  # pragma: no cover - best effort
+                    pass
+                return None
+            if timeout is not None and (time.monotonic() - start) >= timeout:
+                raise TimeoutError(f"Timed out waiting for task {task_id}")
+            await asyncio.sleep(self._poll_interval)
+
     async def select_idle_worker(
         self,
         resource: str,

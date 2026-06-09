@@ -30,6 +30,14 @@ from dataclasses import dataclass
 logger = logging.getLogger("kernelgym.subprocess_pool")
 
 
+class TaskCancelledError(Exception):
+    """Raised when a task is cancelled mid-flight.
+
+    The worker that was running the task must be recycled (its CUDA subprocess
+    killed) and the task must NOT be retried.
+    """
+
+
 _STAGE_METADATA_PATH_ENV = "KERNELGYM_STAGE_METADATA_PATH"
 _STAGE_METADATA_DIR_ENV = "KERNELGYM_STAGE_METADATA_DIR"
 _STAGE_METADATA_DEFAULT_DIR = "/dev/shm/kernelgym/stage_metadata"
@@ -177,13 +185,21 @@ class PersistentWorker:
             self.process.join(timeout=5)
             raise RuntimeError(f"[{self.worker_id}] Worker initialization timeout (>120s)")
 
-    def execute_task(self, task_data: Dict[str, Any], timeout: int = 60) -> Dict[str, Any]:
+    def execute_task(
+        self,
+        task_data: Dict[str, Any],
+        timeout: int = 60,
+        cancel_event: Optional[threading.Event] = None,
+        poll_interval: float = 0.5,
+    ) -> Dict[str, Any]:
         """
         执行任务
 
         Args:
             task_data: 任务数据字典
             timeout: 超时时间（秒）
+            cancel_event: 若被 set，则中止等待、回收 worker 并抛出 TaskCancelledError
+            poll_interval: 轮询结果队列/取消标志的间隔（秒）
 
         Returns:
             结果字典，包含 success, result/error_type/error_message
@@ -191,6 +207,7 @@ class PersistentWorker:
         Raises:
             RuntimeError: Worker 已死亡或任务执行失败
             TimeoutError: 任务超时
+            TaskCancelledError: 任务在执行中被取消
         """
         if not self.is_alive():
             raise RuntimeError(f"[{self.worker_id}] Worker is not alive")
@@ -201,44 +218,56 @@ class PersistentWorker:
         except queue.Full:
             raise RuntimeError(f"[{self.worker_id}] Task queue is full")
 
-        # 等待结果
-        try:
-            result = self.result_queue.get(timeout=timeout)
-
-            # 检查 worker 是否报告 CUDA error 并准备退出
-            if result.get("worker_exiting") is True:
+        # 等待结果：按 poll_interval 轮询，以便及时响应取消请求和超时
+        task_id = task_data.get("task_id", "unknown")
+        poll = poll_interval if poll_interval and poll_interval > 0 else 0.5
+        deadline = time.monotonic() + timeout
+        result = None
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
                 logger.warning(
-                    f"[{self.worker_id}] Worker encountered CUDA error and will exit. "
-                    f"Error: {result.get('error_type', 'Unknown')}: {result.get('error_message', 'N/A')}"
+                    f"[{self.worker_id}] Cancellation requested for task {task_id}; "
+                    f"recycling worker to abort in-flight CUDA work"
                 )
+                # Worker is mid-execution; mark it dead so the pool kills the
+                # subprocess and replaces it with a clean one.
                 self.is_alive_flag = False
-                # 标记进程将要退出，主进程会重启
-
-            # 更新统计
-            self.tasks_processed += 1
-
-            # **关键：检查是否达到任务上限（防止显存累积）**
-            if self.tasks_processed >= self.max_tasks_per_worker:
-                logger.info(
-                    f"[{self.worker_id}] Reached max tasks limit ({self.max_tasks_per_worker}). "
-                    f"Marking for restart to prevent memory accumulation."
-                )
+                raise TaskCancelledError(f"[{self.worker_id}] Task {task_id} cancelled")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.error(f"[{self.worker_id}] Task timeout after {timeout}s, task_id={task_id}")
+                # 标记 worker 为不可用（可能卡死了）
                 self.is_alive_flag = False
-                # 注意：我们不立即关闭进程，而是让它在下次检查时被重启
-                # 这样可以先返回当前任务的结果
+                raise TimeoutError(f"[{self.worker_id}] Task {task_id} timeout after {timeout}s")
+            try:
+                result = self.result_queue.get(timeout=min(poll, remaining))
+                break
+            except queue.Empty:
+                continue
 
-            return result
-
-        except queue.Empty:
-            # 超时
-            logger.error(
-                f"[{self.worker_id}] Task timeout after {timeout}s, task_id={task_data.get('task_id', 'unknown')}"
+        # 检查 worker 是否报告 CUDA error 并准备退出
+        if result.get("worker_exiting") is True:
+            logger.warning(
+                f"[{self.worker_id}] Worker encountered CUDA error and will exit. "
+                f"Error: {result.get('error_type', 'Unknown')}: {result.get('error_message', 'N/A')}"
             )
-            # 标记 worker 为不可用（可能卡死了）
             self.is_alive_flag = False
-            raise TimeoutError(
-                f"[{self.worker_id}] Task {task_data.get('task_id', 'unknown')} timeout after {timeout}s"
+            # 标记进程将要退出，主进程会重启
+
+        # 更新统计
+        self.tasks_processed += 1
+
+        # **关键：检查是否达到任务上限（防止显存累积）**
+        if self.tasks_processed >= self.max_tasks_per_worker:
+            logger.info(
+                f"[{self.worker_id}] Reached max tasks limit ({self.max_tasks_per_worker}). "
+                f"Marking for restart to prevent memory accumulation."
             )
+            self.is_alive_flag = False
+            # 注意：我们不立即关闭进程，而是让它在下次检查时被重启
+            # 这样可以先返回当前任务的结果
+
+        return result
 
     def is_alive(self) -> bool:
         """检查 worker 是否存活"""
@@ -626,7 +655,13 @@ class SubprocessWorkerPool:
                 if len(self.workers) == 0 and i == self.pool_size - 1:
                     raise RuntimeError(f"[GPU {self.device_id}] Failed to start any worker in pool")
 
-    async def execute_task(self, task_data: Dict[str, Any], timeout: int = 60, max_retries: int = 2) -> Dict[str, Any]:
+    async def execute_task(
+        self,
+        task_data: Dict[str, Any],
+        timeout: int = 60,
+        max_retries: int = 2,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> Dict[str, Any]:
         """
         执行任务（自动选择空闲 worker）
 
@@ -635,9 +670,13 @@ class SubprocessWorkerPool:
             timeout: 超时时间
             max_retries: 最大重试次数（用于 worker 重启后重试）
                         注意：timeout错误不会重试，以避免阻塞队列
+            cancel_event: 若被 set，则中止执行、回收 worker 并抛出 TaskCancelledError
 
         Returns:
             结果字典
+
+        Raises:
+            TaskCancelledError: 任务被取消（不会重试）
         """
         retry_count = 0
         last_error = None
@@ -670,9 +709,12 @@ class SubprocessWorkerPool:
             }
 
         while retry_count <= max_retries:
+            # 取消优先：在分配 worker 前就检查，避免对已取消任务还去抢占资源
+            if cancel_event is not None and cancel_event.is_set():
+                raise TaskCancelledError(f"[GPU {self.device_id}] Task {task_id} cancelled before dispatch")
             # 获取空闲 worker
             idle_wait_start = time.time()
-            worker = await self._get_idle_worker(timeout=timeout)
+            worker = await self._get_idle_worker(timeout=timeout, cancel_event=cancel_event)
             total_idle_wait_s += time.time() - idle_wait_start
 
             if worker is None:
@@ -685,7 +727,7 @@ class SubprocessWorkerPool:
                 # 执行任务（在线程池中执行，避免阻塞 asyncio）
                 loop = asyncio.get_event_loop()
                 execute_start = time.time()
-                result = await loop.run_in_executor(None, worker.execute_task, task_data, timeout)
+                result = await loop.run_in_executor(None, worker.execute_task, task_data, timeout, cancel_event)
                 last_execute_s = time.time() - execute_start
 
                 # 任务完成
@@ -709,6 +751,16 @@ class SubprocessWorkerPool:
                 )
 
                 return result
+
+            except TaskCancelledError as e:
+                # 任务被取消：杀掉正在跑的 subprocess（_restart_worker 会处理），
+                # 不重试，直接向上抛出由 GPU worker 记录取消结果。
+                logger.warning(f"[{worker.worker_id}] Task {task_id} cancelled mid-flight; recycling worker")
+                last_error = e
+                restart_start = time.time()
+                await self._restart_worker(worker)
+                total_restart_s += time.time() - restart_start
+                raise
 
             except (RuntimeError, TimeoutError) as e:
                 # Worker 可能已死亡或超时
@@ -774,15 +826,20 @@ class SubprocessWorkerPool:
                 f"[GPU {self.device_id}] Task failed after {max_retries} retries. Last error: {last_error}"
             )
 
-    async def _get_idle_worker(self, timeout: int = 60) -> Optional[PersistentWorker]:
+    async def _get_idle_worker(
+        self, timeout: int = 60, cancel_event: Optional[threading.Event] = None
+    ) -> Optional[PersistentWorker]:
         """
         获取一个空闲的 worker
 
-        如果所有 workers 都忙，会等待直到有 worker 空闲
+        如果所有 workers 都忙，会等待直到有 worker 空闲。
+        若在等待期间 ``cancel_event`` 被 set，立即返回 None，让上层中止。
         """
         start_time = time.time()
 
         while time.time() - start_time < timeout:
+            if cancel_event is not None and cancel_event.is_set():
+                return None
             async with self.lock:
                 # 清理已死亡的 workers
                 self.idle_workers = [w for w in self.idle_workers if w.is_alive()]

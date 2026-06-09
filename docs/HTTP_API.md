@@ -23,7 +23,7 @@ For a quick end-to-end probe, run `bash test_reward.sh` (single CUDA-Agent add) 
 | GET | `/status/{task_id}` | Task lifecycle status |
 | GET | `/results/{task_id}` | Final evaluation result for a task |
 | GET | `/workflow/results/{task_id}` | Same, in `WorkflowResponse` shape |
-| DELETE | `/tasks/{task_id}` | Cancel a pending/in-flight task |
+| DELETE | `/tasks/{task_id}` | Cancel a task: drop it from the queue if pending, or interrupt the running CUDA subprocess if in-flight |
 | GET | `/queue/status` | Queue depth per priority/resource |
 | GET | `/workers/status` | Registered workers + load-balancer state |
 | POST | `/worker/register` | Worker→server registration *(internal)* |
@@ -223,6 +223,18 @@ Validates the request shape and runs the workflow's `validate_request` step with
 | `GET /status/{task_id}` | `TaskStatusResponse`: `status`, `progress`, `queue_position`, `assigned_device`, `estimated_completion`. 404 if unknown. |
 | `GET /results/{task_id}` | Full `EvaluationResponse` (404 if not yet stored). |
 | `DELETE /tasks/{task_id}` | Cancels if pending/in-flight. 404 if unknown or already terminal. |
+
+### `DELETE /tasks/{task_id}` — cancellation semantics
+
+Cancellation is a real interrupt, not just a status flag. `/evaluate` runs as a workflow that decomposes the parent `task_id` into sub-tasks (`{id}_compile` on CPU, then `{id}_kernel` + `{id}_ref` on GPU, each carrying `base_task_id == {id}`). Cancelling the parent id propagates to whichever sub-task is in flight.
+
+- **Pending / queued** — the id is removed from its resource/worker queue, and (for a workflow parent) a cancellation marker is published. A worker that later dequeues a task whose own id **or** `base_task_id` is cancelled drops it instead of running it, and the in-flight `/evaluate` request returns promptly (its wait is cancellation-aware) rather than blocking until a worker frees up.
+- **Running on GPU** — the GPU worker running the task polls the cancellation marker (~1 s) and, on seeing it, kills the CUDA subprocess executing the task (the pool spawns a clean replacement) instead of letting it run to its `timeout`.
+- **Running CPU compile** — the compile stage is not preemptively killed (it finishes on its own, usually quickly), but the workflow returns the cancelled result immediately without waiting for the GPU stages.
+
+Either way the task ends terminal with `error_message: "Task cancelled"` (`error_code: SYSTEM_ERROR`); a direct task also records a `cancelled_at` timestamp. Cancelling a task that is already `completed`/`failed`/`timeout`, or an unknown id, returns 404. There is an inherent race where a task that finishes within the poll window may still record its real result.
+
+See [TASK_CANCELLATION](design-doc/TASK_CANCELLATION.md) for the full design (markers, the worker watcher, and workflow propagation).
 
 ## Health and observability
 

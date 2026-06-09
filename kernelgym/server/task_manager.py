@@ -25,6 +25,16 @@ from kernelgym.utils.task_status import task_status_from_result_payload
 
 logger = logging.getLogger(__name__)
 
+# A queued task in one of these terminal states was cancelled (or already
+# finished) after it was enqueued; it must be dropped instead of dispatched.
+_TERMINAL_TASK_STATUSES = frozenset(
+    {
+        TaskStatus.COMPLETED.value,
+        TaskStatus.FAILED.value,
+        TaskStatus.TIMEOUT.value,
+    }
+)
+
 
 @dataclass
 class TaskInfo:
@@ -459,15 +469,23 @@ class TaskManager:
             direct_task_id = await self.redis.rpop(worker_queue_key)
             if direct_task_id is not None:
                 task_id = direct_task_id.decode() if isinstance(direct_task_id, bytes) else direct_task_id
-                task_key, _task_data, task_json = await self._load_task_data(task_id)
-                if not task_key or task_json is None:
-                    return None
-                started_at = datetime.now().isoformat()
-                await self.redis.hset(
-                    task_key,
-                    mapping={"status": TaskStatus.PROCESSING.value, "started_at": started_at},
+                task_key, task_hash, task_json = await self._load_task_data(task_id)
+                dispatchable = (
+                    task_key
+                    and task_json is not None
+                    and not self._dropped_before_dispatch(task_hash)
+                    and not await self._dequeued_task_cancelled(prefix, task_id, task_json.get("base_task_id") or "")
                 )
-                return task_json
+                if dispatchable:
+                    started_at = datetime.now().isoformat()
+                    await self.redis.hset(
+                        task_key,
+                        mapping={"status": TaskStatus.PROCESSING.value, "started_at": started_at},
+                    )
+                    return task_json
+                # Cancelled/terminal/missing: discard it and fall through to the
+                # resource queues instead of handing a dead task to the worker.
+                logger.info("Dropping cancelled/terminal/missing task %s from worker queue", task_id)
 
             for resource in resources:
                 queue_key = f"{prefix}:queue:resource:{resource}"
@@ -478,8 +496,16 @@ class TaskManager:
                         if queued_task_id is None:
                             break
                         task_id = queued_task_id.decode() if isinstance(queued_task_id, bytes) else queued_task_id
-                        task_key, _task_data, task_json = await self._load_task_data(task_id)
+                        task_key, task_hash, task_json = await self._load_task_data(task_id)
                         if not task_key or task_json is None:
+                            continue
+                        if self._dropped_before_dispatch(task_hash) or await self._dequeued_task_cancelled(
+                            prefix, task_id, task_json.get("base_task_id") or ""
+                        ):
+                            # Cancelled/terminal task (or a sub-task whose workflow
+                            # parent was cancelled): drop it from the queue (do not
+                            # re-defer) so it is never dispatched to a worker.
+                            logger.info("Dropping cancelled/terminal task %s from resource queue", task_id)
                             continue
                         if not self._task_matches_worker_node(task_json, worker_info):
                             deferred_task_ids.append(task_id)
@@ -580,16 +606,21 @@ class TaskManager:
             result_data = await self.redis.hgetall(f"{prefix}:result:{task_id}")
             if result_data:
                 status = TaskStatus.COMPLETED if b"result" in result_data else TaskStatus.FAILED
+                error_message = None
                 if b"result" in result_data:
                     try:
                         payload = json.loads(result_data[b"result"].decode())
                         status = task_status_from_result_payload(payload)
+                        if status != TaskStatus.COMPLETED:
+                            error_message = payload.get("error_message")
                     except Exception:
                         pass
                 elif result_data.get(b"error_code"):
                     status = task_status_from_result_payload(
                         {"status": status.value, "error_code": result_data[b"error_code"].decode()}
                     )
+                if error_message is None and b"error" in result_data:
+                    error_message = result_data.get(b"error", b"").decode()
                 return {
                     "task_id": task_id,
                     "status": status.value,
@@ -597,7 +628,7 @@ class TaskManager:
                     if b"completed_at" in result_data
                     else None,
                     "failed_at": result_data.get(b"failed_at", b"").decode() if b"failed_at" in result_data else None,
-                    "error_message": result_data.get(b"error", b"").decode() if b"error" in result_data else None,
+                    "error_message": error_message,
                 }
 
             task_data = await self.redis.hgetall(f"{prefix}:task:{task_id}")
@@ -652,15 +683,157 @@ class TaskManager:
                 }
         return None
 
+    @staticmethod
+    def _dropped_before_dispatch(task_hash: Optional[Dict[bytes, bytes]]) -> bool:
+        """True if a just-dequeued task is already terminal and must be discarded."""
+        if not task_hash:
+            return False
+        status = task_hash.get(b"status", b"")
+        if isinstance(status, bytes):
+            status = status.decode()
+        return status in _TERMINAL_TASK_STATUSES
+
+    def _cancel_key(self, task_id: str, prefix: Optional[str] = None) -> str:
+        base = prefix or self.key_prefix
+        return f"{base}:cancel:{task_id}"
+
+    def _workflow_key(self, base_id: str, prefix: Optional[str] = None) -> str:
+        base = prefix or self.key_prefix
+        return f"{base}:workflow:{base_id}"
+
+    def _marker_ttl(self) -> int:
+        return max(60, int(getattr(settings, "default_timeout", 300)) * 2)
+
+    async def _mark_task_cancelled(self, task_id: str, prefix: str) -> None:
+        """Publish a short-lived cancellation marker that running workers poll."""
+        try:
+            await self.redis.set(self._cancel_key(task_id, prefix), "1", ex=self._marker_ttl())
+        except Exception as exc:  # pragma: no cover - best effort marker
+            logger.warning("Failed to set cancellation marker for %s: %s", task_id, exc)
+
+    async def register_workflow(self, base_id: str) -> None:
+        """Mark a workflow (whose parent id has no task hash mid-flight) active.
+
+        This lets ``cancel_task`` recognize an in-flight ``/evaluate`` parent id
+        and publish a cancellation marker that its running sub-tasks poll via
+        their ``base_task_id``.
+        """
+        if not base_id:
+            return
+        try:
+            await self.redis.set(self._workflow_key(base_id), "1", ex=self._marker_ttl())
+        except Exception as exc:  # pragma: no cover - best effort registration
+            logger.warning("Failed to register workflow %s: %s", base_id, exc)
+
+    async def unregister_workflow(self, base_id: str) -> None:
+        if not base_id:
+            return
+        for prefix in self._prefixes_for_read():
+            try:
+                await self.redis.delete(self._workflow_key(base_id, prefix))
+            except Exception:  # pragma: no cover - best effort cleanup
+                continue
+
+    async def _is_workflow_active(self, base_id: str) -> bool:
+        for prefix in self._prefixes_for_read():
+            try:
+                if await self.redis.exists(self._workflow_key(base_id, prefix)):
+                    return True
+            except Exception:  # pragma: no cover
+                continue
+        return False
+
+    async def is_task_cancelled(self, task_id: str) -> bool:
+        """Whether a cancellation has been requested for ``task_id`` (any prefix)."""
+        for prefix in self._prefixes_for_read():
+            try:
+                if await self.redis.exists(self._cancel_key(task_id, prefix)):
+                    return True
+            except Exception:  # pragma: no cover - treat redis hiccup as "not cancelled"
+                continue
+        return False
+
+    async def _dequeued_task_cancelled(self, prefix: str, task_id: str, base_id: str = "") -> bool:
+        """Prefix-local check: was this just-dequeued task (or its workflow parent) cancelled?
+
+        One ``EXISTS`` over the task's own cancel marker plus its ``base_task_id``
+        marker, so a sub-task whose parent ``/evaluate`` was cancelled while it sat
+        queued is dropped instead of dispatched.
+        """
+        keys = [self._cancel_key(task_id, prefix)]
+        if base_id and base_id != task_id:
+            keys.append(self._cancel_key(base_id, prefix))
+        try:
+            return bool(await self.redis.exists(*keys))
+        except Exception:  # pragma: no cover
+            return False
+
+    async def _remove_task_from_queues(self, task_id: str, prefix: str, assigned_worker: str = "") -> int:
+        """Remove a pending task id from every queue it could be waiting in."""
+        queue_keys = [
+            f"{prefix}:queue:resource:cpu",
+            f"{prefix}:queue:resource:gpu",
+        ]
+        if assigned_worker:
+            queue_keys.append(f"{prefix}:queue:worker:{assigned_worker}")
+        for worker_queue_key in self.worker_queues.values():
+            if worker_queue_key not in queue_keys:
+                queue_keys.append(worker_queue_key)
+        removed = 0
+        for queue_key in queue_keys:
+            try:
+                removed += await self.redis.lrem(queue_key, 0, task_id)
+            except Exception:  # pragma: no cover - best effort cleanup
+                continue
+        if removed:
+            logger.info("Removed cancelled task %s from %d queue position(s)", task_id, removed)
+        return removed
+
     async def cancel_task(self, task_id: str) -> bool:
+        """Cancel a task or an in-flight ``/evaluate`` workflow.
+
+        Direct task: pulled from the queue if pending (never dispatched) and
+        recorded with a terminal cancelled result; if running, a cancellation
+        marker lets the worker kill its CUDA subprocess promptly.
+
+        Workflow parent id (no task hash while sub-tasks run): a cancellation
+        marker is published under the parent id, which its running sub-tasks
+        poll via their ``base_task_id`` and abort.
+
+        Returns False only for unknown or already-terminal ids.
+        """
         for prefix in self._prefixes_for_read():
             task_data = await self.redis.hgetall(f"{prefix}:task:{task_id}")
             if not task_data:
                 continue
             status = task_data.get(b"status", b"").decode()
-            if status in (TaskStatus.COMPLETED.value, TaskStatus.FAILED.value):
+            if status in _TERMINAL_TASK_STATUSES:
                 return False
+            assigned_worker = task_data.get(b"assigned_worker", b"").decode()
+            # 1. Publish a cancellation marker so a worker already running this
+            #    task can detect it and kill its CUDA subprocess promptly.
+            await self._mark_task_cancelled(task_id, prefix)
+            # 2. Pull the task out of any pending queue so it is never dispatched.
+            await self._remove_task_from_queues(task_id, prefix, assigned_worker)
+            # 3. Record the terminal cancelled result/status.
             await self.fail_task(task_id, "Task cancelled", ErrorCode.SYSTEM_ERROR, prefix=prefix)
+            cancelled_at = datetime.now().isoformat()
+            await self.redis.hset(f"{prefix}:task:{task_id}", mapping={"cancelled_at": cancelled_at})
+            logger.info(
+                "Cancelled task %s (prior_status=%s, assigned_worker=%s)",
+                task_id,
+                status or "pending",
+                assigned_worker or "-",
+            )
+            return True
+
+        # No direct task hash. If this is the parent id of an in-flight workflow,
+        # publish a cancellation marker that its running sub-tasks (which carry
+        # base_task_id == task_id) poll and act on. The workflow controller
+        # writes the parent's terminal result when it aborts.
+        if await self._is_workflow_active(task_id):
+            await self._mark_task_cancelled(task_id, self.key_prefix)
+            logger.info("Cancelled in-flight workflow %s (no direct task; marked base scope)", task_id)
             return True
         return False
 

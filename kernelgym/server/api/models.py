@@ -252,6 +252,7 @@ class TaskStatusResponse(BaseModel):
     estimated_completion: Optional[str] = Field(default=None, description="Estimated completion time")
     queue_position: Optional[int] = Field(default=None, description="Position in queue")
     assigned_device: Optional[str] = Field(default=None, description="Assigned GPU device")
+    error_message: Optional[str] = Field(default=None, description="Error/cancellation message for failed tasks")
 
     class Config:
         json_schema_extra = {
