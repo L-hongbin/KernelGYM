@@ -302,6 +302,10 @@ class SystemHealthResponse(BaseModel):
     active_tasks: int
     total_processed: int
     uptime: float
+    snapshot_age_s: Optional[float] = Field(
+        default=None,
+        description="Age in seconds of the cached stats snapshot this response was served from (None if unavailable).",
+    )
 
     class Config:
         json_schema_extra = {

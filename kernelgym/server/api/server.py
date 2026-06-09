@@ -28,6 +28,7 @@ from .models import (
     WorkflowResponse,
 )
 from .utils import get_system_health, get_system_metrics, format_timestamp
+from . import system_stats
 from kernelgym.server.task_manager import TaskManager
 from kernelgym.server.request_defaults import apply_runtime_defaults
 from kernelgym.server.request_hash import request_hash
@@ -112,6 +113,12 @@ async def lifespan(app: FastAPI):
     # Store task manager in app state for access in endpoints
     app.state.task_manager = task_manager
 
+    # Start the background system-stats refresher so /health and /metrics are
+    # served from a cached snapshot instead of blocking the event loop on
+    # psutil/nvidia-smi (which stalls under high load).
+    await system_stats.start(settings.health_stats_refresh_interval)
+    logger.info("System stats refresher started (interval=%.1fs)", settings.health_stats_refresh_interval)
+
     # Currently we register workers via url. So we do not need to use this waiting.
     # Wait for at least one worker to register
     # if settings.gpu_devices:
@@ -139,6 +146,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down KernelGym...")
+    await system_stats.stop()
     if task_manager:
         await task_manager.shutdown()
     if redis_client:
@@ -663,6 +671,17 @@ async def cancel_task(task_id: str, task_mgr: TaskManager = Depends(get_task_man
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to cancel task: {str(e)}"
         )
+
+
+@app.get("/health/live")
+async def liveness_probe() -> Dict[str, str]:
+    """Lightweight liveness probe.
+
+    Returns immediately without sampling CPU or querying nvidia-smi, so it stays
+    responsive even when the service is saturated. Use this for load-balancer and
+    worker-node health checks; use /health for detailed GPU + system stats.
+    """
+    return {"status": "ok"}
 
 
 @app.get("/health", response_model=SystemHealthResponse)

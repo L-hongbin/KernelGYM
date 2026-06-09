@@ -1,12 +1,13 @@
 """Utility functions for KernelGym API server."""
 
+import asyncio
 import logging
 import shutil
 import subprocess
+import time
 from datetime import datetime
 from typing import Dict, Any
 
-import psutil
 import torch
 
 from kernelgym.config import settings
@@ -18,11 +19,22 @@ def format_timestamp(dt: datetime) -> str:
     return dt.isoformat() + "Z"
 
 
-async def get_gpu_info() -> Dict[str, Any]:
+def compute_gpu_info_sync() -> Dict[str, Any]:
+    """Synchronous GPU info collection (nvidia-smi, falling back to torch).
+
+    This blocks (subprocess + driver calls), so callers on the event loop must
+    invoke it via a thread (see ``get_gpu_info``) or the cached snapshot in
+    ``system_stats``.
+    """
     nvidia_smi_info = _get_gpu_info_from_nvidia_smi()
     if nvidia_smi_info is not None:
         return nvidia_smi_info
     return _get_gpu_info_from_torch()
+
+
+async def get_gpu_info() -> Dict[str, Any]:
+    # nvidia-smi can take seconds under GPU saturation; keep it off the loop.
+    return await asyncio.to_thread(compute_gpu_info_sync)
 
 
 def _get_gpu_info_from_nvidia_smi() -> Dict[str, Any] | None:
@@ -116,55 +128,69 @@ def _get_gpu_info_from_torch() -> Dict[str, Any]:
 
 async def get_system_health() -> Dict[str, Any]:
     try:
-        cpu_percent = psutil.cpu_percent(interval=1)
-        memory = psutil.virtual_memory()
+        # Served from the cached snapshot so /health never samples CPU or forks
+        # nvidia-smi on the event loop (see kernelgym.server.api.system_stats).
+        from . import system_stats
 
-        gpu_status = await get_gpu_info()
+        snap = await system_stats.get_snapshot()
 
         queue_status = {"pending": 0, "processing": 0, "completed": 0}
+        snapshot_age = None
+        if "monotonic" in snap:
+            snapshot_age = round(max(0.0, time.monotonic() - snap["monotonic"]), 3)
 
         return {
             "status": "healthy",
-            "timestamp": format_timestamp(datetime.now()),
-            "gpu_status": gpu_status,
+            "timestamp": snap["timestamp"],
+            "gpu_status": snap["gpu_status"],
             "queue_status": queue_status,
             "memory_usage": {
-                "cpu_percent": cpu_percent,
-                "memory_percent": memory.percent,
-                "memory_available": f"{memory.available / (1024**3):.1f}GB",
-                "memory_total": f"{memory.total / (1024**3):.1f}GB",
+                "cpu_percent": snap["cpu_percent"],
+                "memory_percent": snap["memory_percent"],
+                "memory_available": f"{snap['memory_available_gb']:.1f}GB",
+                "memory_total": f"{snap['memory_total_gb']:.1f}GB",
             },
             "active_tasks": 0,
             "total_processed": 0,
             "uptime": 0.0,
+            "snapshot_age_s": snapshot_age,
         }
 
     except Exception as exc:
         logger.error(f"Error getting system health: {exc}")
+        # Return a payload that still satisfies SystemHealthResponse so the route
+        # serves a 200 "unhealthy" instead of a 500 from response-model validation.
         return {
             "status": "unhealthy",
             "timestamp": format_timestamp(datetime.now()),
-            "error": str(exc),
+            "gpu_status": {"error": str(exc)},
+            "queue_status": {"pending": 0, "processing": 0, "completed": 0},
+            "memory_usage": {},
+            "active_tasks": 0,
+            "total_processed": 0,
+            "uptime": 0.0,
+            "snapshot_age_s": None,
         }
 
 
 async def get_system_metrics() -> Dict[str, Any]:
     try:
-        cpu_percent = psutil.cpu_percent(interval=1)
-        memory = psutil.virtual_memory()
+        from . import system_stats
 
-        gpu_info = await get_gpu_info()
+        snap = await system_stats.get_snapshot()
+
+        gpu_info = snap["gpu_status"]
         avg_gpu_utilization = 0.0
         if gpu_info and "error" not in gpu_info:
             utilizations = []
             for info in gpu_info.values():
-                if "memory_used_percent" in info:
+                if isinstance(info, dict) and "memory_used_percent" in info:
                     utilizations.append(float(info["memory_used_percent"].rstrip("%")))
             if utilizations:
                 avg_gpu_utilization = sum(utilizations) / len(utilizations)
 
         return {
-            "timestamp": format_timestamp(datetime.now()),
+            "timestamp": snap["timestamp"],
             "performance_metrics": {
                 "avg_processing_time": 0.0,
                 "throughput_per_hour": 0.0,
@@ -172,8 +198,8 @@ async def get_system_metrics() -> Dict[str, Any]:
             },
             "resource_metrics": {
                 "avg_gpu_utilization": avg_gpu_utilization,
-                "memory_usage_percent": memory.percent,
-                "cpu_usage_percent": cpu_percent,
+                "memory_usage_percent": snap["memory_percent"],
+                "cpu_usage_percent": snap["cpu_percent"],
             },
             "queue_metrics": {"pending_tasks": 0, "active_tasks": 0, "completed_tasks": 0},
             "error_metrics": {"compilation_errors": 0, "runtime_errors": 0, "timeout_errors": 0},
@@ -181,7 +207,14 @@ async def get_system_metrics() -> Dict[str, Any]:
 
     except Exception as exc:
         logger.error(f"Error getting system metrics: {exc}")
-        return {"timestamp": format_timestamp(datetime.now()), "error": str(exc)}
+        # Keep all MetricsResponse-required keys so the route returns 200, not 500.
+        return {
+            "timestamp": format_timestamp(datetime.now()),
+            "performance_metrics": {},
+            "resource_metrics": {"error": str(exc)},
+            "queue_metrics": {},
+            "error_metrics": {},
+        }
 
 
 async def validate_gpu_availability() -> bool:

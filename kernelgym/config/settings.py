@@ -105,6 +105,11 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(default=30, env="ACCESS_TOKEN_EXPIRE_MINUTES")
 
     enable_metrics: bool = Field(default=True, env="ENABLE_METRICS")
+    health_stats_refresh_interval: float = Field(
+        default=5.0,
+        env="HEALTH_STATS_REFRESH_INTERVAL",
+        description="Seconds between background refreshes of the cached GPU/system stats served by /health and /metrics.",
+    )
 
     save_eval_results: bool = Field(
         default=False,
