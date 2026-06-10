@@ -2,7 +2,7 @@
 # Probe the reward API and report whether the node is deployed and healthy.
 #
 # Usage:
-#   bash check_node.sh [--host HOST] [--port PORT] [--redis-port PORT] [--max-heartbeat-age SEC] [--verbose]
+#   bash check_node.sh [--host HOST] [--port PORT] [--redis-host HOST] [--redis-port PORT] [--max-heartbeat-age SEC] [--verbose]
 #
 # Defaults to the local machine running this script (127.0.0.1:20111). Bypasses
 # http_proxy so LAN probes don't get routed through a corporate proxy. Exits 0
@@ -21,6 +21,11 @@ API_HOST="${KERNELGYM_REWARD_HOST:-127.0.0.1}"
 API_PORT="${KERNELGYM_REWARD_PORT:-20111}"
 VERBOSE_FLAG=()
 MAX_HEARTBEAT_AGE="${KERNELGYM_MAX_HEARTBEAT_AGE:-180}"
+if [[ -n "${REDIS_HOST+x}" || -n "${KERNELGYM_REDIS_HOST+x}" ]]; then
+    REDIS_HOST_EXPLICIT=1
+else
+    REDIS_HOST_EXPLICIT=0
+fi
 REDIS_HOST="${REDIS_HOST:-${KERNELGYM_REDIS_HOST:-127.0.0.1}}"
 REDIS_PORT="${REDIS_PORT:-${KERNELGYM_REDIS_PORT:-20110}}"
 REDIS_KEY_PREFIX="${REDIS_KEY_PREFIX:-${KERNELGYM_REDIS_KEY_PREFIX:-kernelgym}}"
@@ -49,6 +54,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --redis-host)
             REDIS_HOST="$2"
+            REDIS_HOST_EXPLICIT=1
             shift 2
             ;;
         --redis-port)
@@ -70,6 +76,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [[ "${REDIS_HOST_EXPLICIT}" == "0" && "${API_HOST}" != "127.0.0.1" && "${API_HOST}" != "localhost" ]]; then
+    REDIS_HOST="${API_HOST}"
+fi
+
 BASE="http://${API_HOST}:${API_PORT}"
 # --noproxy '*' guards against http_proxy routing LAN probes through a proxy.
 CURL=(curl -sf -m 5 --noproxy '*')
@@ -88,12 +98,22 @@ EOF
 fi
 
 # /queue/status and /workers/status are best-effort; fall back to empty JSON so
-# the renderer still has something to chew on.
+# the renderer still has something to chew on. If Redis is directly reachable,
+# check_node.py reads worker hashes from Redis and the API workers endpoint is
+# redundant.
 if ! QUEUE=$("${CURL[@]}" "${BASE}/queue/status" 2>/dev/null); then
     QUEUE='{}'
 fi
 
-if ! WORKERS=$("${CURL[@]}" "${BASE}/workers/status" 2>/dev/null); then
+WORKERS='{}'
+if ! command -v redis-cli >/dev/null 2>&1 \
+    || [[ "$(redis-cli -h "${REDIS_HOST}" -p "${REDIS_PORT}" ping 2>/dev/null || true)" != "PONG" ]]; then
+    if ! WORKERS=$("${CURL[@]}" "${BASE}/workers/status" 2>/dev/null); then
+        WORKERS='{}'
+    fi
+fi
+
+if [[ -z "${WORKERS}" ]]; then
     WORKERS='{}'
 fi
 

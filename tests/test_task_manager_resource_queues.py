@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import json
@@ -16,7 +18,10 @@ class FakeRedis:
     def __init__(self) -> None:
         self.hashes: dict[str, dict[bytes, bytes]] = {}
         self.lists: dict[str, list[str]] = defaultdict(list)
+        self.sets: dict[str, set[str]] = defaultdict(set)
+        self.strings: dict[str, bytes] = {}
         self.counters: dict[str, int] = defaultdict(int)
+        self.expirations: dict[str, int] = {}
 
     @staticmethod
     def _bytes(value: Any) -> bytes:
@@ -25,7 +30,7 @@ class FakeRedis:
         return str(value).encode()
 
     async def exists(self, key: str) -> bool:
-        return key in self.hashes
+        return key in self.hashes or key in self.strings or key in self.sets
 
     async def hset(self, key: str, mapping: dict[str, Any]) -> None:
         target = self.hashes.setdefault(key, {})
@@ -67,9 +72,45 @@ class FakeRedis:
             if key in self.hashes:
                 removed += 1
                 del self.hashes[key]
+            if key in self.strings:
+                removed += 1
+                del self.strings[key]
+            if key in self.sets:
+                removed += 1
+                del self.sets[key]
+            self.expirations.pop(key, None)
         return removed
 
-    async def scan_iter(self, pattern: str):
+    async def set(self, key: str, value: Any, ex: int | None = None) -> None:
+        self.strings[key] = self._bytes(value)
+        if ex is not None:
+            self.expirations[key] = ex
+
+    async def expire(self, key: str, ttl: int) -> bool:
+        if key not in self.hashes and key not in self.strings and key not in self.sets:
+            return False
+        self.expirations[key] = ttl
+        return True
+
+    async def sadd(self, key: str, *values: Any) -> int:
+        before = len(self.sets[key])
+        self.sets[key].update(str(value) for value in values)
+        return len(self.sets[key]) - before
+
+    async def smembers(self, key: str) -> set[bytes]:
+        return {self._bytes(value) for value in self.sets.get(key, set())}
+
+    async def srem(self, key: str, *values: Any) -> int:
+        removed = 0
+        target = self.sets[key]
+        for value in values:
+            text = str(value)
+            if text in target:
+                target.remove(text)
+                removed += 1
+        return removed
+
+    async def scan_iter(self, pattern: str, count: int | None = None):
         import fnmatch
 
         for key in sorted(self.hashes):
@@ -291,6 +332,49 @@ def test_task_result_cache_rejects_legacy_result_without_request_hash(monkeypatc
 
         assert await manager.get_task_result("legacy-task", expected_request_hash="hash-a") is None
         assert await manager.get_task_result("legacy-task") is not None
+
+    asyncio.run(scenario())
+
+
+def test_terminal_task_and_result_records_expire(monkeypatch) -> None:
+    async def scenario() -> None:
+        _patch_registry(monkeypatch)
+        monkeypatch.setattr(task_manager_module.settings, "terminal_task_ttl_sec", 123)
+        monkeypatch.setattr(task_manager_module.settings, "terminal_result_ttl_sec", 456)
+        redis = FakeRedis()
+        manager = TaskManager(redis)  # type: ignore[arg-type]
+
+        await manager.submit_task(_base_payload("ttl-task"))
+        await manager.complete_task("ttl-task", {"task_id": "ttl-task", "compiled": True})
+
+        assert redis.expirations[f"{manager.task_prefix}ttl-task"] == 123
+        assert redis.expirations[f"{manager.result_prefix}ttl-task"] == 456
+
+    asyncio.run(scenario())
+
+
+def test_cancel_task_removes_pending_queue_and_records_terminal_result(monkeypatch) -> None:
+    async def scenario() -> None:
+        _patch_registry(monkeypatch)
+        monkeypatch.setattr(task_manager_module.settings, "terminal_task_ttl_sec", 123)
+        monkeypatch.setattr(task_manager_module.settings, "terminal_result_ttl_sec", 456)
+        redis = FakeRedis()
+        manager = TaskManager(redis)  # type: ignore[arg-type]
+
+        await manager.submit_task(_base_payload("cancel-task"))
+        assert await redis.llen(manager.resource_queues["gpu"]) == 1
+
+        assert await manager.cancel_task("cancel-task") is True
+
+        assert await redis.llen(manager.resource_queues["gpu"]) == 0
+        task_hash = await redis.hgetall(f"{manager.task_prefix}cancel-task")
+        result_hash = await redis.hgetall(f"{manager.result_prefix}cancel-task")
+        assert task_hash[b"status"] == TaskStatus.FAILED.value.encode()
+        assert b"cancelled_at" in task_hash
+        assert result_hash[b"error"] == b"Task cancelled"
+        assert redis.expirations[f"{manager.task_prefix}cancel-task"] == 123
+        assert redis.expirations[f"{manager.result_prefix}cancel-task"] == 456
+        assert redis.expirations[f"{manager.key_prefix}:cancel:cancel-task"] == manager._marker_ttl()
 
     asyncio.run(scenario())
 

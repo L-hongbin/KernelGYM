@@ -14,6 +14,7 @@ This file indexes stable repository docs and evidence locations.
 | `docs/IMPLEMENTATION_DIFFERENCES.md` | Current implementation differences from source repositories. |
 | `docs/design-doc/COMPILE_ACCELERATION.md` | CUDA-Agent compile acceleration design. |
 | `docs/design-doc/REWARD_HACKING_DEFENSES.md` | Current reward-hacking defense design notes. |
+| `docs/design-doc/RUNTIME_COORDINATION_STORAGE.md` | Proposed split between live runtime coordination and long-lived result/cache storage. |
 | `docs/design-doc/TWO_WORKER_WARM_POOL.md` | Two-worker GPU subprocess warm-pool design, capacity invariant, and `v1` verification. |
 | `docs/server-result-cache-guard.md` | Server result cache hash guard design for safe `/evaluate` reuse. |
 

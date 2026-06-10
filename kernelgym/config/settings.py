@@ -159,6 +159,16 @@ class Settings(BaseSettings):
 
     cache_ttl: int = Field(default=3600, env="CACHE_TTL")
     enable_result_cache: bool = Field(default=True, env="ENABLE_RESULT_CACHE")
+    terminal_task_ttl_sec: int = Field(
+        default=24 * 3600,
+        env="TERMINAL_TASK_TTL_SEC",
+        description="TTL for completed/failed task status hashes. Set <=0 to keep terminal task records indefinitely.",
+    )
+    terminal_result_ttl_sec: int = Field(
+        default=24 * 3600,
+        env="TERMINAL_RESULT_TTL_SEC",
+        description="TTL for completed/failed result cache hashes. Set <=0 to keep terminal result records indefinitely.",
+    )
 
     kernelbench_path: str = Field(default=str(KERNELBENCH_ROOT), env="KERNELBENCH_PATH")
     gpu_arch: List[str] = Field(default_factory=lambda: ["Hopper"], env="GPU_ARCH")

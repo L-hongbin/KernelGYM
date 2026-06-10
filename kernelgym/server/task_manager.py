@@ -105,6 +105,7 @@ class TaskManager:
         self.queue_prefix = f"{self.key_prefix}:queue:"
         self.result_prefix = f"{self.key_prefix}:result:"
         self.worker_prefix = f"{self.key_prefix}:worker:"
+        self.worker_index_key = f"{self.key_prefix}:workers"
         self.node_map_key = f"{self.key_prefix}:nodes"
         self.status_prefix = f"{self.key_prefix}:status:"
 
@@ -127,6 +128,9 @@ class TaskManager:
 
     def _key(self, prefix: str, suffix: str) -> str:
         return f"{prefix}:{suffix}"
+
+    def _worker_index_for_prefix(self, prefix: str) -> str:
+        return f"{prefix}:workers"
 
     @staticmethod
     def _decode_value(value: Any) -> str:
@@ -536,10 +540,9 @@ class TaskManager:
             status_mapping["failed_at"] = completed_at
         elif task_status == TaskStatus.TIMEOUT:
             status_mapping["timeout_at"] = completed_at
-        await self.redis.hset(
-            f"{self.task_prefix}{task_id}",
-            mapping=status_mapping,
-        )
+        task_key = f"{self.task_prefix}{task_id}"
+        result_key = f"{self.result_prefix}{task_id}"
+        await self.redis.hset(task_key, mapping=status_mapping)
         status_hset_s = time.time() - status_hset_start
         metadata["tm_status_hset_s"] = status_hset_s
 
@@ -551,7 +554,8 @@ class TaskManager:
         result_mapping: Dict[str, Any] = {"result": payload, "completed_at": completed_at}
         if request_hash:
             result_mapping["request_hash"] = request_hash
-        await self.redis.hset(f"{self.result_prefix}{task_id}", mapping=result_mapping)
+        await self.redis.hset(result_key, mapping=result_mapping)
+        await self._expire_terminal_records(task_key, result_key)
         result_hset_s = time.time() - result_hset_start
 
         metadata["tm_json_dumps_s"] = json_dumps_s
@@ -585,8 +589,10 @@ class TaskManager:
         task_prefix = f"{prefix}:task:" if prefix else self.task_prefix
         task_status = task_status_from_result_payload({"status": "failed", "error_code": error_code})
         timing_key = "timeout_at" if task_status == TaskStatus.TIMEOUT else "failed_at"
+        task_key = f"{task_prefix}{task_id}"
+        result_key = f"{result_prefix}{task_id}"
         await self.redis.hset(
-            f"{result_prefix}{task_id}",
+            result_key,
             mapping={
                 "error": error_message,
                 timing_key: failed_at,
@@ -594,9 +600,10 @@ class TaskManager:
             },
         )
         await self.redis.hset(
-            f"{task_prefix}{task_id}",
+            task_key,
             mapping={"status": task_status.value, timing_key: failed_at},
         )
+        await self._expire_terminal_records(task_key, result_key)
         if task_id in self.active_tasks:
             self.active_tasks[task_id].status = task_status
             self.active_tasks[task_id].error_message = error_message
@@ -703,6 +710,14 @@ class TaskManager:
 
     def _marker_ttl(self) -> int:
         return max(60, int(getattr(settings, "default_timeout", 300)) * 2)
+
+    async def _expire_terminal_records(self, task_key: str, result_key: str) -> None:
+        task_ttl = int(getattr(settings, "terminal_task_ttl_sec", 0) or 0)
+        result_ttl = int(getattr(settings, "terminal_result_ttl_sec", 0) or 0)
+        if task_ttl > 0:
+            await self.redis.expire(task_key, task_ttl)
+        if result_ttl > 0:
+            await self.redis.expire(result_key, result_ttl)
 
     async def _mark_task_cancelled(self, task_id: str, prefix: str) -> None:
         """Publish a short-lived cancellation marker that running workers poll."""
@@ -868,6 +883,7 @@ class TaskManager:
                 "hostname": hostname or "",
             },
         )
+        await self.redis.sadd(self.worker_index_key, worker_id)
         self.worker_registry[worker_id] = {
             "device": device,
             "status": "online",
@@ -883,6 +899,7 @@ class TaskManager:
             f"{self.worker_prefix}{worker_id}",
             mapping={"status": "offline", "last_heartbeat": datetime.now().isoformat()},
         )
+        await self.redis.sadd(self.worker_index_key, worker_id)
         self.worker_registry.pop(worker_id, None)
         await self.worker_load_balancer.unregister_worker(worker_id)
         return True
@@ -908,11 +925,26 @@ class TaskManager:
     async def get_workers_status(self) -> Dict[str, Any]:
         workers = {worker_id: dict(info) for worker_id, info in self.worker_registry.items()}
         for prefix in self._prefixes_for_read():
-            async for key in self.redis.scan_iter(f"{prefix}:worker:*"):
-                key_text = key.decode("utf-8", errors="replace") if isinstance(key, bytes) else str(key)
-                worker_id = key_text.rsplit(":worker:", 1)[-1]
-                data = await self.redis.hgetall(key)
+            index_key = self._worker_index_for_prefix(prefix)
+            indexed_ids = await self.redis.smembers(index_key)
+            if not indexed_ids:
+                indexed_ids = set()
+                async for key in self.redis.scan_iter(f"{prefix}:worker:*", count=1000):
+                    key_text = key.decode("utf-8", errors="replace") if isinstance(key, bytes) else str(key)
+                    worker_id = key_text.rsplit(":worker:", 1)[-1]
+                    indexed_ids.add(worker_id)
+                if indexed_ids:
+                    await self.redis.sadd(index_key, *indexed_ids)
+
+            for raw_worker_id in indexed_ids:
+                worker_id = (
+                    raw_worker_id.decode("utf-8", errors="replace")
+                    if isinstance(raw_worker_id, bytes)
+                    else str(raw_worker_id)
+                )
+                data = await self.redis.hgetall(f"{prefix}:worker:{worker_id}")
                 if not data:
+                    await self.redis.srem(index_key, worker_id)
                     continue
                 workers.setdefault(worker_id, {}).update(self._decode_redis_hash(data))
         return workers
@@ -1016,6 +1048,7 @@ class TaskManager:
             f"{self.worker_prefix}{worker_id}",
             mapping={"last_heartbeat": now, "status": "online"},
         )
+        await self.redis.sadd(self.worker_index_key, worker_id)
         if worker_id in self.worker_registry:
             self.worker_registry[worker_id]["last_heartbeat"] = now
             self.worker_registry[worker_id]["status"] = "online"

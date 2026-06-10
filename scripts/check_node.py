@@ -18,6 +18,9 @@ from datetime import datetime
 
 
 DEFAULT_MAX_HEARTBEAT_AGE_S = 180
+DEFAULT_REDIS_TIMEOUT_S = 5.0
+REDIS_WORKER_SCAN_TIMEOUT_S = 15.0
+REDIS_PROCESSING_SCAN_TIMEOUT_S = 15.0
 
 
 def render_table(title: str, headers: list[str], rows: list[list[str]]) -> None:
@@ -144,7 +147,12 @@ def _queue_count(queue: dict) -> int:
     return count
 
 
-def _run_redis_cli(redis_host: str, redis_port: int, *args: str) -> str | None:
+def _run_redis_cli(
+    redis_host: str,
+    redis_port: int,
+    *args: str,
+    timeout_s: float = DEFAULT_REDIS_TIMEOUT_S,
+) -> str | None:
     """Run redis-cli for local container checks; return stdout on success."""
     redis_cli = shutil.which("redis-cli")
     if not redis_cli:
@@ -156,7 +164,7 @@ def _run_redis_cli(redis_host: str, redis_port: int, *args: str) -> str | None:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
-            timeout=2,
+            timeout=timeout_s,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -184,9 +192,20 @@ def _redis_snapshot(redis_host: str, redis_port: int, redis_prefix: str) -> dict
     cpu_queue = _int_or_none(_run_redis_cli(redis_host, redis_port, "llen", f"{redis_prefix}:queue:resource:cpu")) or 0
     cpu_processing, gpu_processing = _redis_processing_counts(redis_host, redis_port, redis_prefix)
 
-    keys_out = _run_redis_cli(redis_host, redis_port, "--scan", "--pattern", f"{redis_prefix}:worker:*")
+    worker_ids_out = _run_redis_cli(redis_host, redis_port, "smembers", f"{redis_prefix}:workers")
+    worker_keys = [f"{redis_prefix}:worker:{worker_id}" for worker_id in (worker_ids_out or "").splitlines()]
+    if not worker_keys:
+        keys_out = _run_redis_cli(
+            redis_host,
+            redis_port,
+            "--scan",
+            "--pattern",
+            f"{redis_prefix}:worker:*",
+            timeout_s=REDIS_WORKER_SCAN_TIMEOUT_S,
+        )
+        worker_keys = (keys_out or "").splitlines()
     workers: dict[str, dict[str, str]] = {}
-    for key in sorted((keys_out or "").splitlines()):
+    for key in sorted(worker_keys):
         worker_id = key.rsplit(":", 1)[-1]
         info = _parse_hgetall(_run_redis_cli(redis_host, redis_port, "hgetall", key))
         if info:
@@ -231,7 +250,15 @@ repeat
 until cursor == "0"
 return {cpu, gpu}
 """
-    output = _run_redis_cli(redis_host, redis_port, "eval", script, "0", redis_prefix)
+    output = _run_redis_cli(
+        redis_host,
+        redis_port,
+        "eval",
+        script,
+        "0",
+        redis_prefix,
+        timeout_s=REDIS_PROCESSING_SCAN_TIMEOUT_S,
+    )
     values = [_int_or_none(line) for line in (output or "").splitlines()]
     if len(values) >= 2 and values[0] is not None and values[1] is not None:
         return values[0], values[1]
