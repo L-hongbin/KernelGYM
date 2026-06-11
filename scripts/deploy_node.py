@@ -156,13 +156,15 @@ def validate(args: argparse.Namespace) -> None:
         raise SystemExit("--cpu-compile-workers must be >= 0")
 
     # Preferred count-free interface.
-    if args.cluster and args.join:
+    cluster = bool(getattr(args, "cluster", False))
+    join = str(getattr(args, "join", "") or "")
+    if cluster and join:
         raise SystemExit("--cluster and --join are mutually exclusive")
-    if args.cluster or args.join:
+    if cluster or join:
         legacy = args.nnodes != 1 or args.node_rank is not None or args.master_addr
         if legacy:
             raise SystemExit("--cluster/--join supersede --nnodes/--node-rank/--master-addr; do not combine them")
-        if args.join and args.join in local_ids():
+        if join and join in local_ids():
             raise SystemExit(
                 "--join expects the PRIMARY's address; run `deploy_node.sh --cluster` on the primary instead"
             )
@@ -184,13 +186,15 @@ def validate(args: argparse.Namespace) -> None:
 def main() -> int:
     args = parse_args()
     validate(args)
+    cluster = bool(getattr(args, "cluster", False))
+    join = str(getattr(args, "join", "") or "")
 
     # Preferred count-free interface: no nnodes, no node-rank.
-    if args.cluster:
+    if cluster:
         start_primary(None, args.cpu_compile_workers, redis_remote_access=True)
         return 0
-    if args.join:
-        start_worker(args.join, None, args.cpu_compile_workers)
+    if join:
+        start_worker(join, None, args.cpu_compile_workers)
         return 0
 
     # Legacy torchrun-style path (deprecated).
