@@ -41,6 +41,8 @@ def test_service_profile_values_load_python_profiles() -> None:
     assert values["API_HOST"] == "0.0.0.0"
     assert values["API_PORT"] == "20111"
     assert values["REDIS_PORT"] == "20110"
+    assert values["KERNELGYM_CORE_DUMP_DIR"] == "logs/core_dumps"
+    assert values["KERNELGYM_CORE_DUMP_KEEP"] == "10"
 
 
 def test_service_auto_profile_uses_default_functional_profile() -> None:
@@ -70,18 +72,26 @@ def test_with_hostname_log_dirs_nests_under_host(monkeypatch) -> None:
             "LOG_DIR": "logs/v1",
             "PY_LOG_DIR": "py_logs/v1",
             "EVAL_RESULTS_PATH": "logs/v1/eval_results.jsonl",
+            "KERNELGYM_CORE_DUMP_DIR": "logs/core_dumps",
         }
     )
 
     assert values["LOG_DIR"] == "logs/v1/node7"
     assert values["PY_LOG_DIR"] == "py_logs/v1/node7"
     assert values["EVAL_RESULTS_PATH"] == "logs/v1/node7/eval_results.jsonl"
+    assert values["KERNELGYM_CORE_DUMP_DIR"] == "logs/core_dumps/node7"
 
 
 def test_with_hostname_log_dirs_is_idempotent(monkeypatch) -> None:
     monkeypatch.setattr(service, "_hostname", lambda: "node7")
 
-    once = service._with_hostname_log_dirs({"LOG_DIR": "logs/v1", "EVAL_RESULTS_PATH": "logs/v1/eval_results.jsonl"})
+    once = service._with_hostname_log_dirs(
+        {
+            "LOG_DIR": "logs/v1",
+            "EVAL_RESULTS_PATH": "logs/v1/eval_results.jsonl",
+            "KERNELGYM_CORE_DUMP_DIR": "logs/core_dumps",
+        }
+    )
     twice = service._with_hostname_log_dirs(once)
 
     assert twice == once
@@ -121,6 +131,8 @@ def test_service_env_detects_torch_cuda_arch_list(monkeypatch) -> None:
 
 
 def test_service_env_detects_device_info(monkeypatch) -> None:
+    monkeypatch.delenv("KERNELGYM_CORE_DUMP_DIR", raising=False)
+    monkeypatch.delenv("KERNELGYM_CORE_DUMP_KEEP", raising=False)
     detected = {
         "gpu_name": "Detected GPU",
         "compute_capability": "8.0",
@@ -134,6 +146,8 @@ def test_service_env_detects_device_info(monkeypatch) -> None:
     env = service._service_env({})
 
     assert service.json.loads(env["KERNELGYM_DEVICE_INFO"]) == detected
+    assert env["KERNELGYM_CORE_DUMP_KEEP"] == "10"
+    assert env["KERNELGYM_CORE_DUMP_DIR"].endswith("logs/core_dumps/" + service._hostname())
 
 
 def test_runtime_overrides_can_set_cpu_compile_workers() -> None:
@@ -271,6 +285,7 @@ def test_start_worker_node_writes_logs_under_hostname_subdir(monkeypatch) -> Non
     assert log_file.parent.name == "node7"
     assert log_file.parent.parent.name == "v1-worker-1-worker"
     assert env["LOG_DIR"].endswith("/node7")
+    assert env["KERNELGYM_CORE_DUMP_DIR"].endswith("logs/core_dumps/node7")
 
 
 def test_format_torch_cuda_arch_list_deduplicates_and_filters() -> None:

@@ -27,6 +27,7 @@ from pathlib import Path
 
 from kernelgym.config import settings
 from kernelgym.config.settings import PROJECT_ROOT
+from kernelgym.utils.core_dumps import prepare_core_dump_dir
 
 KEY_PREFIX = settings.redis_key_prefix
 from kernelgym.config import setup_logging
@@ -443,6 +444,10 @@ except Exception as e:
             log_file_path = logs_dir / f"{worker_id}.log"
             # Start worker as subprocess with stdout/stderr redirected to log file
             log_fh = open(log_file_path, "a", buffering=1)
+            try:
+                prepare_core_dump_dir(settings.core_dump_dir, settings.core_dump_keep)
+            except Exception as exc:
+                logger.warning("Failed to prepare core dump directory before restarting %s: %s", worker_id, exc)
             # new session so we can kill the whole process group later
             preexec_fn = None
             creationflags = 0

@@ -31,6 +31,8 @@ Startup supports `--cpu-compile-workers N` / `--cpu-workers N` on `deploy_node.s
 
 Evaluation-result metadata includes `device_info` detected at service startup from torch, `nvidia-smi`, and `nvcc`, then passed to API/worker processes through `KERNELGYM_DEVICE_INFO`.
 
+GPU subprocess core dumps are retained for postmortem analysis under `logs/core_dumps/<hostname>/` through `KERNELGYM_CORE_DUMP_DIR`; `KERNELGYM_CORE_DUMP_KEEP=10` keeps only the newest 10 core files per directory.
+
 Multi-node primary startup (`deploy_node.sh --nnodes > 1` on the master node) enables Redis remote access on port `20110`; worker-only nodes use that Redis plus the primary API on port `20111`.
 
 External physical hosts require GPU clock locking and container startup before

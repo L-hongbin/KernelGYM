@@ -60,6 +60,8 @@ class RewardProfile:
             "VERBOSE_ERROR_TRACEBACK": "true",
             "SAVE_EVAL_RESULTS": "false",
             "EVAL_RESULTS_PATH": f"logs/{self.name}/eval_results.jsonl",
+            "KERNELGYM_CORE_DUMP_DIR": "logs/core_dumps",
+            "KERNELGYM_CORE_DUMP_KEEP": "10",
             "KERNELGYM_NVCC_THREADS": "4",
             "KERNELGYM_MANUAL_NINJA_OBJECT_CACHE": "true",
             "KERNELGYM_MANUAL_NINJA_OBJECT_CACHE_INDEX": "redis",

@@ -28,10 +28,12 @@ This file indexes stable repository docs and evidence locations.
 | `kernelgym/backend/kernelbench/tvm_ffi_backend.py` | TVM-FFI compile/load backend and compile artifact cache. |
 | `kernelgym/toolkit/kernelbench/pipeline.py` | KernelBench compile/load/correctness/performance pipeline. |
 | `kernelgym/utils/device_info.py` | Startup/runtime device metadata detection and serialized-result injection. |
+| `kernelgym/utils/core_dumps.py` | Core dump directory resolution, migration, and retention helpers. |
 | `kernelgym/workflow/kernelbench.py` | Server-side KernelBench workflow orchestration. |
 | `kernelgym/server/task_manager.py` | Redis task queue and worker coordination. |
 | `kernelgym/worker/gpu_worker.py` | Worker-side task execution and failure handling. |
 | `kernelgym/worker/subprocess_pool.py` | Persistent GPU subprocess pool, recycle, timeout, and pool-size enforcement. |
+| `scripts/manage_core_dumps.py` | Move root-level core dumps into the configured directory and keep only the newest retained files. |
 
 ## External Source References
 
@@ -45,6 +47,7 @@ This file indexes stable repository docs and evidence locations.
 | Path | Purpose |
 | --- | --- |
 | `logs/compile_acceleration/` | Planned benchmark results for compile acceleration work. |
+| `logs/core_dumps/` | Managed Python/CUDA core dump retention directories, usually nested by hostname. |
 | `artifacts/line451_rmsnorm_debug/repeat50_trial0_result.jsonl` | Standalone `.40` evidence: line 451 fixed-input RMSNorm custom kernel failed 6/50 repeats with exactly 32 mismatched elements per failure. |
 | `artifacts/reviews/7aac366_experiment_design_evidence.json` | Evidence for review of commit `7aac366`: upstream ordering, binding/skipped sample distributions, committed sample hashes, overlap, and partial-run timing contrast. |
 | `artifacts/reviews/concurrency_tvm_ffi_integrity_evidence.json` | Calibration audit evidence for `calib_c{3,8,16}` 27B breakdown rows plus latest `.40` Redis metadata for completed TVM-FFI tasks. |

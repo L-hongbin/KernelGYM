@@ -169,6 +169,16 @@ class Settings(BaseSettings):
         env="TERMINAL_RESULT_TTL_SEC",
         description="TTL for completed/failed result cache hashes. Set <=0 to keep terminal result records indefinitely.",
     )
+    core_dump_dir: str = Field(
+        default="logs/core_dumps",
+        env="KERNELGYM_CORE_DUMP_DIR",
+        description="Directory where GPU subprocesses chdir so Linux core dumps land outside the repo root.",
+    )
+    core_dump_keep: int = Field(
+        default=10,
+        env="KERNELGYM_CORE_DUMP_KEEP",
+        description="Maximum core dump files to retain per core dump directory.",
+    )
 
     kernelbench_path: str = Field(default=str(KERNELBENCH_ROOT), env="KERNELBENCH_PATH")
     gpu_arch: List[str] = Field(default_factory=lambda: ["Hopper"], env="GPU_ARCH")

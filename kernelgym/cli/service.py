@@ -36,6 +36,14 @@ from kernelgym.deployment_profiles import (
     profile_names,
 )
 from kernelgym.utils.device_info import DEVICE_INFO_ENV, detect_device_info, encode_device_info
+from kernelgym.utils.core_dumps import (
+    CORE_DUMP_DIR_ENV,
+    CORE_DUMP_KEEP_ENV,
+    DEFAULT_CORE_DUMP_DIR,
+    DEFAULT_CORE_DUMP_KEEP,
+    ensure_core_dump_dir,
+    prune_core_dumps,
+)
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 TORCH_CUDA_ARCH_LIST_ENV = "TORCH_CUDA_ARCH_LIST"
@@ -90,7 +98,7 @@ def _with_hostname_log_dirs(values: dict[str, str]) -> dict[str, str]:
     """
     host = _hostname()
     updated = dict(values)
-    for key in ("LOG_DIR", "PY_LOG_DIR"):
+    for key in ("LOG_DIR", "PY_LOG_DIR", CORE_DUMP_DIR_ENV):
         base = updated.get(key)
         if base and Path(base).name != host:
             updated[key] = str(Path(base) / host)
@@ -212,6 +220,7 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
         ("Worker pool", ("WORKER_POOL_SIZE", "MAX_TASKS_PER_WORKER", "CPU_COMPILE_WORKERS")),
         ("Defaults", ("DEFAULT_TOOLKIT", "DEFAULT_BACKEND_ADAPTER", "DEFAULT_BACKEND")),
         ("Logging", ("LOG_LEVEL", "LOG_DIR", "PY_LOG_DIR")),
+        ("Core dumps", ("KERNELGYM_CORE_DUMP_DIR", "KERNELGYM_CORE_DUMP_KEEP")),
         ("Metrics", ("ENABLE_METRICS", "METRICS_PORT")),
         ("Profiling", ("ENABLE_PROFILING",)),
         ("Errors", ("VERBOSE_ERROR_TRACEBACK",)),
@@ -303,6 +312,19 @@ def _service_env(values: dict[str, str]) -> dict[str, str]:
     env["REDIS_PASSWORD"] = REDIS_PASSWORD
     env["REDIS_KEY_PREFIX"] = REDIS_KEY_PREFIX
     env["METRICS_PORT"] = str(METRICS_PORT)
+    env.setdefault(CORE_DUMP_DIR_ENV, str(Path(DEFAULT_CORE_DUMP_DIR) / _hostname()))
+    env.setdefault(CORE_DUMP_KEEP_ENV, str(DEFAULT_CORE_DUMP_KEEP))
+    for directory_key in ("LOG_DIR", "PY_LOG_DIR", CORE_DUMP_DIR_ENV):
+        if env.get(directory_key):
+            path = Path(env[directory_key]).expanduser()
+            if not path.is_absolute():
+                path = ROOT_DIR / path
+            env[directory_key] = str(path)
+    if env.get("EVAL_RESULTS_PATH"):
+        path = Path(env["EVAL_RESULTS_PATH"]).expanduser()
+        if not path.is_absolute():
+            path = ROOT_DIR / path
+        env["EVAL_RESULTS_PATH"] = str(path)
     pythonpath = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(ROOT_DIR) if not pythonpath else f"{ROOT_DIR}:{pythonpath}"
     return env
@@ -310,10 +332,16 @@ def _service_env(values: dict[str, str]) -> dict[str, str]:
 
 def _launch_background(command: list[str], log_file: Path, env: dict[str, str]) -> int:
     log_file.parent.mkdir(parents=True, exist_ok=True)
+    core_dir = ROOT_DIR
+    try:
+        core_dir = ensure_core_dump_dir(env.get(CORE_DUMP_DIR_ENV))
+        prune_core_dumps(core_dir, env.get(CORE_DUMP_KEEP_ENV))
+    except Exception:
+        core_dir = ROOT_DIR
     handle = log_file.open("ab")
     proc = subprocess.Popen(
         command,
-        cwd=ROOT_DIR,
+        cwd=core_dir,
         stdin=subprocess.DEVNULL,
         stdout=handle,
         stderr=subprocess.STDOUT,

@@ -27,6 +27,12 @@ import uuid
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
+from kernelgym.utils.core_dumps import (
+    CORE_DUMP_DIR_ENV,
+    CORE_DUMP_KEEP_ENV,
+    prepare_core_dump_dir,
+)
+
 logger = logging.getLogger("kernelgym.subprocess_pool")
 
 
@@ -160,6 +166,10 @@ class PersistentWorker:
     def _start_worker(self):
         """启动 worker 进程"""
         logger.info(f"[{self.worker_id}] Starting persistent worker for GPU {self.device_id} {self.pool_size_info}")
+        try:
+            prepare_core_dump_dir(os.environ.get(CORE_DUMP_DIR_ENV), os.environ.get(CORE_DUMP_KEEP_ENV))
+        except Exception as exc:
+            logger.warning(f"[{self.worker_id}] Failed to prepare core dump directory: {exc}")
 
         self.process = self.ctx.Process(
             target=_persistent_worker_loop,
@@ -1061,6 +1071,10 @@ def _persistent_worker_loop(worker_id: str, device_id: int, task_queue: mp.Queue
     4. 每次任务后清理 GPU 内存
     """
     init_start = time.time()
+    try:
+        prepare_core_dump_dir(os.environ.get(CORE_DUMP_DIR_ENV), os.environ.get(CORE_DUMP_KEEP_ENV), chdir=True)
+    except Exception as exc:
+        print(f"[{worker_id}] Failed to prepare core dump directory: {exc}", file=sys.stderr)
 
     try:
         # ====================================================================
