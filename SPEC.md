@@ -35,6 +35,8 @@ GPU subprocess core dumps are retained for postmortem analysis under `logs/core_
 
 Multi-node primary startup (`deploy_node.sh --nnodes > 1` on the master node) enables Redis remote access on port `20110`; worker-only nodes use that Redis plus the primary API on port `20111`.
 
+Physical-host containers are started with Docker `--init` by default via `KERNELGYM_CONTAINER_INIT=1`, so PID 1 reaps exited worker subprocesses.
+
 External physical hosts require GPU clock locking and container startup before
 the reward service starts. The current container image is:
 

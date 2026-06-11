@@ -9,10 +9,11 @@ IMAGE="${KERNELGYM_CONTAINER_IMAGE:-192.168.14.129:80/library/slime:nightly-dev-
 CUDA_PATH="${KERNELGYM_CUDA_PATH:-/usr/local/cuda-12.9}"
 SHM_SIZE="${KERNELGYM_SHM_SIZE:-256g}"
 REPLACE="${KERNELGYM_CONTAINER_REPLACE:-1}"
+INIT="${KERNELGYM_CONTAINER_INIT:-1}"
 
 usage() {
     echo "Usage: scripts/start_container.sh"
-    echo "Env: KERNELGYM_CONTAINER_NAME KERNELGYM_CONTAINER_IMAGE KERNELGYM_CUDA_PATH KERNELGYM_SHM_SIZE"
+    echo "Env: KERNELGYM_CONTAINER_NAME KERNELGYM_CONTAINER_IMAGE KERNELGYM_CUDA_PATH KERNELGYM_SHM_SIZE KERNELGYM_CONTAINER_INIT"
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -41,8 +42,14 @@ if [[ "${REPLACE}" == "1" ]]; then
     "${DOCKER[@]}" rm -f "${NAME}" >/dev/null 2>&1 || true
 fi
 
+RUN_ARGS=()
+if [[ "${INIT}" == "1" ]]; then
+    RUN_ARGS+=(--init)
+fi
+
 "${DOCKER[@]}" run -d \
     --name "${NAME}" \
+    "${RUN_ARGS[@]}" \
     --gpus all \
     --network host \
     --privileged \
