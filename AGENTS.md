@@ -5,11 +5,11 @@
 | File | Purpose | When to update |
 |---|---|---|
 | `AGENTS.md` | Collaboration rules | User explicitly requests a policy change |
-| `SPEC.md` | Run-specific facts: environments, endpoints, paths, hyperparams | Tracked facts materially change |
+| `RUNTIME.md` | Run-specific facts: environments, endpoints, paths, hyperparams | Tracked facts materially change |
 | `INDEX.md` | Index of docs, scripts, artifacts, evidence | Tracked references materially change |
 | `CONFIRMATION_GATES.md` | Confirmation gates recorded by user request | User explicitly asks to add a gate |
 
-`SPEC.md` and `INDEX.md` are updated proactively and kept under 100 lines each.
+`RUNTIME.md` and `INDEX.md` are updated proactively and kept under 100 lines each.
 Do not maintain a separate running-status log unless explicitly asked.
 
 ## Working Style

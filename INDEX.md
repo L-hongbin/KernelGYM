@@ -7,7 +7,7 @@ This file indexes stable repository docs and evidence locations.
 | Path | Purpose |
 | --- | --- |
 | `AGENTS.md` | Collaboration and maintenance rules. |
-| `SPEC.md` | Reward-node runtime facts, ports, and deployment details. |
+| `RUNTIME.md` | Reward-node runtime facts, ports, and deployment details. |
 | `docs/DEPLOYMENT.md` | Reward service setup and operation. |
 | `docs/DEVELOPMENT.md` | Local development and test conventions. |
 | `docs/SOURCE_LINEAGE.md` | Source repositories and imported/excluded behavior. |
