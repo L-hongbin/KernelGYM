@@ -37,10 +37,14 @@ class FakeTaskManager:
         }
         return True
 
-    async def update_worker_heartbeat(self, worker_id):
+    async def update_worker_heartbeat(self, worker_id, node_id=None, hostname=None):
         self.updated = True
         self.worker_registry[worker_id]["last_heartbeat"] = datetime.now().isoformat()
         self.worker_registry[worker_id]["status"] = "online"
+        if node_id:
+            self.worker_registry[worker_id]["node_id"] = node_id
+        if hostname:
+            self.worker_registry[worker_id]["hostname"] = hostname
 
 
 def test_worker_heartbeat_updates_status_registry() -> None:
@@ -60,3 +64,23 @@ def test_worker_heartbeat_updates_status_registry() -> None:
     assert result["success"] is True
     assert task_manager.updated is True
     assert task_manager.worker_registry["worker_gpu_0"]["last_heartbeat"] != before
+
+
+def test_worker_heartbeat_backfills_missing_node_metadata() -> None:
+    task_manager = FakeTaskManager()
+    task_manager.worker_registry["worker_gpu_0"]["node_id"] = ""
+    task_manager.worker_registry["worker_gpu_0"]["hostname"] = ""
+
+    result = asyncio.run(
+        server.worker_heartbeat(
+            "worker_gpu_0",
+            device="cuda:0",
+            node_id="v1",
+            hostname="ai-16-39",
+            task_manager=task_manager,
+        )
+    )
+
+    assert result["success"] is True
+    assert task_manager.worker_registry["worker_gpu_0"]["node_id"] == "v1"
+    assert task_manager.worker_registry["worker_gpu_0"]["hostname"] == "ai-16-39"

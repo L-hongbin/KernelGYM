@@ -234,6 +234,24 @@ def test_task_manager_selects_busy_gpu_worker_by_task_id(monkeypatch) -> None:
     asyncio.run(scenario())
 
 
+def test_task_manager_heartbeat_backfills_node_metadata(monkeypatch) -> None:
+    async def scenario() -> None:
+        _patch_registry(monkeypatch)
+        redis = FakeRedis()
+        manager = TaskManager(redis)  # type: ignore[arg-type]
+        await manager.register_worker("gpu-empty", "cuda:0")
+
+        await manager.update_worker_heartbeat("gpu-empty", node_id="v1", hostname="ai-16-39")
+
+        stored = await redis.hgetall(f"{manager.worker_prefix}gpu-empty")
+        assert stored[b"node_id"] == b"v1"
+        assert stored[b"hostname"] == b"ai-16-39"
+        assert manager.worker_registry["gpu-empty"]["node_id"] == "v1"
+        assert manager.worker_registry["gpu-empty"]["hostname"] == "ai-16-39"
+
+    asyncio.run(scenario())
+
+
 def test_task_manager_preserves_direct_worker_queue(monkeypatch) -> None:
     async def scenario() -> None:
         _patch_registry(monkeypatch)

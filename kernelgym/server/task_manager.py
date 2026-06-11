@@ -1042,16 +1042,30 @@ class TaskManager:
             "hostname": hostname,
         }
 
-    async def update_worker_heartbeat(self, worker_id: str) -> None:
+    async def update_worker_heartbeat(
+        self,
+        worker_id: str,
+        node_id: Optional[str] = None,
+        hostname: Optional[str] = None,
+    ) -> None:
         now = datetime.now().isoformat()
+        mapping = {"last_heartbeat": now, "status": "online"}
+        if node_id:
+            mapping["node_id"] = node_id
+        if hostname:
+            mapping["hostname"] = hostname
         await self.redis.hset(
             f"{self.worker_prefix}{worker_id}",
-            mapping={"last_heartbeat": now, "status": "online"},
+            mapping=mapping,
         )
         await self.redis.sadd(self.worker_index_key, worker_id)
         if worker_id in self.worker_registry:
             self.worker_registry[worker_id]["last_heartbeat"] = now
             self.worker_registry[worker_id]["status"] = "online"
+            if node_id:
+                self.worker_registry[worker_id]["node_id"] = node_id
+            if hostname:
+                self.worker_registry[worker_id]["hostname"] = hostname
         await self.worker_load_balancer.update_worker_heartbeat(worker_id)
 
 
