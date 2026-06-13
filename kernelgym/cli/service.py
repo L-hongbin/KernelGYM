@@ -378,7 +378,26 @@ def _ensure_redis(values: dict[str, str]) -> None:
     redis_server = shutil.which("redis-server")
     if not redis_server:
         raise SystemExit("redis-server not found; install Redis or set REDIS_HOST/REDIS_PORT to an existing server.")
-    command = [redis_server, "--port", str(port), "--daemonize", "yes"]
+    # Persist to a NODE-LOCAL data dir, never the launch cwd. Deployments share
+    # this checkout over NFS; with no explicit --dir, redis defaults its dir to
+    # the cwd, so every node would read/write the same dump.rdb and cross-load
+    # each other's data on restart. A per-node dir (and node-tagged dbfilename)
+    # keeps each deployment's Redis isolated.
+    data_dir = values.get("KERNELGYM_REDIS_DATA_DIR") or "/tmp/kernelgym-redis"
+    node_tag = (values.get("NODE_ID") or socket.gethostname() or "node").strip() or "node"
+    dbfilename = f"dump-{node_tag}-{port}.rdb"
+    os.makedirs(data_dir, exist_ok=True)
+    command = [
+        redis_server,
+        "--port",
+        str(port),
+        "--daemonize",
+        "yes",
+        "--dir",
+        data_dir,
+        "--dbfilename",
+        dbfilename,
+    ]
     if remote_access:
         command.extend(["--bind", "0.0.0.0", "--protected-mode", "no"])
     subprocess.run(command, check=True)
@@ -464,16 +483,42 @@ def cmd_stop(args: argparse.Namespace) -> int:
     for pattern, description in patterns:
         _kill_processes(pattern, description)
 
+    # Shut down the LOCAL redis WITHOUT saving, instead of only clearing keys.
+    # nosave avoids writing redis's dataset back to its (possibly NFS-shared)
+    # dump file, and freeing the process lets the next start relaunch redis with
+    # the configured --dir. cmd_stop always targets REDIS_HOST=localhost (plain
+    # profile), so on a worker-only node — which has no local redis — there is
+    # nothing to stop and the primary's remote redis is never touched.
+    redis_host = values.get("REDIS_HOST", "localhost")
+    is_local_redis = redis_host in {"localhost", "127.0.0.1", "::1", ""}
     client = _redis_client(values)
-    if client is not None and values.get("REDIS_PORT"):
-        prefix = REDIS_KEY_PREFIX
-        try:
-            keys = list(client.scan_iter(f"{prefix}:*"))
-            if keys:
-                client.delete(*keys)
-            print(f"Cleared {len(keys)} Redis keys with prefix {prefix}:")
-        except Exception as exc:
-            print(f"Skipping Redis cleanup: {exc}")
+    if client is not None and values.get("REDIS_PORT") and is_local_redis:
+        if _port_is_open(redis_host, REDIS_PORT):
+            try:
+                client.execute_command("SHUTDOWN", "NOSAVE")
+            except Exception:
+                pass  # SHUTDOWN closes the socket on success -> expected error
+            port_freed = False
+            for _ in range(50):
+                if not _port_is_open(redis_host, REDIS_PORT):
+                    port_freed = True
+                    break
+                time.sleep(0.1)
+            if port_freed:
+                print("Stopped local Redis (SHUTDOWN NOSAVE).")
+            else:
+                # SHUTDOWN did not take: fall back to clearing our keyspace so a
+                # reused redis at least restarts from a clean slate.
+                try:
+                    keys = list(client.scan_iter(f"{REDIS_KEY_PREFIX}:*"))
+                    if keys:
+                        client.delete(*keys)
+                    print(f"Redis still up after SHUTDOWN; cleared {len(keys)} keys instead.")
+                except Exception as exc:
+                    print(f"Skipping Redis cleanup: {exc}")
+        # else: no local redis (e.g. worker-only node) -> nothing to stop
+    elif not is_local_redis:
+        print(f"REDIS_HOST={redis_host} is remote; leaving its Redis untouched on stop.")
     print("KernelGym stopped.")
     return 0
 
