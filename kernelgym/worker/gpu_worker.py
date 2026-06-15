@@ -498,7 +498,12 @@ class GPUWorker:
         task_type = task_data.get("task_type", "evaluation")
 
         metadata = {"error": error_message}
-        metadata.update(self._load_stage_metadata(task_data))
+        stage_metadata = self._load_stage_metadata(task_data)
+        metadata.update(stage_metadata)
+        # A failure that happens after compile+load (timeout or crash during
+        # execution) must still report compiled=True; otherwise a post-compile
+        # timeout/crash is indistinguishable from a genuine compilation error.
+        compiled_before_failure = self._compiled_from_stage_metadata(stage_metadata)
         result_status = task_status_from_result_payload({"status": "failed", "error_code": error_code}).value
 
         if task_type == "reference_timing":
@@ -517,7 +522,7 @@ class GPUWorker:
             result = KernelEvaluationResult(
                 task_id=task_id,
                 base_task_id=base_task_id,
-                compiled=False,
+                compiled=compiled_before_failure,
                 correctness=False,
                 decoy_kernel=False,
                 kernel_runtime=-1.0,
@@ -530,7 +535,7 @@ class GPUWorker:
 
         result = EvaluationResult(
             task_id=task_id,
-            compiled=False,
+            compiled=compiled_before_failure,
             correctness=False,
             decoy_kernel=False,
             reference_runtime=-1.0,
@@ -542,6 +547,30 @@ class GPUWorker:
             error_code=error_code,
         )
         return result.to_dict()
+
+    @staticmethod
+    def _compiled_from_stage_metadata(stage_metadata: Dict[str, Any]) -> bool:
+        """Infer whether compile+load already finished before a failure.
+
+        A task that times out (or whose subprocess crashes) during execution has
+        already passed the ``kernel.compile_and_load`` stage, so reporting
+        ``compiled=False`` for it is wrong. The eval pipeline records completed
+        stages in ``kg_stage_completed_s`` and the active stage in
+        ``kg_stage_current``; use those to recover the real compiled state.
+        """
+        completed = stage_metadata.get("kg_stage_completed_s")
+        if isinstance(completed, dict) and any(
+            str(stage).endswith("compile_and_load") or str(stage).endswith("compile_only") for stage in completed
+        ):
+            return True
+        # Fall back to the current/last stage being something that only runs
+        # after compile+load (custom model build, correctness, perf, ...).
+        post_compile_markers = ("build_custom_model", "correctness", "triton_detect", "performance")
+        for key in ("kg_stage_last_completed", "kg_stage_current", "kg_stage_current_prefix"):
+            value = stage_metadata.get(key)
+            if isinstance(value, str) and any(marker in value for marker in post_compile_markers):
+                return True
+        return False
 
     @staticmethod
     def _load_stage_metadata(task_data: Dict[str, Any]) -> Dict[str, Any]:
