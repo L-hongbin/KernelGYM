@@ -253,6 +253,37 @@ class PersistentWorker:
                 result = self.result_queue.get(timeout=min(poll, remaining))
                 break
             except queue.Empty:
+                # The worker subprocess may have died mid-task (e.g. a native
+                # crash in the evaluated kernel: undefined cuBLAS/cuDNN symbol,
+                # segfault, illegal memory access). Without this check the loop
+                # would keep polling an empty queue until the deadline and then
+                # misreport the crash as a TIMEOUT. Detect the death promptly and
+                # surface it as a crash result instead.
+                if self.process is not None and not self.process.is_alive():
+                    # Drain a result the worker may have enqueued just before exit.
+                    try:
+                        result = self.result_queue.get(timeout=0.2)
+                        break
+                    except queue.Empty:
+                        pass
+                    exitcode = self.process.exitcode
+                    logger.error(
+                        f"[{self.worker_id}] Worker subprocess died (exitcode={exitcode}) "
+                        f"during task {task_id} before returning a result; reporting as a "
+                        f"crash rather than a timeout"
+                    )
+                    result = {
+                        "success": False,
+                        "error_type": "WorkerProcessCrashed",
+                        "error_message": (
+                            f"Worker {self.worker_id} subprocess exited (exitcode={exitcode}) "
+                            f"during task {task_id} before returning a result; likely a native "
+                            f"crash in the evaluated kernel (e.g. undefined symbol or segfault)"
+                        ),
+                        "worker_exiting": True,
+                        "crashed": True,
+                    }
+                    break
                 continue
 
         # 检查 worker 是否报告 CUDA error 并准备退出
