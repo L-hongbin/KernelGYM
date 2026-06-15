@@ -185,6 +185,7 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
             "nvcc_threads": os.environ.get(_NVCC_THREADS_ENV, _TVM_FFI_DEFAULT_NVCC_THREADS),
             "extra_cflags": ["-O3"],
             "extra_cuda_cflags": ["-O3", "--use_fast_math"],
+            "extra_ldflags": KernelBenchTvmFfiBackend._cuda_math_link_flags(),
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -243,6 +244,104 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
         tmp_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
         tmp_path.replace(ready_path)
 
+    # CUDA math/compute libraries that model-generated extensions can call
+    # directly (cuBLAS/cuBLASLt/cuDNN/cuFFT/cuSPARSE/cuSOLVER/cuRAND/NVRTC, ...).
+    # ``tvm_ffi.cpp.build`` does not link these, so without this the produced .so
+    # is left with undefined symbols such as ``cublasCreate_v2`` / ``cudnnCreate``.
+    # A ``-shared`` link tolerates them, so compile/load succeeds, but the dynamic
+    # linker only discovers the missing symbol at the first call inside
+    # ModelNew.forward -- which crashes the GPU worker subprocess instantly with
+    # ``symbol lookup error``. The worker pool never sees the death and waits out
+    # the full per-task timeout, so the crash is misreported as a correctness
+    # TIMEOUT. We fix it by linking the torch-vendored copies of these libraries
+    # by full path: ld records each library's embedded SONAME as a DT_NEEDED
+    # entry, and at runtime the loader binds it to the very same copy torch
+    # already loaded in the worker. Every library below was confirmed already
+    # mapped in a live GPU worker (torch loads them at import / first use), so
+    # this adds no measurable compile, load, or runtime cost. Each entry is
+    # (importable nvidia wheel package, library basename, required); the basename
+    # is matched as ``<base>.so[.<ver>]`` so e.g. base ``libcublas`` resolves
+    # ``libcublas.so.12`` but not ``libcublasLt.so.12`` (which has its own entry)
+    # and base ``libcudnn`` does not pull the heavy ``libcudnn_*`` engines.
+    #
+    # ``required`` gates the deploy-time preflight (abort vs warn) only; it does
+    # not affect linking — any library that is present is always linked. The flag
+    # asks "should a correct install ever lack this?". On this pinned torch-cu12
+    # deployment every one of these wheels is shipped, so all are required: a
+    # missing one means a broken environment and aborts deploy. The flag is kept
+    # (rather than hard-coded) so a wheel that some other torch build omits (e.g.
+    # ``nvidia-cusparselt-cu12``, added in torch 2.4) can be downgraded to
+    # warn-only by flipping it to ``False`` without touching the check logic.
+    _CUDA_MATH_LINK_LIBS = (
+        ("nvidia.cublas", "libcublas", True),
+        ("nvidia.cublas", "libcublasLt", True),
+        ("nvidia.cudnn", "libcudnn", True),
+        ("nvidia.cufft", "libcufft", True),
+        ("nvidia.cusparse", "libcusparse", True),
+        ("nvidia.cusparselt", "libcusparseLt", True),
+        ("nvidia.cusolver", "libcusolver", True),
+        ("nvidia.curand", "libcurand", True),
+        ("nvidia.cuda_nvrtc", "libnvrtc", True),
+    )
+
+    @staticmethod
+    def _resolve_cuda_math_lib(package_name: str, lib_base: str) -> str | None:
+        """Resolve one (wheel package, basename) to a concrete ``.so`` path.
+
+        Returns the full path to the versioned shared library, or ``None`` if the
+        package or library is not present in the environment.
+        """
+        try:
+            spec = importlib.util.find_spec(package_name)
+        except (ImportError, ValueError):
+            spec = None
+        locations = list(getattr(spec, "submodule_search_locations", None) or [])
+        if not locations:
+            return None
+        lib_dir = Path(locations[0]) / "lib"
+        if not lib_dir.is_dir():
+            return None
+        # Match libcublas.so / libcublas.so.12 but NOT libcublasLt.so.12 (for base
+        # libcublas) or libcudnn_cnn.so.9 (for base libcudnn).
+        name_re = re.compile(rf"{re.escape(lib_base)}\.so(?:\.\d+)*$")
+        candidates = sorted(str(path) for path in lib_dir.glob(f"{lib_base}.so*") if name_re.fullmatch(path.name))
+        # Prefer the versioned file (libcublas.so.12) over a bare dev symlink.
+        return candidates[-1] if candidates else None
+
+    @classmethod
+    def _resolve_cuda_math_libs(cls) -> list[tuple[str, str, bool, str | None]]:
+        """Resolve every configured CUDA math library.
+
+        Returns one ``(package, basename, required, resolved_path_or_None)`` tuple
+        per entry so the build-flag construction and the deploy-time preflight
+        check (``scripts/validate_runtime.py``) share a single resolution path.
+        """
+        return [
+            (package_name, lib_base, required, cls._resolve_cuda_math_lib(package_name, lib_base))
+            for package_name, lib_base, required in cls._CUDA_MATH_LINK_LIBS
+        ]
+
+    @staticmethod
+    def _cuda_math_link_flags() -> list[str]:
+        """Build link inputs that satisfy direct cuBLAS/cuDNN/cuFFT/... calls.
+
+        Returns full paths to the torch-vendored CUDA math libraries plus
+        ``-Wl,-rpath`` entries for their directories. Unresolved packages are
+        skipped so the build degrades gracefully on non-wheel CUDA layouts;
+        ``scripts/validate_runtime.py`` is what turns a missing library into a
+        hard deploy-time error before the service ever starts.
+        """
+        link_inputs: list[str] = []
+        rpath_dirs: list[str] = []
+        for _package_name, _lib_base, _required, path in KernelBenchTvmFfiBackend._resolve_cuda_math_libs():
+            if path is None:
+                continue
+            link_inputs.append(path)
+            lib_dir = str(Path(path).parent)
+            if lib_dir not in rpath_dirs:
+                rpath_dirs.append(lib_dir)
+        return link_inputs + [f"-Wl,-rpath,{lib_dir}" for lib_dir in rpath_dirs]
+
     @staticmethod
     def _build_extension(work_dir: Path, cpp_files: list[str], cuda_files: list[str]) -> Dict[str, Any]:
         if not cpp_files:
@@ -266,6 +365,7 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
         nvcc_threads = os.environ.get(_NVCC_THREADS_ENV, _TVM_FFI_DEFAULT_NVCC_THREADS)
         extra_cflags = ["-O3"]
         extra_cuda_cflags = ["-O3", "--use_fast_math", "--threads", nvcc_threads]
+        extra_ldflags = KernelBenchTvmFfiBackend._cuda_math_link_flags()
         so_path = tvm_ffi_cpp.build(
             name=ext_name,
             cpp_files=cpp_files,
@@ -274,6 +374,7 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
             backend="cuda",
             extra_cflags=extra_cflags,
             extra_cuda_cflags=extra_cuda_cflags,
+            extra_ldflags=extra_ldflags or None,
         )
         return {
             "compiled": True,

@@ -94,6 +94,50 @@ def _check_cuda_init() -> int:
     return device_count
 
 
+def _check_cuda_math_libs() -> None:
+    """Fail fast if a *required* CUDA math library the TVM-FFI build links is gone.
+
+    Model-generated TVM-FFI extensions call cuBLAS/cuBLASLt/cuDNN/cuFFT/cuSPARSE/
+    cuSOLVER/cuRAND/NVRTC host APIs directly, and the backend links those wheels
+    by full path. If one is absent the produced ``.so`` carries undefined symbols
+    (e.g. ``cublasCreate_v2``) that the dynamic linker only discovers at the first
+    call inside ``ModelNew.forward`` — crashing the GPU worker, which the pool
+    misreports as a task timeout. A missing *required* library aborts deploy; a
+    missing *optional* one (proactive coverage, e.g. cuSPARSELt which not every
+    torch build ships) only warns so we never block deploy on an optional wheel.
+
+    Note: this validates the active deploy venv — i.e. the same interpreter the
+    GPU workers launch from in the normal ``deploy_node.sh`` flow. A worker
+    started with a different interpreter would not be covered by this check.
+    """
+    from kernelgym.backend.kernelbench.tvm_ffi_backend import KernelBenchTvmFfiBackend
+
+    report = KernelBenchTvmFfiBackend._resolve_cuda_math_libs()
+    for package_name, lib_base, required, path in report:
+        tier = "required" if required else "optional"
+        print(f"cuda_math_lib {lib_base} ({package_name}, {tier})={path or 'MISSING'}")
+
+    missing_optional = [lib_base for _pkg, lib_base, required, path in report if not required and path is None]
+    if missing_optional:
+        print(
+            "cuda_math_libs: WARNING optional libraries not found (kernels that call them will "
+            f"crash at runtime): {', '.join(missing_optional)}"
+        )
+
+    missing_required = [
+        (package_name, lib_base) for package_name, lib_base, required, path in report if required and path is None
+    ]
+    if missing_required:
+        detail = ", ".join(f"{lib_base} (from {package_name})" for package_name, lib_base in missing_required)
+        raise SystemExit(
+            "required CUDA math libraries not found for TVM-FFI linking: "
+            f"{detail}. Install the matching nvidia-*-cu12 wheels into the venv."
+        )
+
+    resolved = sum(1 for _pkg, _lib_base, _required, path in report if path is not None)
+    print(f"cuda_math_libs=OK ({resolved}/{len(report)} libraries resolved)")
+
+
 def _check_redis() -> str:
     """Verify redis-server is installed; opportunistically ping the daemon.
 
@@ -138,6 +182,7 @@ def main() -> int:
     _check_torch_cuda()
     nvcc, nvcc_version = _check_nvcc()
     device_count = _check_cuda_init()
+    _check_cuda_math_libs()
     _check_redis()
     print(
         f"validate_runtime: OK — torch {torch.__version__} (cuda {torch.version.cuda}), "
