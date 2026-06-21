@@ -26,3 +26,4 @@ benchmarks/results/
 *.bundle
 dump.rdb
 RUNTIME.md
+gpu_mem_trend.png
