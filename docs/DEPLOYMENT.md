@@ -48,7 +48,7 @@ python -m kernelgym.cli.service start-local --profile v1 --cpu-compile-workers 8
 bash deploy_node.sh --cpu-compile-workers 8
 ```
 
-To stop the running service (kills the API, monitor, GPU/CPU workers, and clears Redis state with the `kernelgym:` prefix):
+To stop the running service (kills the API, monitor, GPU/CPU workers, and shuts down local Redis without saving):
 
 ```bash
 python -m kernelgym.cli.service stop --profile v1
@@ -58,7 +58,7 @@ kernelgym-service stop --profile v1
 bash stop_node.sh
 ```
 
-A typical restart cycle inside the container is `bash stop_node.sh && bash deploy_node.sh`.
+A typical restart cycle inside the container is `bash stop_node.sh && bash deploy_node.sh`. For a cold restart that also removes local Redis persistence and KernelGym compile/work caches before launching, use `bash deploy_node.sh --clear-cache`.
 
 The deployment convenience script is container-only. It runs `ensure_venv.sh`, sources `.venv/bin/activate`, and always stops existing KernelGym worker processes before starting worker-only nodes.
 

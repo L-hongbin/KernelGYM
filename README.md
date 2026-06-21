@@ -30,6 +30,12 @@ bash deploy_node.sh --nnodes 1
 
 `deploy_node.sh` activates `.venv`, scrubs `LD_LIBRARY_PATH` / `PYTHONPATH` of host-Python torch trees, runs `scripts/validate_runtime.py`, then starts the API server (`:20111`), worker monitor, 8 GPU workers, and the profile's CPU compile workers. Override that count with `--cpu-compile-workers N` or `--cpu-workers N`.
 
+For a cold restart that removes local Redis persistence plus KernelGym compile/work caches before launching:
+
+```bash
+bash deploy_node.sh --clear-cache --nnodes 1
+```
+
 ### 3. Verify
 
 ```bash
@@ -43,7 +49,7 @@ bash test_reward.sh                 # round-trip a hand-written CUDA add kernel
 bash stop_node.sh
 ```
 
-Stops the API server, worker monitor, GPU/CPU workers, and clears Redis state with the `kernelgym:` prefix.
+Stops the API server, worker monitor, GPU/CPU workers, and shuts down local Redis without saving.
 
 ---
 

@@ -23,7 +23,7 @@ This file indexes stable repository docs and evidence locations.
 
 | Path | Purpose |
 | --- | --- |
-| `deploy_node.sh` | Container-only single/multi-node startup with `--nnodes`, `--node-rank`, and `--master-addr`. |
+| `deploy_node.sh` | Container-only single/multi-node startup with cluster/join, CPU worker override, and `--clear-cache` cold-start option. |
 | `scripts/start_container.sh` | Physical-host Docker container startup; defaults to Docker `--init` for subprocess reaping. |
 | `scripts/debug_line451_rmsnorm_nondeterminism.py` | Standalone reproduction for line 451 RMSNorm CUDA-Agent nondeterministic correctness. |
 | `kernelgym/backend/kernelbench/cuda_agent_backend.py` | CUDA-Agent parsing, validation scaffold, compile/load backend. |
