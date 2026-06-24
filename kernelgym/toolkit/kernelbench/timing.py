@@ -33,62 +33,71 @@ def time_execution_with_cuda_event(
 
     overall_start = perf_counter()
 
-    warmup_start = perf_counter()
-    for _ in range(num_warmup):
-        kernel_fn(*args)
-        torch.cuda.synchronize(device=device)
-    warmup_wall_s = perf_counter() - warmup_start
-
-    logger.debug(
-        "[Profiling] Using device: %s %s, warm up %s, trials %s",
-        device,
-        torch.cuda.get_device_name(device),
-        num_warmup,
-        num_trials,
-    )
-    elapsed_times = []
-
-    measure_start = perf_counter()
-    for trial in range(num_trials):
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
-
-        start_event.record()
-        kernel_fn(*args)
-        end_event.record()
-
-        torch.cuda.synchronize(device=device)
-
-        elapsed_time_ms = start_event.elapsed_time(end_event)
-        if verbose:
-            logger.info("Trial %s: %.3g ms", trial + 1, elapsed_time_ms)
-        elapsed_times.append(elapsed_time_ms)
-    measure_wall_s = perf_counter() - measure_start
-
     profiling_metrics: Dict[str, Any] = {}
     profiling_wall_s = 0.0
-    if enable_profiling:
-        try:
+
+    # Disable autograd for the whole measurement window. The forward passes here
+    # are pure inference; without this, models that hold nn.Parameter (which
+    # default to requires_grad=True) would build and immediately discard an
+    # autograd graph on every trial, wasting memory and adding timing noise.
+    # Use no_grad (not the stricter inference_mode) to keep the same autograd
+    # semantics as the correctness checks, so a kernel that passes correctness
+    # is timed under identical conditions.
+    with torch.no_grad():
+        warmup_start = perf_counter()
+        for _ in range(num_warmup):
+            kernel_fn(*args)
+            torch.cuda.synchronize(device=device)
+        warmup_wall_s = perf_counter() - warmup_start
+
+        logger.debug(
+            "[Profiling] Using device: %s %s, warm up %s, trials %s",
+            device,
+            torch.cuda.get_device_name(device),
+            num_warmup,
+            num_trials,
+        )
+        elapsed_times = []
+
+        measure_start = perf_counter()
+        for trial in range(num_trials):
+            start_event = torch.cuda.Event(enable_timing=True)
+            end_event = torch.cuda.Event(enable_timing=True)
+
+            start_event.record()
+            kernel_fn(*args)
+            end_event.record()
+
             torch.cuda.synchronize(device=device)
 
-            num_profiling_trials = min(10, num_trials)
-            logger.info("[Profiling] Running %s additional iterations for profiling...", num_profiling_trials)
+            elapsed_time_ms = start_event.elapsed_time(end_event)
+            if verbose:
+                logger.info("Trial %s: %.3g ms", trial + 1, elapsed_time_ms)
+            elapsed_times.append(elapsed_time_ms)
+        measure_wall_s = perf_counter() - measure_start
 
-            profiling_start = perf_counter()
-            with profiling_context(True) as prof:
-                for _ in range(num_profiling_trials):
-                    kernel_fn(*args)
+        if enable_profiling:
+            try:
                 torch.cuda.synchronize(device=device)
-            profiling_wall_s = perf_counter() - profiling_start
 
-            profiling_metrics = extract_profiling_metrics(prof)
-            if profiling_metrics:
-                logger.info("[Profiling] Captured %s CUDA kernels", profiling_metrics.get("kernel_count", 0))
-                logger.info("[Profiling] Total CUDA time: %.2f us", profiling_metrics.get("total_cuda_time_us", 0))
+                num_profiling_trials = min(10, num_trials)
+                logger.info("[Profiling] Running %s additional iterations for profiling...", num_profiling_trials)
 
-        except Exception as e:
-            logger.warning("[Profiling] Profiling failed: %s", e)
-            profiling_metrics = {"profiling_error": str(e)}
+                profiling_start = perf_counter()
+                with profiling_context(True) as prof:
+                    for _ in range(num_profiling_trials):
+                        kernel_fn(*args)
+                    torch.cuda.synchronize(device=device)
+                profiling_wall_s = perf_counter() - profiling_start
+
+                profiling_metrics = extract_profiling_metrics(prof)
+                if profiling_metrics:
+                    logger.info("[Profiling] Captured %s CUDA kernels", profiling_metrics.get("kernel_count", 0))
+                    logger.info("[Profiling] Total CUDA time: %.2f us", profiling_metrics.get("total_cuda_time_us", 0))
+
+            except Exception as e:
+                logger.warning("[Profiling] Profiling failed: %s", e)
+                profiling_metrics = {"profiling_error": str(e)}
 
     timing_info = {
         "warmup_wall_s": warmup_wall_s,
