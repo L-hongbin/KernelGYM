@@ -305,6 +305,64 @@ def _compare_tensors_inplace(
     return max_over_tolerance <= 0, float(max_diff), float(avg_diff)
 
 
+def _describe_structure(value: Any) -> Any:
+    """Structural shape description for a (possibly nested) output."""
+    if isinstance(value, torch.Tensor):
+        return tuple(value.shape)
+    if isinstance(value, (list, tuple)):
+        return type(value).__name__, [_describe_structure(v) for v in value]
+    if isinstance(value, dict):
+        return {key: _describe_structure(v) for key, v in value.items()}
+    return type(value).__name__
+
+
+def _structures_match(a: Any, b: Any) -> bool:
+    """Recursively check that two (possibly nested) outputs share structure/shape."""
+    if isinstance(a, torch.Tensor) and isinstance(b, torch.Tensor):
+        return a.shape == b.shape
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return type(a) is type(b) and len(a) == len(b) and all(_structures_match(x, y) for x, y in zip(a, b))
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_structures_match(a[k], b[k]) for k in a)
+    return type(a) is type(b)
+
+
+def _first_tensor(value: Any) -> torch.Tensor | None:
+    for tensor in _iter_tensors(value):
+        return tensor
+    return None
+
+
+def _compare_outputs_inplace(output: Any, output_new: Any) -> tuple[bool, float, float]:
+    """Recursive, destructive comparison over nested tensor/list/tuple/dict outputs.
+
+    Each tensor leaf is compared with its own dtype tolerance via
+    ``_compare_tensors_inplace``; results aggregate to (all_close, max_diff,
+    mean_of_per_leaf_avg). Non-tensor leaves compare by equality.
+    """
+    if isinstance(output, torch.Tensor):
+        tolerance = get_tolerance_for_dtype(output.dtype)
+        return _compare_tensors_inplace(output, output_new, atol=tolerance, rtol=tolerance)
+    if isinstance(output, (list, tuple)):
+        items = list(zip(output, output_new))
+    elif isinstance(output, dict):
+        items = [(output[key], output_new[key]) for key in output]
+    else:
+        return bool(output == output_new), 0.0, 0.0
+
+    close = True
+    max_diff = 0.0
+    avg_sum = 0.0
+    leaves = 0
+    for a, b in items:
+        leaf_close, leaf_max, leaf_avg = _compare_outputs_inplace(a, b)
+        close = close and leaf_close
+        max_diff = max(max_diff, leaf_max)
+        avg_sum += leaf_avg
+        leaves += 1
+    return close, max_diff, (avg_sum / leaves if leaves else 0.0)
+
+
 def register_and_format_exception(
     exception_type: str,
     exception_msg: Exception | str,
@@ -528,10 +586,17 @@ def run_and_check_correctness(
                 logger.debug("device: %s", device)
                 logger.debug("inputs: %s", first_input_device)
 
+            # Reseed immediately before each forward so models with an
+            # RNG-consuming op (e.g. torch.bernoulli) draw from the same RNG
+            # state in both runs; otherwise the reference forward advances the
+            # RNG and the candidate mismatches even when identical.
             _set_substage("reference_forward", trial=trial)
+<<<<<<< HEAD
             # Input generation may consume RNG. Start both forwards from the
             # same per-trial Torch RNG state so stochastic PyTorch operations
             # are comparable when ModelNew uses the same RNG implementation.
+=======
+>>>>>>> a7fc70c (fix(kernelbench): reseed per-forward and support multi-output correctness checks)
             set_seed(trial_seed)
             reference_start = perf_counter()
             output = model(*inputs)
@@ -567,12 +632,14 @@ def run_and_check_correctness(
                 trials_run = trial + 1
                 del inputs
 
-                if output.shape != output_new.shape:
+                if not _structures_match(output, output_new):
+                    expected_shape = _describe_structure(output)
+                    got_shape = _describe_structure(output_new)
                     compare_trial_durations.append(0.0)
                     trial_durations.append(perf_counter() - trial_start)
                     metadata = register_and_format_exception(
                         "correctness_issue",
-                        f"Output shape mismatch: Expected {output.shape}, got {output_new.shape}",
+                        f"Output shape mismatch: Expected {expected_shape}, got {got_shape}",
                         metadata,
                     )
                     metadata["correctness_issue_name"] = "correctness_issue"
@@ -582,22 +649,19 @@ def run_and_check_correctness(
                         logger.warning(
                             "[FAIL] trial %s: Output shape mismatch: Expected %s, got %s",
                             trial,
-                            output.shape,
-                            output_new.shape,
+                            expected_shape,
+                            got_shape,
                         )
                     return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
 
                 _set_substage("compare", trial=trial)
                 compare_start = perf_counter()
-                tolerance = get_tolerance_for_dtype(output.dtype)
-                metadata["correctness_atol"] = tolerance
-                metadata["correctness_rtol"] = tolerance
-                outputs_close, max_diff, avg_diff = _compare_tensors_inplace(
-                    output,
-                    output_new,
-                    atol=tolerance,
-                    rtol=tolerance,
-                )
+                reference_leaf = _first_tensor(output)
+                if reference_leaf is not None:
+                    tolerance = get_tolerance_for_dtype(reference_leaf.dtype)
+                    metadata["correctness_atol"] = tolerance
+                    metadata["correctness_rtol"] = tolerance
+                outputs_close, max_diff, avg_diff = _compare_outputs_inplace(output, output_new)
                 compare_trial_durations.append(perf_counter() - compare_start)
                 trial_durations.append(perf_counter() - trial_start)
 
