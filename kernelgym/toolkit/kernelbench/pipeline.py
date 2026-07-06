@@ -370,6 +370,35 @@ def _run_triton_detection_step(
     return False
 
 
+def _run_load_inline_decoy_step(
+    *,
+    enable: bool,
+    kernel_exec_result: Optional[KernelExecResult],
+    backend_profiling_hints: Optional[Dict[str, Any]],
+    metadata: Dict[str, Any],
+) -> bool:
+    """Flag a load_inline submission as a decoy when its compiled extension is unused.
+
+    Only a *correct* submission can be a meaningful decoy (an incorrect one is
+    already rejected). The verdict is the static AST analysis produced at load()
+    time and carried on the backend handle's ``profiling_hints``.
+    """
+    if not enable or kernel_exec_result is None or not kernel_exec_result.correctness:
+        return False
+    hint = (backend_profiling_hints or {}).get("load_inline_decoy")
+    if not isinstance(hint, dict):
+        return False
+    metadata["load_inline_decoy"] = hint
+    if isinstance(kernel_exec_result.metadata, dict):
+        kernel_exec_result.metadata["load_inline_decoy"] = hint
+    if hint.get("decoy"):
+        logger.warning("[Eval] load_inline decoy detected: %s", hint.get("reason"))
+        kernel_exec_result.decoy_kernel = True
+        kernel_exec_result.runtime = -1.0
+        return True
+    return False
+
+
 def _run_performance_step(
     *,
     kernel_exec_result: KernelExecResult,
@@ -952,6 +981,13 @@ def eval_kernel_against_ref(
         timing_key="kg_kernel_triton_detect_s",
         start_time=triton_detect_start,
     )
+    if not decoy_detected and backend == "load_inline":
+        decoy_detected = _run_load_inline_decoy_step(
+            enable=detect_decoy_kernel,
+            kernel_exec_result=kernel_exec_result,
+            backend_profiling_hints=backend_profiling_hints,
+            metadata=metadata,
+        )
     if decoy_detected:
         metadata["kg_kernel_total_s"] = perf_counter() - overall_start
         _sync_exec_result_metadata(kernel_exec_result, metadata)

@@ -8,6 +8,7 @@ from kernelgym.backend.base import Backend
 
 from .cuda_agent_backend import KernelBenchCudaAgentBackend
 from .cuda_backend import KernelBenchCudaBackend
+from .load_inline_backend import KernelBenchLoadInlineBackend
 from .tvm_ffi_backend import KernelBenchTvmFfiBackend
 from .triton_backend import KernelBenchTritonBackend
 
@@ -19,6 +20,7 @@ class KernelBenchBackend(Backend):
         self._triton = KernelBenchTritonBackend()
         self._cuda = KernelBenchCudaBackend()
         self._cuda_agent = KernelBenchCudaAgentBackend()
+        self._load_inline = KernelBenchLoadInlineBackend()
         self._tvm_ffi = KernelBenchTvmFfiBackend()
 
     @staticmethod
@@ -30,6 +32,8 @@ class KernelBenchBackend(Backend):
             return "cuda"
         if key == "cuda_agent":
             return "cuda_agent"
+        if key in ("load_inline", "inline", "inline_extension"):
+            return "load_inline"
         if key in ("tvm_ffi", "tvm-ffi", "tvmffi"):
             return "tvm_ffi"
         return "cuda"
@@ -40,6 +44,8 @@ class KernelBenchBackend(Backend):
             return self._triton
         if backend == "cuda_agent":
             return self._cuda_agent
+        if backend == "load_inline":
+            return self._load_inline
         if backend == "tvm_ffi":
             return self._tvm_ffi
         return self._cuda

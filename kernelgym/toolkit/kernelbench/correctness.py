@@ -24,11 +24,21 @@ _CORRECTNESS_MAX_WALL_S_ENV = "KERNELGYM_CORRECTNESS_MAX_WALL_S"
 _CORRECTNESS_PASS_ON_BUDGET_ENV = "KERNELGYM_CORRECTNESS_PASS_ON_BUDGET"
 _CORRECTNESS_BUDGET_MIN_PASS_TRIALS_ENV = "KERNELGYM_CORRECTNESS_BUDGET_MIN_PASS_TRIALS"
 _CORRECTNESS_GPU_INPUTS_ENV = "KERNELGYM_CORRECTNESS_GPU_INPUTS"
+_CORRECTNESS_DISABLE_TF32_ENV = "KERNELGYM_CORRECTNESS_DISABLE_TF32"
 T = TypeVar("T")
 
 
+_FP32_TOL_ENV = "KERNELGYM_FP32_TOL"
+
+
 def get_tolerance_for_dtype(dtype: torch.dtype) -> float:
-    """Match KernelBench fp32 tolerance for integral outputs."""
+    """Match KernelBench fp32 tolerance for integral outputs.
+
+    The float32 tolerance can be overridden via ``KERNELGYM_FP32_TOL`` (opt-in;
+    default is the KernelBench-standard 1e-4) — used to study how much of the
+    correctness gap is fp32 accumulation vs the strict default tolerance. All
+    other dtypes are unchanged.
+    """
     tolerances = {
         torch.float32: 1e-4,
         torch.float16: 1e-2,
@@ -42,6 +52,15 @@ def get_tolerance_for_dtype(dtype: torch.dtype) -> float:
     }
     if dtype not in tolerances:
         raise ValueError(f"Unsupported correctness tolerance dtype: {dtype}")
+    if dtype == torch.float32:
+        override = os.environ.get(_FP32_TOL_ENV)
+        if override is not None and override.strip():
+            try:
+                value = float(override)
+                if value > 0:
+                    return value
+            except (TypeError, ValueError):
+                pass
     return tolerances[dtype]
 
 
@@ -77,6 +96,104 @@ def _env_positive_float(name: str) -> float | None:
 def _env_positive_int(name: str) -> int | None:
     parsed = _env_parsed(name, int)
     return parsed if parsed is not None and parsed > 0 else None
+
+
+def _read_backend_attr(root: Any, path: tuple[str, ...]) -> tuple[bool, Any]:
+    obj = root
+    for name in path[:-1]:
+        try:
+            obj = getattr(obj, name)
+        except Exception:
+            return False, None
+        if obj is None:
+            return False, None
+    attr = path[-1]
+    try:
+        return True, getattr(obj, attr)
+    except Exception:
+        return False, None
+
+
+def _write_backend_attr(root: Any, path: tuple[str, ...], value: Any) -> bool:
+    obj = root
+    for name in path[:-1]:
+        try:
+            obj = getattr(obj, name)
+        except Exception:
+            return False
+        if obj is None:
+            return False
+    attr = path[-1]
+    try:
+        setattr(obj, attr, value)
+        return True
+    except Exception:
+        return False
+
+
+@contextmanager
+def _true_fp32_correctness_context(metadata: dict):
+    """Force CUDA fp32 ops to true fp32 during correctness, then restore."""
+    enabled = _env_flag(_CORRECTNESS_DISABLE_TF32_ENV, default=True)
+    metadata["correctness_tf32_disabled"] = bool(enabled)
+    if not enabled:
+        yield
+        return
+
+    # PyTorch 2.9+ prefers per-op fp32_precision settings. Do not mix those
+    # with legacy allow_tf32 flags when they are available; PyTorch can raise
+    # if old and new APIs imply different cuDNN operator policies.
+    has_cudnn_conv_precision, _ = _read_backend_attr(torch.backends, ("cudnn", "conv", "fp32_precision"))
+    has_matmul_precision, _ = _read_backend_attr(torch.backends, ("cuda", "matmul", "fp32_precision"))
+    attr_targets = []
+    if has_cudnn_conv_precision:
+        attr_targets.append(("cudnn.conv.fp32_precision", ("cudnn", "conv", "fp32_precision"), "ieee"))
+    else:
+        attr_targets.append(("cudnn.allow_tf32", ("cudnn", "allow_tf32"), False))
+    if has_matmul_precision:
+        attr_targets.append(("cuda.matmul.fp32_precision", ("cuda", "matmul", "fp32_precision"), "ieee"))
+    else:
+        attr_targets.append(("cuda.matmul.allow_tf32", ("cuda", "matmul", "allow_tf32"), False))
+    saved_attrs: list[tuple[str, tuple[str, ...], Any]] = []
+    applied: dict[str, str] = {}
+    before: dict[str, str] = {}
+
+    for label, path, value in attr_targets:
+        exists, old_value = _read_backend_attr(torch.backends, path)
+        if not exists:
+            continue
+        before[label] = str(old_value)
+        if _write_backend_attr(torch.backends, path, value):
+            saved_attrs.append((label, path, old_value))
+            applied[label] = str(value)
+
+    old_matmul_precision = None
+    if (
+        not has_matmul_precision
+        and hasattr(torch, "get_float32_matmul_precision")
+        and hasattr(torch, "set_float32_matmul_precision")
+    ):
+        try:
+            old_matmul_precision = torch.get_float32_matmul_precision()
+            torch.set_float32_matmul_precision("highest")
+            before["float32_matmul_precision"] = str(old_matmul_precision)
+            applied["float32_matmul_precision"] = "highest"
+        except Exception:
+            old_matmul_precision = None
+
+    metadata["correctness_tf32_state_before"] = before
+    metadata["correctness_tf32_state_forced"] = applied
+
+    try:
+        yield
+    finally:
+        if old_matmul_precision is not None:
+            try:
+                torch.set_float32_matmul_precision(old_matmul_precision)
+            except Exception:
+                pass
+        for _, path, old_value in reversed(saved_attrs):
+            _write_backend_attr(torch.backends, path, old_value)
 
 
 @contextmanager
@@ -313,11 +430,6 @@ def run_and_check_correctness(
     torch.manual_seed(seed)
     correctness_trial_seeds = [int(torch.randint(0, 2**32 - 1, (1,)).item()) for _ in range(num_correct_trials)]
 
-    set_seed(seed)
-    model = original_model_instance.cuda(device=device)
-    set_seed(seed)
-    model_new = new_model_instance.cuda(device=device)
-
     def _record_runtime_exception(
         exception: Exception,
         *,
@@ -336,7 +448,21 @@ def run_and_check_correctness(
         _record_trial_metadata()
         return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
 
-    with torch.no_grad():
+    with _true_fp32_correctness_context(metadata), torch.no_grad():
+        set_seed(seed)
+        model = original_model_instance.cuda(device=device)
+        set_seed(seed)
+        model_new = new_model_instance.cuda(device=device)
+        # Diagnostic-only toggle (default off, matches KernelBench upstream and the
+        # official KernelGYM fork, both of which never call .eval()): when set, run
+        # the REFERENCE model in eval() mode (e.g. BatchNorm uses running stats
+        # instead of live batch stats). Used to quantify how much of a correctness
+        # gap is attributable to train-mode-vs-eval-mode reference semantics; must
+        # stay opt-in so it never changes default/live scoring behavior.
+        if _env_flag("KERNELGYM_CORRECTNESS_REFERENCE_EVAL_MODE", default=False):
+            model.eval()
+            metadata["correctness_reference_eval_mode"] = True
+
         for trial in range(num_correct_trials):
             if trial > 0:
                 budget_result = _maybe_finish_on_time_budget()

@@ -43,10 +43,15 @@ class RewardProfile:
             "REDIS_DB": str(REDIS_DB),
             "REDIS_PASSWORD": REDIS_PASSWORD,
             "REDIS_KEY_PREFIX": REDIS_KEY_PREFIX,
-            "WORKER_POOL_SIZE": "2",
+            "WORKER_POOL_SIZE": "4",
             "MAX_TASKS_PER_WORKER": "1",
             "CPU_COMPILE_WORKERS": "24",
-            "SPLIT_COMPILE_AND_EXECUTE": "true",
+            # KEEP false (part of the verified fix). split-compile runs compile and execute in
+            # DIFFERENT processes, so PyTorch's process-global JIT versioner produces mismatched
+            # `<name>_vN.so` across them → false `cannot open shared object` COMPILATION_ERRORs.
+            # The slime client (examples/kernel_agent/config.py) must ALSO send split=false, since a
+            # server `true` here would re-force split via request_defaults. Proven: 193/2400→0.
+            "SPLIT_COMPILE_AND_EXECUTE": "false",
             "DEFAULT_TIMEOUT": "180",
             "DEFAULT_TOOLKIT": "kernelbench",
             "DEFAULT_BACKEND_ADAPTER": "kernelbench",
@@ -71,7 +76,8 @@ class RewardProfile:
 
 
 PROFILE_REGISTRY: dict[str, RewardProfile] = {
-    DEFAULT_PROFILE_NAME: RewardProfile(name=DEFAULT_PROFILE_NAME),
+    # TEMP (.22 consolidated run): KernelGym pinned to GPUs 0-3; rollout uses 4-7. Revert to all 8.
+    DEFAULT_PROFILE_NAME: RewardProfile(name=DEFAULT_PROFILE_NAME, gpu_devices=(0, 1, 2, 3)),
 }
 
 

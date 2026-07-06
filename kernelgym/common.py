@@ -20,6 +20,7 @@ class Backend(str, Enum):
     TRITON = "triton"
     CUDA_AGENT = "cuda_agent"
     TVM_FFI = "tvm_ffi"
+    LOAD_INLINE = "load_inline"
     AUTO = "auto"
 
 

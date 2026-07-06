@@ -17,6 +17,7 @@ This file indexes stable repository docs and evidence locations.
 | `docs/design-doc/RUNTIME_COORDINATION_STORAGE.md` | Proposed split between live runtime coordination and long-lived result/cache storage. |
 | `docs/design-doc/TWO_WORKER_WARM_POOL.md` | Two-worker GPU subprocess warm-pool design, capacity invariant, and `v1` verification. |
 | `docs/server-result-cache-guard.md` | Server result cache hash guard design for safe `/evaluate` reuse. |
+| `docs/design-doc/MUSACODER_LOAD_INLINE_BACKEND.md` | load_inline backend for MusaCoder single-block `ModelNew` submissions: detection, code extraction, reuse of the CUDA path. |
 
 ## Important Code Areas
 
@@ -26,6 +27,8 @@ This file indexes stable repository docs and evidence locations.
 | `scripts/start_container.sh` | Physical-host Docker container startup; defaults to Docker `--init` for subprocess reaping. |
 | `scripts/debug_line451_rmsnorm_nondeterminism.py` | Standalone reproduction for line 451 RMSNorm CUDA-Agent nondeterministic correctness. |
 | `kernelgym/backend/kernelbench/cuda_agent_backend.py` | CUDA-Agent parsing, validation scaffold, compile/load backend. |
+| `kernelgym/backend/kernelbench/load_inline_backend.py` | MusaCoder load_inline backend: extract clean `ModelNew` from a raw response, reuse the CUDA `load_custom_model` path. |
+| `kernelgym/toolkit/kernelbench/load_inline_decoy.py` | Static (AST) decoy check for load_inline: flag a compiled-but-unused extension (forward fell back to torch ops). |
 | `kernelgym/backend/kernelbench/tvm_ffi_backend.py` | TVM-FFI compile/load backend and compile artifact cache. |
 | `kernelgym/toolkit/kernelbench/pipeline.py` | KernelBench compile/load/correctness/performance pipeline. |
 | `kernelgym/utils/device_info.py` | Startup/runtime device metadata detection and serialized-result injection. |
