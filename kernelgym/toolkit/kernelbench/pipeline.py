@@ -15,6 +15,7 @@ from kernelgym.config import settings
 from kernelgym.toolkit.kernelbench import triton_detect as detect
 from kernelgym.toolkit.kernelbench.exec_types import KernelExecResult, get_error_name, set_seed
 from kernelgym.toolkit.kernelbench.loading import (
+    OriginalModelLoadError,
     graceful_eval_cleanup,
     load_custom_model,
     load_custom_model_with_tempfile,
@@ -145,6 +146,15 @@ def _finish_stage(
 def _sync_exec_result_metadata(result: Optional[KernelExecResult], metadata: Dict[str, Any]) -> None:
     if result is not None and isinstance(result.metadata, dict):
         result.metadata.update(metadata)
+
+
+def _record_model_load_error(metadata: Dict[str, Any], exc: Exception) -> KernelExecResult:
+    metadata["model_load_error"] = str(exc)
+    metadata["model_load_error_name"] = get_error_name(exc)
+    if exc.__cause__ is not None:
+        metadata["model_load_error_cause"] = str(exc.__cause__)
+        metadata["model_load_error_cause_name"] = get_error_name(exc.__cause__)
+    return KernelExecResult(compiled=False, correctness=False, metadata=metadata)
 
 
 def _sanitize_compile_artifact(artifact: Dict[str, Any]) -> Dict[str, Any]:
@@ -646,13 +656,24 @@ def eval_kernel_against_ref(
         stage="kernel.load_original_src",
         overall_start=overall_start,
     )
-    Model, get_init_inputs, get_inputs = load_original_model_and_inputs(original_model_src, context, entry_point)
-    _finish_stage(
-        metadata,
-        stage="kernel.load_original_src",
-        timing_key="kg_kernel_load_original_src_s",
-        start_time=load_original_start,
-    )
+    try:
+        Model, get_init_inputs, get_inputs = load_original_model_and_inputs(original_model_src, context, entry_point)
+    except OriginalModelLoadError as exc:
+        _finish_stage(
+            metadata,
+            stage="kernel.load_original_src",
+            timing_key="kg_kernel_load_original_src_s",
+            start_time=load_original_start,
+        )
+        metadata["kg_kernel_total_s"] = perf_counter() - overall_start
+        return _record_model_load_error(metadata, exc)
+    else:
+        _finish_stage(
+            metadata,
+            stage="kernel.load_original_src",
+            timing_key="kg_kernel_load_original_src_s",
+            start_time=load_original_start,
+        )
 
     init_inputs_start = _begin_stage(
         metadata,
@@ -1034,13 +1055,27 @@ def eval_reference_only(
             stage="reference.load_original_src",
             overall_start=overall_start,
         )
-        Model, get_init_inputs, get_inputs = load_original_model_and_inputs(original_model_src, context, entry_point)
-        _finish_stage(
-            metadata,
-            stage="reference.load_original_src",
-            timing_key="kg_reference_load_original_src_s",
-            start_time=load_original_start,
-        )
+        try:
+            Model, get_init_inputs, get_inputs = load_original_model_and_inputs(
+                original_model_src,
+                context,
+                entry_point,
+            )
+        except OriginalModelLoadError:
+            _finish_stage(
+                metadata,
+                stage="reference.load_original_src",
+                timing_key="kg_reference_load_original_src_s",
+                start_time=load_original_start,
+            )
+            raise
+        else:
+            _finish_stage(
+                metadata,
+                stage="reference.load_original_src",
+                timing_key="kg_reference_load_original_src_s",
+                start_time=load_original_start,
+            )
 
         init_inputs_start = _begin_stage(
             metadata,
@@ -1082,9 +1117,7 @@ def eval_reference_only(
 
     except Exception as e:
         logger.warning("Failed to load original model: %s", e)
-        metadata["model_load_error"] = e
-        metadata["model_load_error_name"] = get_error_name(e)
-        return KernelExecResult(compiled=False, correctness=False, metadata=metadata)
+        return _record_model_load_error(metadata, e)
 
     kernel_exec_result = KernelExecResult(compiled=True, correctness=True, metadata=metadata)
 

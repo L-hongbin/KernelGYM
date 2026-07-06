@@ -19,6 +19,10 @@ _MODEL_DEFAULT_TMPDIR = "/dev/shm/kernelgym/work/model_loading"
 _FAST_RW_ROOT = Path("/dev/shm")
 
 
+class OriginalModelLoadError(RuntimeError):
+    """Raised when the reference model source cannot be loaded."""
+
+
 def _model_tmpdir() -> str:
     path = Path(os.environ.get(_MODEL_TMPDIR_ENV, _MODEL_DEFAULT_TMPDIR))
     try:
@@ -41,16 +45,30 @@ def load_original_model_and_inputs(
     try:
         compile(model_original_src, "<string>", "exec")
     except SyntaxError as e:
-        logger.warning("Syntax error in original code: %s", e)
-        return None
+        message = f"Syntax error in original model source: {e}"
+        logger.warning(message)
+        raise OriginalModelLoadError(message) from e
     try:
         exec(model_original_src, context)
     except Exception as e:
-        logger.warning("Error executing original code: %s", e)
-        return None
+        message = f"Error executing original model source: {e.__class__.__name__}: {e}"
+        logger.warning(message)
+        raise OriginalModelLoadError(message) from e
     get_init_inputs_fn = context.get("get_init_inputs")
     get_inputs_fn = context.get("get_inputs")
     Model = context.get(entry_point)
+
+    missing = []
+    if Model is None:
+        missing.append(entry_point)
+    if get_init_inputs_fn is None:
+        missing.append("get_init_inputs")
+    if get_inputs_fn is None:
+        missing.append("get_inputs")
+    if missing:
+        message = f"Original model source missing required symbol(s): {', '.join(missing)}"
+        logger.warning(message)
+        raise OriginalModelLoadError(message)
 
     return (Model, get_init_inputs_fn, get_inputs_fn)
 

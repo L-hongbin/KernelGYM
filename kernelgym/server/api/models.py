@@ -7,6 +7,9 @@ from pydantic import BaseModel, Field, root_validator, validator
 from kernelgym.common import TaskStatus, Backend, Priority, ErrorCode
 
 
+MAX_CODE_CHARS = 100000
+
+
 class EvaluationRequest(BaseModel):
     """Request model for kernel evaluation."""
 
@@ -117,8 +120,8 @@ class EvaluationRequest(BaseModel):
             return v
         if not v or len(v.strip()) < 10:
             raise ValueError("Code must be at least 10 characters long")
-        if len(v) > 100000:
-            raise ValueError("Code must be less than 100KB")
+        if len(v) > MAX_CODE_CHARS:
+            raise ValueError(f"Code length exceeds limit: length={len(v)}, limit={MAX_CODE_CHARS}")
         return v
 
     @root_validator(skip_on_failure=True)
