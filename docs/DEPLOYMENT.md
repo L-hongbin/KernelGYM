@@ -313,6 +313,30 @@ PID=$(redis-cli -p 20110 HGET kernelgym:worker_process:worker_gpu_3 pid); [ -n "
 
 `POST /worker/evict_from_lb?worker_id=<id>` alone just drains a worker from the load balancer (no kill, no respawn) to quarantine a flaky one. This expected-worker set exists only on the primary; do **not** add worker-only-node ids to it, or the primary would try to launch them locally with the wrong device.
 
+## Profiler Timestamp Policy (CUPTI TSC Bug)
+
+Background and design: `docs/design-doc/PROFILER_EMPTY_CAPTURE.md`. CUDA 12.6u2–13.0 CUPTI can drop CUDA kernel records from `torch.profiler` (empty captures, `time_coverage=0`) when Kineto registers its TSC timestamp callback. KernelGym auto-resolves how many candidate forwards run per profiler context (`NUM_PROFILING_TRIALS=-1` default): on affected CUPTI versions it keeps the legacy 10-forward workaround, otherwise it uses 1 forward.
+
+**Default deployment needs no manual step.** On the current CUDA 12.9 runtime the workaround stays active automatically. The manual operations below are for changing the timestamp source later:
+
+1. **After deploying a Kineto/torch build that version-gates the TSC callback** (the production patch from the handoff; not built as of 2026-07): declare it and restart the service — the CUPTI timestamp callback is process-level state chosen before activity enable, so a restart is mandatory and the flag must never be flipped on a running service:
+
+   ```bash
+   export KINETO_TSC_FIXED=true   # not defined by profile v1, so the exported value reaches the service
+   bash stop_node.sh && bash deploy_node.sh --cluster
+   ```
+
+   To make it permanent for a node, add `"KINETO_TSC_FIXED": "true"` to the profile env in `kernelgym/deployment_profiles.py` instead of relying on the shell environment.
+
+2. **After upgrading the node to a matched CUDA/CUPTI 13.1+ stack** (driver must be >= 580; do not swap `libcupti.so` alone): no config change — auto resolution detects the fixed CUPTI and drops to 1 forward on the next deployment.
+
+3. **Canary and rollback:** after either change, watch the empty-capture rate. Every profiling-enabled result carries `kg_kernel_profiling_empty_initial` / `kg_kernel_profiling_retries_used` / `kg_kernel_profiling_empty_final` in metadata, and a final empty capture logs a `[Profiling] empty-capture:` warning (grep the worker logs, e.g. `logs/v1/workers.log`). Keep `PROFILING_RETRY_COUNT=1` during the canary. If empty captures reappear, roll back by forcing the legacy count and restarting:
+
+   ```bash
+   export NUM_PROFILING_TRIALS=10
+   bash stop_node.sh && bash deploy_node.sh --cluster
+   ```
+
 ## Verification
 
 Run lint and tests from the CUDA 12.9 `.venv`:

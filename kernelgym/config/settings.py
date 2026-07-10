@@ -90,6 +90,23 @@ class Settings(BaseSettings):
         env="PROFILING_RETRY_COUNT",
         description="Retry count when profiler returns empty results (0 to disable).",
     )
+    num_profiling_trials: int = Field(
+        default=-1,
+        env="NUM_PROFILING_TRIALS",
+        description=(
+            "Extra candidate forwards per profiler context. Values < 1 mean auto: 1 forward when the "
+            "CUPTI TSC timestamp bug is absent (CUDA >= 13.1 or KINETO_TSC_FIXED=true), otherwise the "
+            "legacy min(10, num_trials) workaround that masks empty captures on CUDA 12.6u2-13.0."
+        ),
+    )
+    kineto_tsc_fixed: bool = Field(
+        default=False,
+        env="KINETO_TSC_FIXED",
+        description=(
+            "Declare that the deployed Kineto build already version-gates the CUPTI TSC timestamp "
+            "callback, so auto profiling-trial resolution may drop to 1 forward on affected CUPTI versions."
+        ),
+    )
 
     reference_cache_dataset_path: str = Field(default="", env="REFERENCE_CACHE_DATASET_PATH")
     val_data_cache_dataset_path: str = Field(default="", env="VAL_DATA_CACHE_DATASET_PATH")

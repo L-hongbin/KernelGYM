@@ -13,6 +13,7 @@ This file indexes stable repository docs and evidence locations.
 | `docs/SOURCE_LINEAGE.md` | Source repositories and imported/excluded behavior. |
 | `docs/IMPLEMENTATION_DIFFERENCES.md` | Current implementation differences from source repositories. |
 | `docs/design-doc/COMPILE_ACCELERATION.md` | CUDA-Agent compile acceleration design. |
+| `docs/design-doc/PROFILER_EMPTY_CAPTURE.md` | CUPTI TSC timestamp bug root cause and version-gated profiling-trial policy. |
 | `docs/design-doc/REWARD_HACKING_DEFENSES.md` | Current reward-hacking defense design notes. |
 | `docs/design-doc/RUNTIME_COORDINATION_STORAGE.md` | Proposed split between live runtime coordination and long-lived result/cache storage. |
 | `docs/design-doc/TRUE_FP32_CORRECTNESS.md` | Correctness-time TF32 disable policy and true-fp32 oracle design. |

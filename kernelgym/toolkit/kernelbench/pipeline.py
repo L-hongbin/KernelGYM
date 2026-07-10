@@ -28,6 +28,7 @@ from kernelgym.toolkit.kernelbench.profiling import (
 )
 from kernelgym.toolkit.kernelbench.timing import (
     get_timing_stats,
+    resolve_num_profiling_trials,
     run_profiling_only,
     time_execution_with_cuda_event,
 )
@@ -442,18 +443,22 @@ def _run_performance_step(
             metadata["kg_kernel_perf_max_ms"] = runtime_stats["max"]
             metadata["kg_kernel_perf_num_profile_trials"] = timing_info["num_profiling_trials"]
 
-            if enable_profiling and _profiling_empty(profiling_metrics):
+            profiling_empty_initial = enable_profiling and _profiling_empty(profiling_metrics)
+            profiling_retries_used = 0
+            if profiling_empty_initial:
                 retry_count = max(0, int(getattr(settings, "profiling_retry_count", 0)))
+                retry_trials = resolve_num_profiling_trials(num_perf_trials)
                 for attempt in range(retry_count):
                     logger.warning(
                         "Profiler returned empty results. Retrying (%s/%s)...",
                         attempt + 1,
                         retry_count,
                     )
+                    profiling_retries_used = attempt + 1
                     retry_metrics = run_profiling_only(
                         model_new,
                         *inputs,
-                        num_trials=max(1, min(num_perf_trials, 10)),
+                        num_trials=retry_trials,
                         verbose=verbose,
                         device=device,
                     )
@@ -461,6 +466,22 @@ def _run_performance_step(
                         profiling_metrics = retry_metrics
                         break
                     profiling_metrics = retry_metrics
+
+            if enable_profiling:
+                # Per-task empty-capture bookkeeping so the fleet-wide empty rate can
+                # be computed from result metadata (see docs/design-doc/PROFILER_EMPTY_CAPTURE.md).
+                profiling_empty_final = _profiling_empty(profiling_metrics)
+                metadata["kg_kernel_profiling_empty_initial"] = profiling_empty_initial
+                metadata["kg_kernel_profiling_retries_used"] = profiling_retries_used
+                metadata["kg_kernel_profiling_empty_final"] = profiling_empty_final
+                if profiling_empty_final:
+                    logger.warning(
+                        "[Profiling] empty-capture: no CUDA kernels after %s retries "
+                        "(initial_empty=%s, num_profile_trials=%s)",
+                        profiling_retries_used,
+                        profiling_empty_initial,
+                        timing_info["num_profiling_trials"],
+                    )
 
             if enable_profiling:
                 logger.debug("profiling_metrics type: %s, empty: %s", type(profiling_metrics), not profiling_metrics)
