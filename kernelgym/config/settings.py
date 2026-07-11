@@ -408,11 +408,40 @@ def get_logging_config() -> Dict[str, Any]:
     return config
 
 
+_QUEUE_LISTENERS: List[Any] = []
+_LOGGING_CONFIGURED_PID: int | None = None
+
+
+def _install_queue_handlers(logger_names: List[str]) -> None:
+    """Re-home each configured logger's handlers behind a QueueHandler.
+
+    Emission then only enqueues in-memory; the actual console/file writes
+    happen on a QueueListener thread, so slow sinks (NFS-backed log files)
+    can never stall the caller — in the API server that caller is the
+    asyncio event loop serving every request and worker heartbeat.
+    """
+    import atexit
+    import logging
+    import logging.handlers
+    import queue
+
+    for name in logger_names:
+        target = logging.getLogger(name)
+        sinks = list(target.handlers)
+        if not sinks or any(isinstance(h, logging.handlers.QueueHandler) for h in sinks):
+            continue
+        q: queue.Queue = queue.Queue()
+        listener = logging.handlers.QueueListener(q, *sinks, respect_handler_level=True)
+        listener.start()
+        _QUEUE_LISTENERS.append(listener)
+        atexit.register(listener.stop)
+        target.handlers = [logging.handlers.QueueHandler(q)]
+
+
 def setup_logging(component_name: str = "server"):
     import logging.config
 
-    config = get_logging_config()
-    logging.config.dictConfig(config)
+    global _LOGGING_CONFIGURED_PID
 
     if component_name == "api":
         logger_name = "kernelgym.api"
@@ -420,6 +449,20 @@ def setup_logging(component_name: str = "server"):
         logger_name = "kernelgym.worker"
     else:
         logger_name = ""
+
+    # Configure at most once per process: a second dictConfig would close the
+    # handlers the queue listeners are still writing to, which is how the
+    # "I/O operation on closed file" logging-error floods started.
+    if _LOGGING_CONFIGURED_PID == os.getpid():
+        return logging.getLogger(logger_name)
+
+    config = get_logging_config()
+    logging.config.dictConfig(config)
+    _install_queue_handlers(list(config["loggers"].keys()))
+    # A broken sink must never inject "--- Logging error ---" tracebacks into
+    # stderr (they land in the service's redirected stdout log and flood it).
+    logging.raiseExceptions = False
+    _LOGGING_CONFIGURED_PID = os.getpid()
 
     logger = logging.getLogger(logger_name)
     logger.info(f"Logging configured for {component_name} - File logging: {settings.log_to_file}")
