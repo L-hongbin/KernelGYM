@@ -97,6 +97,7 @@ def ensure_shim_built() -> Optional[Path]:
                 (completed.stderr or "").strip()[-2000:],
             )
             return None
+        temp_path.chmod(0o755)
         temp_path.replace(artifact)
     except Exception as exc:
         logger.error("CUPTI TSC shim build failed: %s", exc)

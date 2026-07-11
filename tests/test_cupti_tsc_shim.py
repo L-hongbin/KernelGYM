@@ -34,6 +34,7 @@ def test_builder_produces_loadable_shim_with_state_symbols(tmp_path, monkeypatch
 def test_service_env_injection_and_fail_open(monkeypatch, tmp_path) -> None:
     from kernelgym.cli import service
 
+    monkeypatch.delenv(cupti_tsc_shim.SHIM_FLAG_ENV, raising=False)
     fake = tmp_path / "libshim.so"
     fake.write_bytes(b"")
     monkeypatch.setattr(cupti_tsc_shim, "ensure_shim_built", lambda: fake)
@@ -52,6 +53,12 @@ def test_service_env_injection_and_fail_open(monkeypatch, tmp_path) -> None:
 
     # Flag off: untouched.
     env = service._with_cupti_tsc_shim({"KERNELGYM_CUPTI_TSC_SHIM": "false"})
+    assert "KINETO_TSC_FIXED" not in env
+
+    # Operator's ambient env is the emergency off switch over the profile value.
+    monkeypatch.setattr(cupti_tsc_shim, "ensure_shim_built", lambda: fake)
+    monkeypatch.setenv(cupti_tsc_shim.SHIM_FLAG_ENV, "false")
+    env = service._with_cupti_tsc_shim({"KERNELGYM_CUPTI_TSC_SHIM": "true"})
     assert "KINETO_TSC_FIXED" not in env
 
 

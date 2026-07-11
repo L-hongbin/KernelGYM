@@ -330,8 +330,8 @@ Manual operations:
 - **Disable the shim** (rollback to the always-on 10-forward workaround):
 
   ```bash
-  export KERNELGYM_CUPTI_TSC_SHIM=false   # ambient env only wins for keys the profile does not set — edit
-                                          # kernelgym/deployment_profiles.py for a permanent change
+  export KERNELGYM_CUPTI_TSC_SHIM=false   # ambient env deliberately overrides the profile for this key;
+                                          # edit kernelgym/deployment_profiles.py for a permanent change
   bash stop_node.sh && bash deploy_node.sh --cluster
   ```
 

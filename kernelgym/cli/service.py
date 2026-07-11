@@ -310,8 +310,10 @@ def _with_cupti_tsc_shim(env: dict[str, str]) -> dict[str, str]:
     """
     from kernelgym.utils import cupti_tsc_shim
 
-    flag = (env.get(cupti_tsc_shim.SHIM_FLAG_ENV) or "").strip().lower()
-    if flag not in {"1", "true", "yes", "on"}:
+    # The operator's ambient environment wins over the profile default so
+    # `export KERNELGYM_CUPTI_TSC_SHIM=false` is a working emergency off switch.
+    flag_value = os.environ.get(cupti_tsc_shim.SHIM_FLAG_ENV) or env.get(cupti_tsc_shim.SHIM_FLAG_ENV) or ""
+    if flag_value.strip().lower() not in {"1", "true", "yes", "on"}:
         return env
     shim_path = cupti_tsc_shim.ensure_shim_built()
     if shim_path is None:
