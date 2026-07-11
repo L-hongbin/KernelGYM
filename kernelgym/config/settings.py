@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     api_port: ClassVar[int] = API_PORT
     api_workers: ClassVar[int] = API_WORKERS
     api_reload: ClassVar[bool] = API_RELOAD
+    api_worker_healthcheck_timeout_sec: int = Field(
+        default=60,
+        env="API_WORKER_HEALTHCHECK_TIMEOUT_SEC",
+        description=(
+            "uvicorn kills a child that misses a keep-alive ping for this long. The 5s default "
+            "murders children mid torch-import (GIL held during NFS dlopen), causing endless recycling."
+        ),
+    )
 
     gpu_devices: List[int] = Field(default_factory=lambda: list(range(8)), env="GPU_DEVICES")
     node_id: str = Field(default="", env="NODE_ID")

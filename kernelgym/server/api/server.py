@@ -925,4 +925,5 @@ if __name__ == "__main__":
         workers=settings.api_workers,
         reload=settings.api_reload,
         log_level=settings.log_level.lower(),
+        timeout_worker_healthcheck=settings.api_worker_healthcheck_timeout_sec,
     )
