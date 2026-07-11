@@ -299,11 +299,41 @@ def _port_is_open(host: str, port: int, timeout: float = 1.0) -> bool:
         return False
 
 
+def _with_cupti_tsc_shim(env: dict[str, str]) -> dict[str, str]:
+    """Inject the CUPTI TSC shim when KERNELGYM_CUPTI_TSC_SHIM is enabled.
+
+    Builds the LD_PRELOAD shim and, on success, declares the Kineto TSC fix so
+    profiling drops to a single forward (see
+    docs/design-doc/PROFILER_EMPTY_CAPTURE.md). On any failure nothing is
+    injected: the service starts normally and the legacy multi-forward
+    profiling workaround stays active (fail-open).
+    """
+    from kernelgym.utils import cupti_tsc_shim
+
+    flag = (env.get(cupti_tsc_shim.SHIM_FLAG_ENV) or "").strip().lower()
+    if flag not in {"1", "true", "yes", "on"}:
+        return env
+    shim_path = cupti_tsc_shim.ensure_shim_built()
+    if shim_path is None:
+        print(
+            "WARNING: KERNELGYM_CUPTI_TSC_SHIM=true but the shim build failed; "
+            "keeping the legacy multi-forward profiling workaround"
+        )
+        return env
+    preload = env.get("LD_PRELOAD", "")
+    env["LD_PRELOAD"] = f"{shim_path}:{preload}" if preload else str(shim_path)
+    env["KINETO_TSC_FIXED"] = "true"
+    env[cupti_tsc_shim.SHIM_EXPECTED_ENV] = str(shim_path)
+    print(f"CUPTI TSC shim enabled: {shim_path}")
+    return env
+
+
 def _service_env(values: dict[str, str]) -> dict[str, str]:
     values = _with_torch_cuda_arch_list(values)
     values = _with_device_info(values)
     env = os.environ.copy()
     env.update(values)
+    env = _with_cupti_tsc_shim(env)
     env["API_PORT"] = str(API_PORT)
     env["API_WORKERS"] = str(API_WORKERS)
     env["API_RELOAD"] = bool_env(API_RELOAD)

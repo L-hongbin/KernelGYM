@@ -315,27 +315,31 @@ PID=$(redis-cli -p 20110 HGET kernelgym:worker_process:worker_gpu_3 pid); [ -n "
 
 ## Profiler Timestamp Policy (CUPTI TSC Bug)
 
-Background and design: `docs/design-doc/PROFILER_EMPTY_CAPTURE.md`. CUDA 12.6u2–13.0 CUPTI can drop CUDA kernel records from `torch.profiler` (empty captures, `time_coverage=0`) when Kineto registers its TSC timestamp callback. KernelGym auto-resolves how many candidate forwards run per profiler context (`NUM_PROFILING_TRIALS=-1` default): on affected CUPTI versions it keeps the legacy 10-forward workaround, otherwise it uses 1 forward.
+Background and design: `docs/design-doc/PROFILER_EMPTY_CAPTURE.md`. CUDA 12.6u2–13.0 CUPTI can drop CUDA kernel records from `torch.profiler` (empty captures, `time_coverage=0`) when Kineto registers its TSC timestamp callback.
 
-**Default deployment needs no manual step.** On the current CUDA 12.9 runtime the workaround stays active automatically. The manual operations below are for changing the timestamp source later:
+**Default deployment needs no manual step.** Profile `v1` sets `KERNELGYM_CUPTI_TSC_SHIM=true`: at startup the service builds a version-gated `LD_PRELOAD` shim (`kernelgym/native/cupti_tsc_shim.cpp`, artifact under `.native/`), preloads it into all service processes, and sets `KINETO_TSC_FIXED=true`, so profiling runs a single candidate forward per profiler context. Every gate fails open to the legacy 10-forward workaround: shim build failure skips injection, and workers that detect an expected-but-unengaged shim retry empty captures with the legacy count.
 
-1. **After deploying a Kineto/torch build that version-gates the TSC callback** (the production patch from the handoff; not built as of 2026-07): declare it and restart the service — the CUPTI timestamp callback is process-level state chosen before activity enable, so a restart is mandatory and the flag must never be flipped on a running service:
+What the operator should check after a deploy:
 
-   ```bash
-   export KINETO_TSC_FIXED=true   # not defined by profile v1, so the exported value reaches the service
-   bash stop_node.sh && bash deploy_node.sh --cluster
-   ```
+1. `deploy_node.sh` output (from `scripts/validate_runtime.py`) contains a `=== Validate CUPTI TSC shim ===` block ending in `shim_probe=OK`, with `shim_state=1` (engaged, CUDA 12.6–13.0) or `shim_state=2` (passthrough on fixed CUPTI 13.1+). Any `WARNING:` line there means the legacy workaround is active — the service still works, just with slower profiling.
+2. Profiling-enabled results should show `kg_kernel_perf_num_profile_trials: 1` and `cupti_tsc_shim_state: 1` inside `metadata.profiling`.
+3. Watch the empty-capture rate: `kg_kernel_profiling_empty_initial` / `kg_kernel_profiling_retries_used` / `kg_kernel_profiling_empty_final` in result metadata, and `[Profiling] empty-capture:` warnings in the worker logs (e.g. `logs/v1/workers.log`). Keep `PROFILING_RETRY_COUNT=1`.
 
-   To make it permanent for a node, add `"KINETO_TSC_FIXED": "true"` to the profile env in `kernelgym/deployment_profiles.py` instead of relying on the shell environment.
+Manual operations:
 
-2. **After upgrading the node to a matched CUDA/CUPTI 13.1+ stack** (driver must be >= 580; do not swap `libcupti.so` alone): no config change — auto resolution detects the fixed CUPTI and drops to 1 forward on the next deployment.
+- **Disable the shim** (rollback to the always-on 10-forward workaround):
 
-3. **Canary and rollback:** after either change, watch the empty-capture rate. Every profiling-enabled result carries `kg_kernel_profiling_empty_initial` / `kg_kernel_profiling_retries_used` / `kg_kernel_profiling_empty_final` in metadata, and a final empty capture logs a `[Profiling] empty-capture:` warning (grep the worker logs, e.g. `logs/v1/workers.log`). Keep `PROFILING_RETRY_COUNT=1` during the canary. If empty captures reappear, roll back by forcing the legacy count and restarting:
+  ```bash
+  export KERNELGYM_CUPTI_TSC_SHIM=false   # ambient env only wins for keys the profile does not set — edit
+                                          # kernelgym/deployment_profiles.py for a permanent change
+  bash stop_node.sh && bash deploy_node.sh --cluster
+  ```
 
-   ```bash
-   export NUM_PROFILING_TRIALS=10
-   bash stop_node.sh && bash deploy_node.sh --cluster
-   ```
+  or force the legacy count directly with `export NUM_PROFILING_TRIALS=10` and restart. The timestamp callback is process-level state chosen before CUPTI activity enable, so a restart is mandatory for any of these switches; never flip them on a running service.
+
+- **After deploying a Kineto/torch build that version-gates the TSC callback in source**: set `KERNELGYM_CUPTI_TSC_SHIM=false` and `KINETO_TSC_FIXED=true` in the profile env and restart; the declaration is then trusted without the shim.
+
+- **After upgrading the node to a matched CUDA/CUPTI 13.1+ stack** (driver must be >= 580; do not swap `libcupti.so` alone): no config change — the shim passes registration through to the real CUPTI, and auto resolution independently detects the fixed CUDA version. Once the fleet is on 13.1+, remove `KERNELGYM_CUPTI_TSC_SHIM` from the profile.
 
 ## Verification
 

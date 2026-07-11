@@ -28,6 +28,7 @@ from kernelgym.toolkit.kernelbench.profiling import (
 )
 from kernelgym.toolkit.kernelbench.timing import (
     get_timing_stats,
+    kineto_tsc_fix_verified as timing_kineto_tsc_fix_verified,
     resolve_num_profiling_trials,
     run_profiling_only,
     time_execution_with_cuda_event,
@@ -447,7 +448,13 @@ def _run_performance_step(
             profiling_retries_used = 0
             if profiling_empty_initial:
                 retry_count = max(0, int(getattr(settings, "profiling_retry_count", 0)))
-                retry_trials = resolve_num_profiling_trials(num_perf_trials)
+                # If a CUPTI TSC shim was expected but did not engage in this
+                # process, single-forward profiling cannot be trusted: retry
+                # with the legacy multi-forward workaround instead.
+                retry_trials = resolve_num_profiling_trials(
+                    num_perf_trials,
+                    kineto_tsc_fixed=timing_kineto_tsc_fix_verified(),
+                )
                 for attempt in range(retry_count):
                     logger.warning(
                         "Profiler returned empty results. Retrying (%s/%s)...",

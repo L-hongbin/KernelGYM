@@ -27,3 +27,6 @@ benchmarks/results/
 dump.rdb
 RUNTIME.md
 gpu_mem_trend.png
+
+# Built native artifacts (CUPTI TSC shim)
+.native/

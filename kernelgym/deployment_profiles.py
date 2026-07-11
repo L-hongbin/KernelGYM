@@ -67,6 +67,11 @@ class RewardProfile:
             "KERNELGYM_MANUAL_NINJA_OBJECT_CACHE_INDEX": "redis",
             "KERNELGYM_COMPILE_ARTIFACT_CACHE": "true",
             "KERNELGYM_CORRECTNESS_GPU_INPUTS": "true",
+            # LD_PRELOAD shim for the CUDA 12.6u2-13.0 CUPTI TSC timestamp bug;
+            # enables single-forward profiling. Fail-open: if the shim cannot
+            # be built/verified the legacy multi-forward workaround stays on.
+            # See docs/design-doc/PROFILER_EMPTY_CAPTURE.md.
+            "KERNELGYM_CUPTI_TSC_SHIM": "true",
         }
 
 

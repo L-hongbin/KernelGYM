@@ -27,24 +27,33 @@ Full root-cause analysis, experiments, and validation live outside this repo:
 
 The version gate is deliberately conservative: CUDA 12.6 GA/U1 cannot be distinguished from U2 by version string, and an unknown version fails safe into the workaround. The empty-capture retry in `pipeline._run_performance_step` also uses the resolved count (previously a hardcoded `min(10, num_perf_trials)`).
 
-Settings (env vars, `kernelgym/config/settings.py`):
+Settings (env vars, `kernelgym/config/settings.py` and profile env):
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `NUM_PROFILING_TRIALS` | `-1` (auto) | Explicit profiler forwards per context; values < 1 select auto resolution. |
-| `KINETO_TSC_FIXED` | `false` | Declare the deployed Kineto build already version-gates the TSC callback, so auto mode may use 1 forward on affected CUPTI. Only set after deploying such a build and restarting the service (the callback is process-level state). |
-| `PROFILING_RETRY_COUNT` | `1` | Existing retry when a capture comes back empty; intended as a canary-period guard, not a long-term 10-forward fallback. |
+| `KERNELGYM_CUPTI_TSC_SHIM` | `true` in profile `v1` | Build and inject the LD_PRELOAD shim (next section); on success the service also sets `KINETO_TSC_FIXED=true`. |
+| `KINETO_TSC_FIXED` | `false` | Declare the TSC timestamp source fixed (shim injected, or a patched Kineto build), so auto mode uses 1 forward on affected CUPTI. The callback is process-level state: only effective from process start. |
+| `PROFILING_RETRY_COUNT` | `1` | Existing retry when a capture comes back empty; retries fall back to the legacy multi-forward count when an expected shim did not engage. |
 
 Empty-capture rate is observable per task from result metadata: `kg_kernel_profiling_empty_initial`, `kg_kernel_profiling_retries_used`, `kg_kernel_profiling_empty_final`, alongside the existing `kg_kernel_perf_num_profile_trials`. A final empty capture also logs a `[Profiling] empty-capture:` warning line for log-based rate scraping. The long-standing protection that an empty capture (0 total kernels) is treated as a profiler failure and never marks `decoy_kernel` is unchanged and now pinned by tests.
 
-## Why not 1 forward today
+## How the fix is deployed: production LD_PRELOAD shim
 
-The 10→1 reduction is only safe after the timestamp source is fixed. That requires one of:
+The deployed fix is a version-gated `LD_PRELOAD` shim (`kernelgym/native/cupti_tsc_shim.cpp`, built by `kernelgym/utils/cupti_tsc_shim.py`) that interposes `cuptiActivityRegisterTimestampCallback`. On affected CUPTI versions (queried live via `cuptiGetVersion()`, resolved through libcupti's own handle because it may sit outside the global symbol scope) it suppresses the registration and flips Kineto's exported `libkineto::use_cupti_tsc()` flag to false so Kineto interprets CUPTI's native nanosecond timestamps — the exact configuration the handoff validated 45/45 on real TVM-FFI kernels. On CUPTI >= 13.1 (or <= 12.5) it passes the call through to the real CUPTI function, so upgrading the stack automatically returns to stock behavior. It has no static constructors and touches nothing else, so inheriting it into child processes (nvcc, ninja, redis) is inert.
 
-1. A Kineto build that skips `cuptiActivityRegisterTimestampCallback` and sets `use_cupti_tsc=false` on affected CUPTI versions (version-gated via `cuptiGetVersion()`; concept patch in the handoff). This patch has not been built or deployed; the experimental `LD_PRELOAD` shim that proved causality is diagnostic-only and must not be deployed. Once such a build is live, set `KINETO_TSC_FIXED=true` and restart.
-2. Upgrading the whole stack to a matched CUDA/CUPTI 13.1+ combination (driver must move to >= 580; `.21` currently runs 575.51.03). Auto resolution then drops to 1 forward with no config change. Do not swap `libcupti.so` in isolation.
+The shim exposes its decision via `kernelgym_cupti_tsc_shim_state()`: `0` not yet invoked, `1` engaged (native timestamps), `2` passthrough on fixed CUPTI, `3` passthrough because Kineto's flag symbol was missing (stock behavior kept — suppressing registration without flipping the flag would corrupt timestamps), `4` failed. Gates around it:
 
-Until then, auto mode keeps the legacy workaround on CUDA 12.6–13.0, trading profiler wall time for reliable captures. Expected savings once single-forward mode activates: 81.8%–90.8% of profiler context time on the validated L1/L2/L3 samples, with coverage differences within 1.38e-4 (reward impact <= 6.89e-5).
+- **Deploy preflight** (`scripts/validate_runtime.py`): builds the shim and probes a profiler context under `LD_PRELOAD` in a subprocess, printing `shim_state=... shim_cupti_version=... probe_kernels=...`; failures are loud warnings, never deploy blockers.
+- **Injection fail-open** (`kernelgym/cli/service.py`): `KERNELGYM_CUPTI_TSC_SHIM=true` (profile `v1` default) injects `LD_PRELOAD`, `KINETO_TSC_FIXED=true`, and `KERNELGYM_CUPTI_TSC_SHIM_EXPECTED=<path>` into service processes; if the build fails, nothing is injected and the legacy multi-forward workaround stays active.
+- **Runtime verification** (`timing.kineto_tsc_fix_verified`): after any profiler context, results record `cupti_tsc_shim_state` in profiling metrics, and the empty-capture retry falls back to the legacy `min(10, num_trials)` count whenever a shim was expected but did not engage in that process.
+
+Two alternatives make the shim unnecessary; both keep working unchanged:
+
+1. A Kineto build with the version gate compiled in (rebuilds `libtorch_cpu.so`): set `KINETO_TSC_FIXED=true` without `KERNELGYM_CUPTI_TSC_SHIM`; the declaration is then trusted as-is.
+2. Upgrading to a matched CUDA/CUPTI 13.1+ stack (driver >= 580; `.21` currently runs 575.51.03; do not swap `libcupti.so` in isolation). The shim passes through and auto resolution independently detects the fixed CUDA version.
+
+Measured effect (handoff, L1/L2/L3 canary): 81.8%–90.8% of profiler context wall time saved with single-forward profiling; coverage differences within 1.38e-4 (reward impact <= 6.89e-5). A/B on `.21` (2026-07-11, L2 P90 sample `fused_linear_sum_kernel`, ~570 ms): shim arm captured 9/9 single-forward contexts with profiler durations 545–605 ms consistent with CUDA events. Caveat recorded honestly: the baseline arm on `.21` also captured 10/10 that day — the CUPTI bug's trigger conditions are opaque and were only reliably reproducible on `.22` (1/10), so the shim on `.21` is a defense against a version-latent bug rather than a fix for an actively reproducing one; the runtime gates above cover the case where it starts triggering.
 
 One boundary to respect when single-forward mode activates: one forward only observes the kernel path that this forward takes. If future candidates have data-dependent branches, random paths, or first-iteration kernel selection that differs from steady state, choose the sampling count from reward semantics explicitly rather than re-enabling a multi-forward count to mask profiler issues.
 
@@ -52,3 +61,5 @@ One boundary to respect when single-forward mode activates: one forward only obs
 
 - `tests/test_profiling_trials.py` — version gate, fail-safe on unknown versions, explicit/env overrides, retry uses the resolved count, empty-capture metadata bookkeeping, and empty-capture-never-decoy.
 - `tests/test_profiling_empty_capture_gpu.py` — on a real GPU, consecutive profiler contexts around a slow (~120 ms) kernel must each capture kernel names with positive CUDA durations using the production-resolved trial count; explicit trial counts control the exact number of profiler forwards.
+- `tests/test_cupti_tsc_shim.py` — shim builder produces a loadable artifact with state symbols, service-env injection and fail-open, `kineto_tsc_fix_verified` semantics per shim state, and the retry fallback to legacy trials when the shim did not engage.
+- `tests/test_cupti_tsc_shim_gpu.py` — end-to-end in a subprocess configured like a deployed worker (shim preloaded, fix declared): auto resolution uses 1 forward, three consecutive contexts each capture the slow kernel, profiler durations match CUDA events within 30%, and the shim reports a healthy state.

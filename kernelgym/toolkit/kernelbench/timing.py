@@ -14,6 +14,7 @@ from kernelgym.toolkit.kernelbench.profiling import (
     extract_profiling_metrics,
     profiling_context,
 )
+from kernelgym.utils import cupti_tsc_shim
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,30 @@ def resolve_num_profiling_trials(
     if cupti_tsc_timestamp_bug_suspected(cuda_version=cuda_version, kineto_tsc_fixed=kineto_tsc_fixed):
         return min(_LEGACY_PROFILING_TRIALS_CAP, max(1, num_trials))
     return 1
+
+
+def kineto_tsc_fix_verified() -> Optional[bool]:
+    """Whether the declared Kineto TSC fix is actually active in this process.
+
+    Meaningful only after a profiler context has run (the LD_PRELOAD shim's
+    state is decided when Kineto first registers its timestamp callback).
+    None when no fix is declared; False when a shim was expected but did not
+    engage — retries must then fall back to the legacy multi-forward count.
+    """
+    return cupti_tsc_shim.kineto_tsc_fix_verified(settings.kineto_tsc_fixed)
+
+
+def _annotate_shim_state(profiling_metrics: Dict[str, Any]) -> None:
+    if cupti_tsc_shim.expected_shim_path() is None:
+        return
+    state = cupti_tsc_shim.shim_state()
+    profiling_metrics["cupti_tsc_shim_state"] = state
+    if not cupti_tsc_shim.shim_state_healthy(state):
+        logger.error(
+            "[Profiling] CUPTI TSC shim expected but not engaged (state=%s); "
+            "single-forward profiling cannot be trusted in this process",
+            state,
+        )
 
 
 def time_execution_with_cuda_event(
@@ -161,6 +186,7 @@ def time_execution_with_cuda_event(
 
                 profiling_metrics = extract_profiling_metrics(prof)
                 if profiling_metrics:
+                    _annotate_shim_state(profiling_metrics)
                     logger.info("[Profiling] Captured %s CUDA kernels", profiling_metrics.get("kernel_count", 0))
                     logger.info("[Profiling] Total CUDA time: %.2f us", profiling_metrics.get("total_cuda_time_us", 0))
 
@@ -204,6 +230,7 @@ def run_profiling_only(
             torch.cuda.synchronize(device=device)
         profiling_metrics = extract_profiling_metrics(prof)
         if profiling_metrics:
+            _annotate_shim_state(profiling_metrics)
             logger.info("[Profiling] Captured %s CUDA kernels", profiling_metrics.get("kernel_count", 0))
     except Exception as e:
         logger.warning("[Profiling] Profiling-only failed: %s", e)
