@@ -49,6 +49,73 @@ _STAGE_METADATA_DIR_ENV = "KERNELGYM_STAGE_METADATA_DIR"
 _STAGE_METADATA_DEFAULT_DIR = "/dev/shm/kernelgym/stage_metadata"
 _FAST_RW_ROOT = "/dev/shm"
 
+_WORKER_STDERR_DIR_ENV = "KERNELGYM_WORKER_STDERR_DIR"
+_WORKER_STDERR_TAIL_BYTES = 2048
+
+# Keeps the faulthandler target file alive for the process lifetime (the
+# handler writes to its fd at crash time; a GC'd file object would break it).
+_FAULTHANDLER_FILE = None
+
+
+def _worker_stderr_path(worker_id: str) -> str:
+    """Per-pool-slot file that captures the subprocess's native stderr (fd 2).
+
+    Parent and child compute this independently, so it must be deterministic
+    from worker_id + environment alone.
+    """
+    base = os.environ.get(_WORKER_STDERR_DIR_ENV, "")
+    if not base:
+        import tempfile
+
+        root = _FAST_RW_ROOT if os.path.isdir(_FAST_RW_ROOT) else tempfile.gettempdir()
+        base = os.path.join(root, "kernelgym", "worker_stderr")
+    return os.path.join(base, f"{worker_id}.stderr")
+
+
+def _read_stderr_tail(worker_id: str, max_bytes: int = _WORKER_STDERR_TAIL_BYTES) -> str:
+    try:
+        with open(_worker_stderr_path(worker_id), "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - max_bytes))
+            return f.read().decode("utf-8", "replace").strip()
+    except OSError:
+        return ""
+
+
+def _redirect_native_stderr_to_capture_file(worker_id: str) -> None:
+    """In the subprocess: point fd 2 at the capture file, keep Python's stderr.
+
+    The dynamic loader ("symbol lookup error: ... undefined symbol"), CUDA
+    asserts, and abort() all write to fd 2 and then kill the process before any
+    Python code can report them. Redirecting fd 2 lets the parent recover that
+    output after the crash. sys.stderr is rebound to a dup of the ORIGINAL
+    stderr so the loop's own print(..., file=sys.stderr) diagnostics still
+    reach the worker log. faulthandler adds a Python traceback to the capture
+    file on SIGSEGV/SIGABRT.
+    """
+    global _FAULTHANDLER_FILE
+    path = _worker_stderr_path(worker_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    capture_fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o644)
+    original_fd = os.dup(2)
+    os.dup2(capture_fd, 2)
+    os.close(capture_fd)
+    sys.stderr = os.fdopen(original_fd, "w", buffering=1)
+    import faulthandler
+
+    _FAULTHANDLER_FILE = os.fdopen(os.dup(2), "w", buffering=1)
+    faulthandler.enable(file=_FAULTHANDLER_FILE)
+
+
+def _truncate_native_stderr_capture() -> None:
+    """In the subprocess: reset the capture file so its content is per-task."""
+    try:
+        os.ftruncate(2, 0)
+        os.lseek(2, 0, os.SEEK_SET)
+    except OSError:
+        pass
+
 
 def _require_fast_rw_dir(path_value: str, *, label: str) -> str:
     path = os.path.abspath(path_value)
@@ -267,10 +334,12 @@ class PersistentWorker:
                     except queue.Empty:
                         pass
                     exitcode = self.process.exitcode
+                    stderr_tail = _read_stderr_tail(self.worker_id)
                     logger.error(
                         f"[{self.worker_id}] Worker subprocess died (exitcode={exitcode}) "
                         f"during task {task_id} before returning a result; reporting as a "
                         f"crash rather than a timeout"
+                        + (f"; subprocess stderr tail:\n{stderr_tail}" if stderr_tail else "")
                     )
                     result = {
                         "success": False,
@@ -279,7 +348,9 @@ class PersistentWorker:
                             f"Worker {self.worker_id} subprocess exited (exitcode={exitcode}) "
                             f"during task {task_id} before returning a result; likely a native "
                             f"crash in the evaluated kernel (e.g. undefined symbol or segfault)"
+                            + (f". Subprocess stderr tail:\n{stderr_tail}" if stderr_tail else "")
                         ),
+                        "stderr_tail": stderr_tail,
                         "worker_exiting": True,
                         "crashed": True,
                     }
@@ -1108,6 +1179,11 @@ def _persistent_worker_loop(worker_id: str, device_id: int, task_queue: mp.Queue
         print(f"[{worker_id}] Failed to prepare core dump directory: {exc}", file=sys.stderr)
 
     try:
+        _redirect_native_stderr_to_capture_file(worker_id)
+    except Exception as exc:
+        print(f"[{worker_id}] Failed to redirect native stderr for crash capture: {exc}", file=sys.stderr)
+
+    try:
         # ====================================================================
         # 第1步：一次性初始化（只执行一次！）
         # ====================================================================
@@ -1170,7 +1246,8 @@ def _persistent_worker_loop(worker_id: str, device_id: int, task_queue: mp.Queue
                             )
                     break
 
-                # 执行任务
+                # 执行任务（先清空 stderr 捕获文件，让内容对应本次任务）
+                _truncate_native_stderr_capture()
                 result = _execute_task_in_worker(
                     task_data,
                     device,
