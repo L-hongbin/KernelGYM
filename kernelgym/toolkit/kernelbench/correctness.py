@@ -35,9 +35,15 @@ T = TypeVar("T")
 def get_tolerance_for_dtype(dtype: torch.dtype) -> float:
     """Match KernelBench fp32 tolerance for integral outputs."""
     tolerances = {
+        torch.float64: 1e-4,
         torch.float32: 1e-4,
         torch.float16: 1e-2,
         torch.bfloat16: 1e-2,
+        # Complex dtypes: comparison runs on abs() magnitudes (see
+        # _compare_tensors_inplace), so mirror the real-dtype tolerance of the
+        # matching precision.
+        torch.complex128: 1e-4,
+        torch.complex64: 1e-4,
         torch.bool: 0.0,
         torch.uint8: 1e-4,
         torch.int8: 1e-4,
@@ -45,6 +51,10 @@ def get_tolerance_for_dtype(dtype: torch.dtype) -> float:
         torch.int32: 1e-4,
         torch.int64: 1e-4,
     }
+    # torch.complex32 / torch.chalf may be absent on older torch builds.
+    half_complex = getattr(torch, "complex32", None)
+    if half_complex is not None:
+        tolerances[half_complex] = 1e-2
     if dtype not in tolerances:
         raise ValueError(f"Unsupported correctness tolerance dtype: {dtype}")
     return tolerances[dtype]
@@ -293,6 +303,17 @@ def _compare_tensors_inplace(
         max_diff = output.max().item()
         avg_diff = output.sum(dtype=torch.float64).item() / output.numel()
         return bool(outputs_close), float(max_diff), float(avg_diff)
+
+    if output.is_complex():
+        # In-place abs_() is unsupported for complex tensors (|z| is real), so
+        # compare on out-of-place real magnitudes. Same allclose semantics as the
+        # floating path: |a - b| <= atol + rtol * |b|.
+        diff = (output - output_new).abs()
+        max_diff = diff.max().item()
+        avg_diff = diff.mean().item()
+        tolerance = output_new.abs().mul_(rtol).add_(atol)
+        max_over_tolerance = diff.sub_(tolerance).max().item()
+        return max_over_tolerance <= 0, float(max_diff), float(avg_diff)
 
     output.sub_(output_new).abs_()
     max_diff = output.max().item()
