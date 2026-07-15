@@ -18,6 +18,12 @@ class EvaluationTask:
     num_perf_trials: int = 100
     num_warmup: int = 3
     perf_trim_count: int = 0
+    # Adaptive kernel-perf trial control (None -> fall back to server settings).
+    adaptive_perf_trials: Optional[bool] = None
+    perf_min_trials: Optional[int] = None
+    perf_cv_threshold: Optional[float] = None
+    # Reference perf trial count; None -> reuse num_perf_trials.
+    refer_num_perf_trials: Optional[int] = None
     timeout: int = 300
     device: str = "cuda:0"
     priority: str = "normal"
@@ -100,6 +106,10 @@ class KernelEvaluationTask:
     num_perf_trials: int = 100
     num_warmup: int = 3
     perf_trim_count: int = 0
+    # Adaptive kernel-perf trial control (None -> fall back to server settings).
+    adaptive_perf_trials: Optional[bool] = None
+    perf_min_trials: Optional[int] = None
+    perf_cv_threshold: Optional[float] = None
     timeout: int = 300
     device: str = "cuda:0"
     priority: str = "normal"

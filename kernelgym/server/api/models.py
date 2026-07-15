@@ -20,7 +20,19 @@ class EvaluationRequest(BaseModel):
     backend_adapter: str = Field(default="kernelbench", description="Backend adapter name")
     backend: Backend = Field(default=Backend.AUTO, description="Backend type")
     num_correct_trials: int = Field(default=5, ge=1, le=20, description="Number of correctness trials")
-    num_perf_trials: int = Field(default=100, ge=1, le=1000, description="Number of performance trials")
+    num_perf_trials: int = Field(default=100, ge=1, le=1000, description="Number of performance trials (max when adaptive)")
+    refer_num_perf_trials: Optional[int] = Field(
+        default=None, ge=1, le=1000, description="Reference perf trials; defaults to num_perf_trials when unset"
+    )
+    adaptive_perf_trials: Optional[bool] = Field(
+        default=None, description="Adaptively size kernel perf trials (None -> server default)"
+    )
+    perf_min_trials: Optional[int] = Field(
+        default=None, ge=1, le=1000, description="Min kernel perf trials before adaptive CV early-stop"
+    )
+    perf_cv_threshold: Optional[float] = Field(
+        default=None, gt=0, description="CV (std/mean) below which adaptive kernel timing stops early"
+    )
     num_warmup: int = Field(default=3, ge=0, le=100, description="Number of warmup iterations")
     perf_trim_count: int = Field(
         default=0,

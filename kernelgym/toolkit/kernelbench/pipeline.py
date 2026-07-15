@@ -450,6 +450,9 @@ def _run_performance_step(
     detect_decoy_kernel: bool,
     backend: str,
     backend_profiling_hints: Optional[Dict[str, Any]],
+    adaptive_perf_trials: bool = False,
+    perf_min_trials: int = 20,
+    perf_cv_threshold: float = 0.05,
 ):
     def _profiling_empty(metrics: Dict[str, Any]) -> bool:
         if not metrics:
@@ -480,6 +483,9 @@ def _run_performance_step(
                 verbose=verbose,
                 device=device,
                 enable_profiling=enable_profiling,
+                adaptive=adaptive_perf_trials,
+                min_trials=perf_min_trials,
+                cv_threshold=perf_cv_threshold,
             )
             runtime_stats = get_timing_stats(elapsed_times, device=device, trim_count=perf_trim_count)
             metadata["kg_kernel_perf_warmup_s"] = timing_info["warmup_wall_s"]
@@ -652,6 +658,9 @@ def eval_kernel_against_ref(
     enable_compile_artifact_cache: bool = False,
     compile_only: bool = False,
     return_internal_compile_artifact: bool = False,
+    adaptive_perf_trials: bool = False,
+    perf_min_trials: int = 20,
+    perf_cv_threshold: float = 0.05,
 ) -> KernelExecResult:
     if not compile_only:
         assert torch.cuda.is_available(), "CUDA is not available, cannot run Eval"
@@ -1092,6 +1101,9 @@ def eval_kernel_against_ref(
             detect_decoy_kernel=detect_decoy_kernel,
             backend=backend,
             backend_profiling_hints=backend_profiling_hints,
+            adaptive_perf_trials=adaptive_perf_trials,
+            perf_min_trials=perf_min_trials,
+            perf_cv_threshold=perf_cv_threshold,
         )
         _finish_stage(
             metadata,

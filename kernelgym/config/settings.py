@@ -116,6 +116,24 @@ class Settings(BaseSettings):
         ),
     )
 
+    adaptive_perf_trials: bool = Field(
+        default=True,
+        env="ADAPTIVE_PERF_TRIALS",
+        description="Adaptively size the kernel perf trial count: run at least perf_min_trials, "
+        "then continue only while timing CV exceeds perf_cv_threshold, up to num_perf_trials.",
+    )
+    perf_min_trials: int = Field(
+        default=20,
+        env="PERF_MIN_TRIALS",
+        description="Minimum kernel perf trials before adaptive CV-based early stop is considered.",
+    )
+    perf_cv_threshold: float = Field(
+        default=0.05,
+        env="PERF_CV_THRESHOLD",
+        description="Coefficient-of-variation (std/mean) below which kernel timing is deemed stable "
+        "and adaptive measurement stops early.",
+    )
+
     reference_cache_dataset_path: str = Field(default="", env="REFERENCE_CACHE_DATASET_PATH")
     val_data_cache_dataset_path: str = Field(default="", env="VAL_DATA_CACHE_DATASET_PATH")
     enable_reference_cache: bool = Field(default=False, env="ENABLE_REFERENCE_CACHE")

@@ -28,6 +28,20 @@ from ..base import Toolkit
 logger = logging.getLogger(__name__)
 
 
+def _resolve_adaptive_perf(task: Any) -> tuple[bool, int, float]:
+    """Resolve adaptive kernel-perf trial settings, falling back to server settings when unset."""
+    adaptive = getattr(task, "adaptive_perf_trials", None)
+    if adaptive is None:
+        adaptive = settings.adaptive_perf_trials
+    min_trials = getattr(task, "perf_min_trials", None)
+    if min_trials is None:
+        min_trials = settings.perf_min_trials
+    cv_threshold = getattr(task, "perf_cv_threshold", None)
+    if cv_threshold is None:
+        cv_threshold = settings.perf_cv_threshold
+    return bool(adaptive), int(min_trials), float(cv_threshold)
+
+
 class KernelBenchToolkit(Toolkit):
     """Toolkit adapter around KernelBench evaluation."""
 
@@ -134,6 +148,7 @@ class KernelBenchToolkit(Toolkit):
 
             num_warmup = getattr(task, "num_warmup", 3)
             perf_trim_count = getattr(task, "perf_trim_count", 0)
+            adaptive_perf_trials, perf_min_trials, perf_cv_threshold = _resolve_adaptive_perf(task)
 
             result = kernelbench_pipeline.eval_kernel_against_ref(
                 original_model_src=task.reference_code,
@@ -155,6 +170,9 @@ class KernelBenchToolkit(Toolkit):
                 enable_compile_artifact_cache=task.enable_compile_artifact_cache,
                 compile_only=str(task.task_stage or "").lower() == "compile" or bool(task.pure_compile_task),
                 return_internal_compile_artifact=task.return_internal_compile_artifact,
+                adaptive_perf_trials=bool(adaptive_perf_trials),
+                perf_min_trials=perf_min_trials,
+                perf_cv_threshold=perf_cv_threshold,
             )
             if result is None:
                 return EvaluationResult(
@@ -178,7 +196,9 @@ class KernelBenchToolkit(Toolkit):
 
             reference_runtime = kernelbench_pipeline.eval_reference_only(
                 original_model_src=task.reference_code,
-                num_perf_trials=task.num_perf_trials,
+                num_perf_trials=(
+                    task.refer_num_perf_trials if task.refer_num_perf_trials is not None else task.num_perf_trials
+                ),
                 num_warmup=num_warmup,
                 perf_trim_count=perf_trim_count,
                 verbose=False,
@@ -340,6 +360,7 @@ class KernelBenchToolkit(Toolkit):
             num_correct_trials = task.num_correct_trials if run_correctness else 0
             num_warmup = getattr(task, "num_warmup", 3)
             perf_trim_count = getattr(task, "perf_trim_count", 0)
+            adaptive_perf_trials, perf_min_trials, perf_cv_threshold = _resolve_adaptive_perf(task)
 
             result = kernelbench_pipeline.eval_kernel_against_ref(
                 original_model_src=task.reference_code,
@@ -361,6 +382,9 @@ class KernelBenchToolkit(Toolkit):
                 enable_compile_artifact_cache=task.enable_compile_artifact_cache,
                 compile_only=str(task.task_stage or "").lower() == "compile" or bool(task.pure_compile_task),
                 return_internal_compile_artifact=task.return_internal_compile_artifact,
+                adaptive_perf_trials=bool(adaptive_perf_trials),
+                perf_min_trials=perf_min_trials,
+                perf_cv_threshold=perf_cv_threshold,
             )
             if result is None:
                 return KernelEvaluationResult(

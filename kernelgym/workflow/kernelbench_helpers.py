@@ -70,7 +70,9 @@ def _create_paired_tasks(
                 toolkit=task.toolkit,
                 backend_adapter=task.backend_adapter,
                 backend=task.backend,
-                num_perf_trials=task.num_perf_trials,
+                num_perf_trials=(
+                    task.refer_num_perf_trials if task.refer_num_perf_trials is not None else task.num_perf_trials
+                ),
                 num_warmup=task.num_warmup,
                 perf_trim_count=task.perf_trim_count,
                 timeout=task.timeout,
@@ -92,7 +94,9 @@ def _create_paired_tasks(
             toolkit=task.toolkit,
             backend_adapter=task.backend_adapter,
             backend=task.backend,
-            num_perf_trials=task.num_perf_trials,
+            num_perf_trials=(
+                task.refer_num_perf_trials if task.refer_num_perf_trials is not None else task.num_perf_trials
+            ),
             num_warmup=task.num_warmup,
             perf_trim_count=task.perf_trim_count,
             timeout=task.timeout,
@@ -119,6 +123,9 @@ def _create_paired_tasks(
         num_perf_trials=task.num_perf_trials,
         num_warmup=task.num_warmup,
         perf_trim_count=task.perf_trim_count,
+        adaptive_perf_trials=task.adaptive_perf_trials,
+        perf_min_trials=task.perf_min_trials,
+        perf_cv_threshold=task.perf_cv_threshold,
         timeout=task.timeout,
         device=kernel_device,
         priority=task.priority,
