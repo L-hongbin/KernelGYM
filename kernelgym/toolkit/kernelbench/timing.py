@@ -195,6 +195,17 @@ def time_execution_with_cuda_event(
                     break
         measure_wall_s = perf_counter() - measure_start
 
+        if adaptive:
+            logger.info(
+                "[AdaptivePerf] ran %s/%s trials (min=%s), stopped_early=%s, final_cv=%s (threshold=%s)",
+                len(elapsed_times),
+                max_trials,
+                effective_min,
+                stopped_early,
+                (f"{final_cv:.4f}" if final_cv is not None else "n/a"),
+                cv_threshold,
+            )
+
         if enable_profiling:
             try:
                 torch.cuda.synchronize(device=device)
