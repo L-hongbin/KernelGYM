@@ -33,6 +33,12 @@ class EvaluationRequest(BaseModel):
     perf_cv_threshold: Optional[float] = Field(
         default=None, gt=0, description="CV (std/mean) below which adaptive kernel timing stops early"
     )
+    correctness_timeout: Optional[float] = Field(
+        default=None, gt=0, description="Explicit correctness-stage timeout (seconds); overrides the formula"
+    )
+    correctness_timeout_enabled: Optional[bool] = Field(
+        default=None, description="Enable/disable the correctness-stage timeout for this request"
+    )
     num_warmup: int = Field(default=3, ge=0, le=100, description="Number of warmup iterations")
     perf_trim_count: int = Field(
         default=0,

@@ -133,6 +133,24 @@ class Settings(BaseSettings):
         description="Coefficient-of-variation (std/mean) below which kernel timing is deemed stable "
         "and adaptive measurement stops early.",
     )
+    correctness_timeout_enabled: bool = Field(
+        default=True,
+        env="CORRECTNESS_TIMEOUT_ENABLED",
+        description="Enforce a shorter wall-clock timeout on the correctness stage (where hung / "
+        "pathologically-slow kernels stall) so they are killed fast; the performance loop keeps the "
+        "full per-task timeout.",
+    )
+    correctness_timeout_floor_s: float = Field(
+        default=150.0,
+        env="CORRECTNESS_TIMEOUT_FLOOR_S",
+        description="Minimum correctness-stage timeout in seconds.",
+    )
+    correctness_timeout_ref_multiplier: float = Field(
+        default=50.0,
+        env="CORRECTNESS_TIMEOUT_REF_MULTIPLIER",
+        description="Correctness-stage timeout scales as multiplier * reference_runtime_seconds when the "
+        "reference runtime is known in the task payload, bounded to [floor, per-task timeout].",
+    )
 
     reference_cache_dataset_path: str = Field(default="", env="REFERENCE_CACHE_DATASET_PATH")
     val_data_cache_dataset_path: str = Field(default="", env="VAL_DATA_CACHE_DATASET_PATH")

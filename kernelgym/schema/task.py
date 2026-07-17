@@ -22,6 +22,9 @@ class EvaluationTask:
     adaptive_perf_trials: Optional[bool] = None
     perf_min_trials: Optional[int] = None
     perf_cv_threshold: Optional[float] = None
+    # Correctness-stage timeout control (None -> fall back to server settings).
+    correctness_timeout: Optional[float] = None
+    correctness_timeout_enabled: Optional[bool] = None
     # Reference perf trial count; None -> reuse num_perf_trials.
     refer_num_perf_trials: Optional[int] = None
     timeout: int = 300
@@ -110,6 +113,9 @@ class KernelEvaluationTask:
     adaptive_perf_trials: Optional[bool] = None
     perf_min_trials: Optional[int] = None
     perf_cv_threshold: Optional[float] = None
+    # Correctness-stage timeout control (None -> fall back to server settings).
+    correctness_timeout: Optional[float] = None
+    correctness_timeout_enabled: Optional[bool] = None
     timeout: int = 300
     device: str = "cuda:0"
     priority: str = "normal"

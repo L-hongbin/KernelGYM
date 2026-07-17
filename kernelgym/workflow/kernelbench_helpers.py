@@ -126,6 +126,8 @@ def _create_paired_tasks(
         adaptive_perf_trials=task.adaptive_perf_trials,
         perf_min_trials=task.perf_min_trials,
         perf_cv_threshold=task.perf_cv_threshold,
+        correctness_timeout=task.correctness_timeout,
+        correctness_timeout_enabled=task.correctness_timeout_enabled,
         timeout=task.timeout,
         device=kernel_device,
         priority=task.priority,

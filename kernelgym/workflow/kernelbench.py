@@ -100,6 +100,10 @@ class KernelBenchWorkflowController(WorkflowController):
             kernel_payload["toolkit"] = kernel_payload.get("toolkit", "kernelbench")
             kernel_payload["backend_adapter"] = kernel_payload.get("backend_adapter", "kernelbench")
             kernel_payload.update(self._kernel_execution_options(eval_task, compile_only=compile_only))
+            if not compile_only:
+                ref_runtime_s = self._cached_reference_runtime_seconds(eval_task)
+                if ref_runtime_s is not None:
+                    kernel_payload["reference_runtime"] = ref_runtime_s
             kernel_task_spec = TaskSpec(
                 kind="kernelbench.kernel",
                 payload=kernel_payload,
@@ -268,6 +272,25 @@ class KernelBenchWorkflowController(WorkflowController):
             "enable_profiling": enable_profiling,
         }
 
+    @staticmethod
+    def _cached_reference_runtime_seconds(eval_task: EvaluationTask) -> Optional[float]:
+        """Cached reference runtime in *seconds*, used to scale the correctness-stage
+        timeout (min(max(floor, mult * ref_s), task_timeout)) on the execute task.
+
+        The reference cache stores the mean per-forward runtime in milliseconds; convert
+        to seconds. Returns None on a cache miss (e.g. the first encounter of a problem),
+        so the correctness timeout falls back to its floor.
+        """
+        if not getattr(eval_task, "uuid", None):
+            return None
+        cached_ms = _get_cached_reference_runtime(eval_task.uuid, eval_task.reference_code, eval_task.is_valid)
+        if cached_ms is None:
+            return None
+        try:
+            return max(0.0, float(cached_ms) / 1000.0)
+        except (TypeError, ValueError):
+            return None
+
     async def _run_split_kernel_task(
         self,
         eval_task: EvaluationTask,
@@ -356,6 +379,9 @@ class KernelBenchWorkflowController(WorkflowController):
             }
         )
         execute_payload.update(execute_options)
+        ref_runtime_s = self._cached_reference_runtime_seconds(eval_task)
+        if ref_runtime_s is not None:
+            execute_payload["reference_runtime"] = ref_runtime_s
         if await self._is_cancelled(scheduler, eval_task.task_id):
             return self._cancelled_result(eval_task.task_id)
         execute_task_spec = TaskSpec(

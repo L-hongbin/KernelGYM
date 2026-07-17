@@ -14,6 +14,7 @@ Version: v0.3.3-rc
 """
 
 import os
+import json
 import signal
 import sys
 import time
@@ -27,6 +28,7 @@ import uuid
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
+from kernelgym.config import settings
 from kernelgym.utils.core_dumps import (
     CORE_DUMP_DIR_ENV,
     CORE_DUMP_KEEP_ENV,
@@ -115,6 +117,75 @@ def _truncate_native_stderr_capture() -> None:
         os.lseek(2, 0, os.SEEK_SET)
     except OSError:
         pass
+
+
+def _correctness_stage_done(stage_path: Optional[str]) -> bool:
+    """Report whether the eval has finished the correctness stage, from the stage
+    metadata file the pipeline writes incrementally. Used to lift the (shorter)
+    correctness-stage timeout once the eval moves on to the performance loop.
+    """
+    if not stage_path:
+        return False
+    try:
+        with open(stage_path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except Exception:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    completed = payload.get("kg_stage_completed_s")
+    if isinstance(completed, dict) and any("correctness" in str(stage) for stage in completed):
+        return True
+    # Or the current/last stage is one that only runs after correctness.
+    for key in ("kg_stage_last_completed", "kg_stage_current", "kg_stage_current_prefix"):
+        value = payload.get(key)
+        if isinstance(value, str) and any(m in value for m in ("performance", "triton_detect", "decoy")):
+            return True
+    return False
+
+
+def _payload_float(task_data: Dict[str, Any], key: str) -> Optional[float]:
+    value = task_data.get(key)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _compute_correctness_timeout(task_data: Dict[str, Any], task_timeout: int) -> Optional[float]:
+    """Correctness-stage wall-clock budget: min(max(floor, mult * reference_runtime_s), task_timeout).
+
+    Per-request payload fields override the server settings (all optional):
+      - correctness_timeout_enabled : bool  -- enable/disable for this request
+      - correctness_timeout         : float -- explicit budget (seconds); takes precedence
+                                               over the floor/multiplier formula
+      - correctness_timeout_floor_s / correctness_timeout_ref_multiplier -- tune the formula
+    Returns None when disabled or for pure-compile tasks. reference_runtime (seconds) is
+    used only when present in the payload; otherwise the floor applies.
+    """
+    enabled = task_data.get("correctness_timeout_enabled")
+    if enabled is None:
+        enabled = getattr(settings, "correctness_timeout_enabled", True)
+    if not enabled:
+        return None
+    if str(task_data.get("task_stage") or "").lower() == "compile" or task_data.get("pure_compile_task"):
+        return None
+
+    # Explicit per-request override wins over the formula.
+    override = _payload_float(task_data, "correctness_timeout")
+    if override is not None:
+        return min(max(1.0, override), float(task_timeout))
+
+    floor = _payload_float(task_data, "correctness_timeout_floor_s")
+    if floor is None:
+        floor = float(getattr(settings, "correctness_timeout_floor_s", 150.0))
+    mult = _payload_float(task_data, "correctness_timeout_ref_multiplier")
+    if mult is None:
+        mult = float(getattr(settings, "correctness_timeout_ref_multiplier", 50.0))
+    ref_s = _payload_float(task_data, "reference_runtime") or 0.0
+    return min(max(floor, mult * ref_s), float(task_timeout))
 
 
 def _require_fast_rw_dir(path_value: str, *, label: str) -> str:
@@ -268,6 +339,7 @@ class PersistentWorker:
         timeout: int = 60,
         cancel_event: Optional[threading.Event] = None,
         poll_interval: float = 0.5,
+        correctness_timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         执行任务
@@ -298,7 +370,17 @@ class PersistentWorker:
         # 等待结果：按 poll_interval 轮询，以便及时响应取消请求和超时
         task_id = task_data.get("task_id", "unknown")
         poll = poll_interval if poll_interval and poll_interval > 0 else 0.5
-        deadline = time.monotonic() + timeout
+        start_mono = time.monotonic()
+        full_deadline = start_mono + timeout
+        # Two-phase deadline: while the eval is still in/before the correctness stage,
+        # enforce the (shorter) correctness budget; once correctness completes the
+        # performance loop runs under the full per-task timeout. This kills hung /
+        # slow-in-correctness kernels fast without penalising the adaptive perf loop.
+        stage_path = task_data.get("_stage_metadata_path")
+        corr_enforced = bool(correctness_timeout) and float(correctness_timeout) < timeout and bool(stage_path)
+        corr_deadline = (start_mono + float(correctness_timeout)) if corr_enforced else None
+        corr_done = not corr_enforced
+        last_stage_check = 0.0
         result = None
         while True:
             if cancel_event is not None and cancel_event.is_set():
@@ -310,11 +392,27 @@ class PersistentWorker:
                 # subprocess and replaces it with a clean one.
                 self.is_alive_flag = False
                 raise TaskCancelledError(f"[{self.worker_id}] Task {task_id} cancelled")
-            remaining = deadline - time.monotonic()
+            now = time.monotonic()
+            # Once correctness finishes, lift the correctness budget (throttled file read).
+            if not corr_done and (now - last_stage_check) >= 1.0:
+                last_stage_check = now
+                if _correctness_stage_done(stage_path):
+                    corr_done = True
+            effective_deadline = full_deadline if corr_done else corr_deadline
+            remaining = effective_deadline - now
             if remaining <= 0:
-                logger.error(f"[{self.worker_id}] Task timeout after {timeout}s, task_id={task_id}")
                 # 标记 worker 为不可用（可能卡死了）
                 self.is_alive_flag = False
+                if not corr_done:
+                    logger.error(
+                        f"[{self.worker_id}] Correctness-stage timeout after {float(correctness_timeout):.0f}s "
+                        f"(per-task timeout {timeout}s), task_id={task_id}"
+                    )
+                    raise TimeoutError(
+                        f"[{self.worker_id}] Task {task_id} correctness stage timeout after "
+                        f"{float(correctness_timeout):.0f}s"
+                    )
+                logger.error(f"[{self.worker_id}] Task timeout after {timeout}s, task_id={task_id}")
                 raise TimeoutError(f"[{self.worker_id}] Task {task_id} timeout after {timeout}s")
             try:
                 result = self.result_queue.get(timeout=min(poll, remaining))
@@ -808,6 +906,7 @@ class SubprocessWorkerPool:
             f"kernelgym_stage_{os.getpid()}_{self.device_id}_{uuid.uuid4().hex}.json",
         )
         task_data["_stage_metadata_path"] = stage_metadata_path
+        correctness_timeout = _compute_correctness_timeout(task_data, timeout)
 
         def _build_pool_timing(total_s: Optional[float] = None) -> Dict[str, Any]:
             final_total = time.time() - request_start if total_s is None else total_s
@@ -839,7 +938,9 @@ class SubprocessWorkerPool:
                 # 执行任务（在线程池中执行，避免阻塞 asyncio）
                 loop = asyncio.get_event_loop()
                 execute_start = time.time()
-                result = await loop.run_in_executor(None, worker.execute_task, task_data, timeout, cancel_event)
+                result = await loop.run_in_executor(
+                    None, worker.execute_task, task_data, timeout, cancel_event, 0.5, correctness_timeout
+                )
                 last_execute_s = time.time() - execute_start
 
                 # 任务完成
