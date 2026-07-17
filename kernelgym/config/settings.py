@@ -172,6 +172,21 @@ class Settings(BaseSettings):
     worker_queue_wait_timeout_sec: int = Field(default=180, env="WORKER_QUEUE_WAIT_TIMEOUT_SEC")
     worker_queue_wait_monitor_interval: int = Field(default=20, env="WORKER_QUEUE_WAIT_MONITOR_INTERVAL")
     worker_queue_wait_scan_limit: int = Field(default=200, env="WORKER_QUEUE_WAIT_SCAN_LIMIT")
+    # Dead-worker reaper: recover tasks stranded in the queues of dead/unregistered
+    # workers, which the queue-wait monitor (live workers only) cannot see.
+    dead_worker_reaper_enabled: bool = Field(default=True, env="DEAD_WORKER_REAPER_ENABLED")
+    dead_worker_timeout_s: int = Field(
+        default=90,
+        env="DEAD_WORKER_TIMEOUT_S",
+        description="Heartbeat age (s) beyond which a worker is treated as dead by the reaper. "
+        "Keep well above the worker heartbeat interval so briefly-laggy live workers are not reaped.",
+    )
+    dead_worker_reaper_interval_s: int = Field(default=20, env="DEAD_WORKER_REAPER_INTERVAL_S")
+    max_requeue_attempts: int = Field(
+        default=3,
+        env="MAX_REQUEUE_ATTEMPTS",
+        description="Max times a stuck task may be requeued before it is failed instead of looping (0 disables the cap).",
+    )
     worker_execution_timeout_grace_sec: int = Field(default=60, env="WORKER_EXECUTION_TIMEOUT_GRACE_SEC")
     worker_shutdown_drain_sec: int = Field(
         default=120,

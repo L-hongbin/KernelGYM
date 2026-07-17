@@ -212,6 +212,8 @@ class TaskManager:
         interval_raw = getattr(settings, "worker_queue_wait_monitor_interval", 20)
         if timeout_sec > 0 and interval_raw > 0:
             self._background_tasks.append(asyncio.create_task(self._queue_wait_monitor()))
+        if getattr(settings, "dead_worker_reaper_enabled", True):
+            self._background_tasks.append(asyncio.create_task(self._dead_worker_reaper()))
 
     def _parse_iso_datetime(self, value: Optional[Any]) -> Optional[datetime]:
         if not value:
@@ -294,6 +296,127 @@ class TaskManager:
         except Exception as e:
             logger.error(f"Failed to requeue task {task_id}: {e}")
 
+    async def _requeue_or_fail(
+        self,
+        task_id: str,
+        task_data: Dict[bytes, bytes],
+        task_json: Dict[str, Any],
+        reason: str,
+        now_iso: str,
+    ) -> str:
+        """Requeue a stuck task, or fail it once it has exhausted its requeue budget.
+
+        Prevents requeue loops: a task whose worker keeps dying (or whose resource
+        never gets a live worker) is failed cleanly after ``max_requeue_attempts``
+        instead of bouncing forever. Returns "requeued" or "failed".
+        """
+        max_attempts = max(0, int(getattr(settings, "max_requeue_attempts", 3)))
+        try:
+            prev = int(self._decode_value(task_data.get(b"requeue_count")) or 0)
+        except (TypeError, ValueError):
+            prev = 0
+        if max_attempts and prev >= max_attempts:
+            await self.fail_task(
+                task_id,
+                error_message=(
+                    f"Task failed after {prev} requeue attempt(s) (limit {max_attempts}); last reason: {reason}"
+                ),
+                error_code=ErrorCode.SYSTEM_ERROR,
+            )
+            logger.warning("Reaper failing task %s after %s requeue(s) (last reason=%s)", task_id, prev, reason)
+            return "failed"
+        new_count = prev + 1
+        task_json["requeue_count"] = new_count
+        await self._requeue_task(task_id, task_data, task_json, reason, now_iso)
+        await self.redis.hset(f"{self.task_prefix}{task_id}", mapping={"requeue_count": str(new_count)})
+        return "requeued"
+
+    def _worker_is_dead(
+        self,
+        worker_id: str,
+        workers: Dict[str, Any],
+        now: datetime,
+        dead_after_s: int,
+    ) -> bool:
+        """A worker is dead if unregistered, offline, or silent longer than dead_after_s."""
+        info = workers.get(worker_id)
+        if not info:
+            return True
+        if str(info.get("status") or "").lower() == "offline":
+            return True
+        heartbeat = self._parse_datetime(str(info.get("last_heartbeat") or ""))
+        if heartbeat is None:
+            return True
+        return (now - heartbeat).total_seconds() > dead_after_s
+
+    async def _reap_orphaned_task(self, task_id: str, worker_id: str, now_iso: str) -> None:
+        """Recover one task stranded in a dead worker's queue (requeue, or fail if capped)."""
+        task_data = await self.redis.hgetall(f"{self.task_prefix}{task_id}")
+        if not task_data:
+            return  # task record already gone; nothing to recover
+        status = self._decode_value(task_data.get(b"status")) or TaskStatus.PENDING.value
+        if status in _TERMINAL_TASK_STATUSES:
+            return  # already finished/failed/timed out; drop
+        task_json = self._load_task_json(task_data)
+        base_id = str(task_json.get("base_task_id") or "")
+        try:
+            if await self._dequeued_task_cancelled(self.key_prefix, task_id, base_id):
+                return  # cancelled after enqueue; drop
+        except Exception:
+            pass
+        outcome = await self._requeue_or_fail(task_id, task_data, task_json, f"dead_worker:{worker_id}", now_iso)
+        logger.info("Reaped orphaned task %s from dead worker %s -> %s", task_id, worker_id, outcome)
+
+    async def _dead_worker_reaper(self) -> None:
+        """Recover tasks stranded in the queues of dead / unregistered workers.
+
+        The queue-wait monitor only scans queues of *currently registered* workers,
+        so a task left in a dead worker's queue is invisible to it and sits pending
+        until its client-side timeout. This reaper scans *all* worker queues in redis
+        and, for workers confirmed dead (stale heartbeat, offline, or unregistered),
+        drains their queues back to the shared resource queue (subject to the requeue
+        cap in ``_requeue_or_fail``).
+
+        Safety: only DEAD workers' queues are touched (liveness gate), and draining
+        uses atomic ``rpop`` so a task is in exactly one place -- no double-dispatch.
+        Resource queues are intentionally left alone (that is capacity, not an orphan).
+        """
+        interval = max(5, int(getattr(settings, "dead_worker_reaper_interval_s", 20)))
+        dead_after = max(1, int(getattr(settings, "dead_worker_timeout_s", 90)))
+        scan_limit = max(1, int(getattr(settings, "worker_queue_wait_scan_limit", 200)))
+        logger.info("Dead-worker reaper started (interval=%ss, dead_after=%ss)", interval, dead_after)
+        while True:
+            try:
+                now = datetime.now()
+                now_iso = now.isoformat()
+                workers = await self.get_workers_status()
+                queue_keys: list[str] = []
+                for prefix in self._prefixes_for_read():
+                    async for key in self.redis.scan_iter(f"{prefix}:queue:worker:*", count=500):
+                        queue_keys.append(key.decode() if isinstance(key, bytes) else str(key))
+                total_reaped = 0
+                for queue_key in queue_keys:
+                    worker_id = queue_key.rsplit(":queue:worker:", 1)[-1]
+                    if not worker_id or not self._worker_is_dead(worker_id, workers, now, dead_after):
+                        continue  # liveness gate: never touch a live worker's queue
+                    for _ in range(scan_limit):
+                        tid = await self.redis.rpop(queue_key)
+                        if not tid:
+                            break
+                        task_id = tid.decode() if isinstance(tid, bytes) else tid
+                        try:
+                            await self._reap_orphaned_task(task_id, worker_id, now_iso)
+                            total_reaped += 1
+                        except Exception as exc:
+                            logger.error("Reaper failed on task %s (worker %s): %s", task_id, worker_id, exc)
+                if total_reaped:
+                    logger.warning("Dead-worker reaper recovered %s orphaned task(s)", total_reaped)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.error("Dead-worker reaper loop error: %s", exc)
+            await asyncio.sleep(interval)
+
     async def _queue_wait_monitor(self) -> None:
         timeout_sec = getattr(settings, "worker_queue_wait_timeout_sec", 0)
         interval_raw = getattr(settings, "worker_queue_wait_monitor_interval", 20)
@@ -366,7 +489,7 @@ class TaskManager:
 
                     if requeue:
                         for task_id, task_data, task_json, reason in requeue:
-                            await self._requeue_task(task_id, task_data, task_json, reason, now_iso)
+                            await self._requeue_or_fail(task_id, task_data, task_json, reason, now_iso)
                         logger.warning(f"Requeued {len(requeue)} tasks from {worker_id} due to queue wait timeout")
 
                 await asyncio.sleep(interval)
