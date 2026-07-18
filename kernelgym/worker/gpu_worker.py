@@ -44,6 +44,7 @@ class GPUWorker:
         self.task_manager = TaskManager(redis_client)
         self.running = False
         self.current_task: Optional[str] = None
+        self._processing_active = False
         self.tasks_processed = 0
         self.last_heartbeat = None
 
@@ -230,14 +231,21 @@ class GPUWorker:
         # After self.running=False the processing loop still completes the task
         # it already popped (posting its result and clearing current_task), so
         # a drained shutdown produces zero spurious "Worker shutdown" failures.
+        # Wait on the LOOP, not just current_task: a task can already be popped
+        # from its queue before current_task is set. Error/eviction shutdowns
+        # (shutdown_due_to_error) stay immediate.
         drain_sec = max(0, int(getattr(settings, "worker_shutdown_drain_sec", 120)))
-        if self.current_task and drain_sec:
+
+        def _draining() -> bool:
+            return bool(self.current_task or getattr(self, "_processing_active", False))
+
+        if drain_sec and not self.shutdown_due_to_error and _draining():
             logger.info(
                 f"Worker {self.worker_id} draining before shutdown: "
-                f"waiting up to {drain_sec}s for task {self.current_task}"
+                f"waiting up to {drain_sec}s (task: {self.current_task or 'being dequeued'})"
             )
             deadline = time.monotonic() + drain_sec
-            while self.current_task and time.monotonic() < deadline:
+            while _draining() and time.monotonic() < deadline:
                 await asyncio.sleep(0.5)
 
         # Cancel current task if any
@@ -313,6 +321,9 @@ class GPUWorker:
     async def _processing_loop(self):
         """Main processing loop."""
         logger.info(f"Worker {self.worker_id} processing loop started")
+        # Read by stop()'s drain: current_task alone is not enough, because a
+        # task may already be popped from its queue before current_task is set.
+        self._processing_active = True
 
         while self.running:
             try:
@@ -363,6 +374,9 @@ class GPUWorker:
                         break
 
                 await asyncio.sleep(5)  # Sleep longer on error
+
+        self._processing_active = False
+        logger.info(f"Worker {self.worker_id} processing loop exited")
 
     async def _process_task(self, task_data: Dict[str, Any]):
         """Process a single task."""

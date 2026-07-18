@@ -471,6 +471,51 @@ def _http_post_json(url: str, timeout: float = 5.0) -> Any:
         return json.loads(response.read().decode("utf-8"))
 
 
+def _clear_expected_workers_for_host(client: Any, hostname: str) -> None:
+    """Drop expected-worker registrations owned by this host (or unowned).
+
+    The expected_workers set is cluster-shared; deleting it wholesale on a
+    primary restart would strip every worker node of its supervision state.
+    Unowned (legacy, empty-hostname) ids are cleared too so they cannot be
+    enforced by every monitor at once.
+    """
+    prefix = REDIS_KEY_PREFIX
+    try:
+        for wid in client.smembers(f"{prefix}:expected_workers"):
+            owner = client.hget(f"{prefix}:expected_worker:{wid}", "hostname") or ""
+            if not owner or owner == hostname:
+                client.srem(f"{prefix}:expected_workers", wid)
+                client.delete(f"{prefix}:expected_worker:{wid}", f"{prefix}:worker_process:{wid}")
+    except Exception as exc:
+        print(f"Warning: could not clear stale expected workers: {exc}")
+
+
+def _register_expected_worker(
+    client: Any, worker_id: str, device: str, hostname: str, node_id: str, worker_pid: int
+) -> None:
+    """Register a worker for monitor supervision.
+
+    Hashes are written BEFORE set membership: an id must never be visible in
+    expected_workers without its owning hostname recorded, or every host's
+    monitor would claim it.
+    """
+    if client is None:
+        return
+    prefix = REDIS_KEY_PREFIX
+    try:
+        client.hset(
+            f"{prefix}:expected_worker:{worker_id}",
+            mapping={"device": device, "hostname": hostname, "node_id": node_id},
+        )
+        client.hset(
+            f"{prefix}:worker_process:{worker_id}",
+            mapping={"pid": str(worker_pid), "start_time": time.ctime(), "device": device},
+        )
+        client.sadd(f"{prefix}:expected_workers", worker_id)
+    except Exception as exc:
+        print(f"Warning: could not register expected worker {worker_id}: {exc}")
+
+
 def _collect_pids(pattern: str) -> list[int]:
     pgrep = shutil.which("pgrep")
     if not pgrep:
@@ -551,6 +596,14 @@ def cmd_stop(args: argparse.Namespace) -> int:
         ("multiprocessing.resource_tracker", "multiprocessing resource tracker"),
     ]:
         _kill_processes(pattern, description)
+    # Final sweep: a monitor mid-restart may have spawned a worker after the
+    # phase-1 snapshot; anything matching the service patterns now is a leak.
+    leftover_pids: list[int] = []
+    for pattern, _ in service_patterns:
+        leftover_pids.extend(pid for pid in _collect_pids(pattern) if pid not in leftover_pids)
+    if leftover_pids:
+        _kill_pids(leftover_pids, 2)
+        print(f"Killed {len(leftover_pids)} processes spawned during shutdown.")
 
     # Shut down the LOCAL redis WITHOUT saving, instead of only clearing keys.
     # nosave avoids writing redis's dataset back to its (possibly NFS-shared)
@@ -608,12 +661,8 @@ def cmd_start_local(args: argparse.Namespace) -> int:
 
     _ensure_redis(values)
     client = _redis_client(values)
-    prefix = REDIS_KEY_PREFIX
     if client is not None:
-        try:
-            client.delete(f"{prefix}:expected_workers")
-        except Exception:
-            pass
+        _clear_expected_workers_for_host(client, _hostname())
 
     api_pid = _launch_background(
         [sys.executable, "-m", "kernelgym.server.api.server"], log_dir / "api_server.log", env
@@ -643,19 +692,7 @@ def cmd_start_local(args: argparse.Namespace) -> int:
             env,
         )
         print(f"{worker_id} PID: {pid}")
-        if client is not None:
-            try:
-                client.sadd(f"{prefix}:expected_workers", worker_id)
-                client.hset(
-                    f"{prefix}:expected_worker:{worker_id}",
-                    mapping={"device": f"cuda:{gpu}", "hostname": _hostname(), "node_id": values.get("NODE_ID", "")},
-                )
-                client.hset(
-                    f"{prefix}:worker_process:{worker_id}",
-                    mapping={"pid": str(pid), "start_time": time.ctime(), "device": f"cuda:{gpu}"},
-                )
-            except Exception:
-                pass
+        _register_expected_worker(client, worker_id, f"cuda:{gpu}", _hostname(), values.get("NODE_ID", ""), pid)
     cpu_workers = int(env.get("CPU_COMPILE_WORKERS", "2"))
     for index in range(max(0, cpu_workers)):
         worker_id = f"worker_cpu_{index}"
@@ -671,19 +708,7 @@ def cmd_start_local(args: argparse.Namespace) -> int:
             env,
         )
         print(f"{worker_id} PID: {pid}")
-        if client is not None:
-            try:
-                client.sadd(f"{prefix}:expected_workers", worker_id)
-                client.hset(
-                    f"{prefix}:expected_worker:{worker_id}",
-                    mapping={"device": "cpu", "hostname": _hostname(), "node_id": values.get("NODE_ID", "")},
-                )
-                client.hset(
-                    f"{prefix}:worker_process:{worker_id}",
-                    mapping={"pid": str(pid), "start_time": time.ctime(), "device": "cpu"},
-                )
-            except Exception:
-                pass
+        _register_expected_worker(client, worker_id, "cpu", _hostname(), values.get("NODE_ID", ""), pid)
     print(f"KernelGym started. Logs: {log_dir}")
     return 0
 
@@ -759,34 +784,10 @@ def cmd_start_worker_node(args: argparse.Namespace) -> int:
     # whose recorded hostname matches its own host.
     node_prefix = values.get("NODE_ID") or values.get("WORKER_NAME_PREFIX") or hostname
     client = _redis_client(values)
-    prefix = REDIS_KEY_PREFIX
     if client is not None:
         # Drop stale registrations owned by this host from a previous join (the
         # worker count or node id may have changed); never touch other hosts'.
-        try:
-            for wid in client.smembers(f"{prefix}:expected_workers"):
-                owner = client.hget(f"{prefix}:expected_worker:{wid}", "hostname") or ""
-                if owner == hostname:
-                    client.srem(f"{prefix}:expected_workers", wid)
-                    client.delete(f"{prefix}:expected_worker:{wid}", f"{prefix}:worker_process:{wid}")
-        except Exception as exc:
-            print(f"Warning: could not clear stale expected workers: {exc}")
-
-    def _register_expected(worker_id: str, device: str, worker_pid: int) -> None:
-        if client is None:
-            return
-        try:
-            client.sadd(f"{prefix}:expected_workers", worker_id)
-            client.hset(
-                f"{prefix}:expected_worker:{worker_id}",
-                mapping={"device": device, "hostname": hostname, "node_id": values.get("NODE_ID", "")},
-            )
-            client.hset(
-                f"{prefix}:worker_process:{worker_id}",
-                mapping={"pid": str(worker_pid), "start_time": time.ctime(), "device": device},
-            )
-        except Exception as exc:
-            print(f"Warning: could not register expected worker {worker_id}: {exc}")
+        _clear_expected_workers_for_host(client, hostname)
 
     monitor_pid = _launch_background(
         [sys.executable, "-m", "kernelgym.worker.worker_monitor", "--persistent"],
@@ -813,7 +814,7 @@ def cmd_start_worker_node(args: argparse.Namespace) -> int:
             env,
         )
         print(f"{worker_id} PID: {pid}")
-        _register_expected(worker_id, f"cuda:{gpu}", pid)
+        _register_expected_worker(client, worker_id, f"cuda:{gpu}", hostname, values.get("NODE_ID", ""), pid)
         worker_ids.append(worker_id)
 
     cpu_pids: list[str] = []
@@ -825,7 +826,7 @@ def cmd_start_worker_node(args: argparse.Namespace) -> int:
             env,
         )
         print(f"{cpu_worker_id} PID: {cpu_pid}")
-        _register_expected(cpu_worker_id, "cpu", cpu_pid)
+        _register_expected_worker(client, cpu_worker_id, "cpu", hostname, values.get("NODE_ID", ""), cpu_pid)
         cpu_pids.append(str(cpu_pid))
     if cpu_pids:
         (log_dir / "cpu_worker.pids").write_text("\n".join(cpu_pids) + "\n", encoding="utf-8")

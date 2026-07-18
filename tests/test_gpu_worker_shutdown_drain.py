@@ -82,3 +82,33 @@ def test_stop_immediate_when_drain_disabled(monkeypatch) -> None:
 
     asyncio.run(asyncio.wait_for(worker.stop(), timeout=3))
     assert failed == [("task_now", "Worker shutdown")]
+
+
+def test_stop_waits_for_processing_loop_even_without_current_task(monkeypatch) -> None:
+    """A task can be popped from its queue before current_task is set; the
+    drain must wait for the processing loop to exit, not just current_task."""
+    worker, failed = _make_worker(monkeypatch, drain_sec=10)
+    worker.current_task = None
+    worker._processing_active = True
+
+    async def scenario():
+        async def loop_exits():
+            await asyncio.sleep(0.6)
+            worker._processing_active = False
+
+        finisher = asyncio.create_task(loop_exits())
+        await asyncio.wait_for(worker.stop(), timeout=8)
+        await finisher
+
+    asyncio.run(scenario())
+    assert failed == []
+
+
+def test_stop_skips_drain_on_error_shutdown(monkeypatch) -> None:
+    """Eviction / error shutdowns (shutdown_due_to_error) must stay immediate."""
+    worker, failed = _make_worker(monkeypatch, drain_sec=30)
+    worker.current_task = "task_evicted"
+    worker.shutdown_due_to_error = True
+
+    asyncio.run(asyncio.wait_for(worker.stop(), timeout=5))
+    assert failed == [("task_evicted", "Worker shutdown")]

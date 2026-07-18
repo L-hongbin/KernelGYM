@@ -317,3 +317,36 @@ def test_settings_hardcode_api_and_redis_runtime_knobs(monkeypatch) -> None:
     assert settings.redis_key_prefix_legacy == "kernelserver"
     assert settings.metrics_port == 20112
     assert settings.celery_broker_url == "redis://localhost:20110/0"
+
+
+def test_clear_expected_workers_for_host_preserves_other_hosts() -> None:
+    """A primary restart must only clear its own host's expected-worker
+    registrations; wiping the shared set would strip worker nodes of
+    supervision. Unowned (legacy) ids are cleared so no monitor double-claims."""
+
+    class FakeClient:
+        def __init__(self):
+            self.sets = {"kernelgym:expected_workers": {"worker_gpu_0", "node-1_gpu_0", "legacy_cpu_0"}}
+            self.hashes = {
+                "kernelgym:expected_worker:worker_gpu_0": {"hostname": "host-a"},
+                "kernelgym:expected_worker:node-1_gpu_0": {"hostname": "host-b"},
+            }
+
+        def smembers(self, key):
+            return set(self.sets.get(key, set()))
+
+        def hget(self, key, field):
+            return self.hashes.get(key, {}).get(field)
+
+        def srem(self, key, member):
+            self.sets.get(key, set()).discard(member)
+
+        def delete(self, *keys):
+            for key in keys:
+                self.hashes.pop(key, None)
+
+    client = FakeClient()
+    service._clear_expected_workers_for_host(client, "host-a")
+    assert client.sets["kernelgym:expected_workers"] == {"node-1_gpu_0"}
+    assert "kernelgym:expected_worker:node-1_gpu_0" in client.hashes
+    assert "kernelgym:expected_worker:worker_gpu_0" not in client.hashes
