@@ -471,48 +471,85 @@ def _http_post_json(url: str, timeout: float = 5.0) -> Any:
         return json.loads(response.read().decode("utf-8"))
 
 
-def _kill_processes(pattern: str, description: str) -> None:
-    print(f"Stopping {description}...")
+def _collect_pids(pattern: str) -> list[int]:
     pgrep = shutil.which("pgrep")
     if not pgrep:
-        return
+        return []
     proc = subprocess.run([pgrep, "-f", pattern], text=True, stdout=subprocess.PIPE, check=False)
-    pids = [int(line) for line in proc.stdout.splitlines() if line.strip().isdigit()]
     own_pid = os.getpid()
-    pids = [pid for pid in pids if pid != own_pid]
-    if not pids:
-        print(f"No {description} processes found.")
-        return
+    return [int(line) for line in proc.stdout.splitlines() if line.strip().isdigit() and int(line) != own_pid]
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _kill_pids(pids: list[int], grace_seconds: float) -> int:
+    """SIGTERM the pids together, wait up to grace_seconds, SIGKILL survivors."""
     for pid in pids:
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
-    time.sleep(1)
-    for pid in pids:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            continue
+    deadline = time.time() + max(0.0, grace_seconds)
+    while time.time() < deadline:
+        if not any(_pid_alive(pid) for pid in pids):
+            break
+        time.sleep(0.5)
+    stragglers = [pid for pid in pids if _pid_alive(pid)]
+    for pid in stragglers:
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+    return len(stragglers)
+
+
+def _kill_processes(pattern: str, description: str, grace_seconds: float = 1.0) -> None:
+    print(f"Stopping {description}...")
+    pids = _collect_pids(pattern)
+    if not pids:
+        print(f"No {description} processes found.")
+        return
+    _kill_pids(pids, grace_seconds)
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
     values = _profile_values(args.profile)
-    patterns = [
+    grace = max(1.0, float(getattr(args, "graceful_seconds", None) or 1))
+    # Phase 1: signal supervisors and workers together, then give them one
+    # shared graceful window. On SIGTERM workers drain their in-flight task
+    # (KERNELGYM_WORKER_SHUTDOWN_DRAIN_SEC) and shut their pool subprocesses
+    # down themselves, so a large enough window means zero aborted tasks.
+    service_patterns = [
         ("kernelgym.server.api.server", "KernelGym API server"),
         ("kernelgym.worker.worker_monitor", "KernelGym worker monitor"),
         ("kernelgym.worker.single_worker", "KernelGym single workers"),
         ("kernelgym.worker.cpu_worker", "KernelGym CPU compile workers"),
         ("kernelgym.worker.gpu_worker", "KernelGym worker manager"),
         ("uvicorn.*kernelgym", "Uvicorn server"),
+    ]
+    service_pids: list[int] = []
+    for pattern, description in service_patterns:
+        pids = _collect_pids(pattern)
+        print(f"Stopping {description}..." if pids else f"No {description} processes found.")
+        service_pids.extend(pid for pid in pids if pid not in service_pids)
+    if service_pids:
+        stragglers = _kill_pids(service_pids, grace)
+        if stragglers:
+            print(f"Killed {stragglers} processes that outlived the {grace:.0f}s graceful window.")
+    # Phase 2: pool subprocesses are only reaped AFTER their parents exited —
+    # SIGTERMing them earlier would abort the very task the drain waits on.
+    for pattern, description in [
         ("multiprocessing.spawn", "multiprocessing spawn workers"),
         ("multiprocessing.resource_tracker", "multiprocessing resource tracker"),
-    ]
-    for pattern, description in patterns:
+    ]:
         _kill_processes(pattern, description)
 
     # Shut down the LOCAL redis WITHOUT saving, instead of only clearing keys.
@@ -715,26 +752,85 @@ def cmd_start_worker_node(args: argparse.Namespace) -> int:
     env.pop("GPU_ARCH", None)
     log_dir = ROOT_DIR / values.get("LOG_DIR", "logs")
     log_dir.mkdir(parents=True, exist_ok=True)
-    pid = _launch_background(
-        [sys.executable, "-m", "kernelgym.worker.gpu_worker"], log_dir / "worker_manager.log", env
+
+    # Same supervised layout as start-local: a per-host worker_monitor plus one
+    # process per worker, all registered in the (cluster-shared) expected set so
+    # the LOCAL monitor restarts them. The monitor only enforces expected ids
+    # whose recorded hostname matches its own host.
+    node_prefix = values.get("NODE_ID") or values.get("WORKER_NAME_PREFIX") or hostname
+    client = _redis_client(values)
+    prefix = REDIS_KEY_PREFIX
+    if client is not None:
+        # Drop stale registrations owned by this host from a previous join (the
+        # worker count or node id may have changed); never touch other hosts'.
+        try:
+            for wid in client.smembers(f"{prefix}:expected_workers"):
+                owner = client.hget(f"{prefix}:expected_worker:{wid}", "hostname") or ""
+                if owner == hostname:
+                    client.srem(f"{prefix}:expected_workers", wid)
+                    client.delete(f"{prefix}:expected_worker:{wid}", f"{prefix}:worker_process:{wid}")
+        except Exception as exc:
+            print(f"Warning: could not clear stale expected workers: {exc}")
+
+    def _register_expected(worker_id: str, device: str, worker_pid: int) -> None:
+        if client is None:
+            return
+        try:
+            client.sadd(f"{prefix}:expected_workers", worker_id)
+            client.hset(
+                f"{prefix}:expected_worker:{worker_id}",
+                mapping={"device": device, "hostname": hostname, "node_id": values.get("NODE_ID", "")},
+            )
+            client.hset(
+                f"{prefix}:worker_process:{worker_id}",
+                mapping={"pid": str(worker_pid), "start_time": time.ctime(), "device": device},
+            )
+        except Exception as exc:
+            print(f"Warning: could not register expected worker {worker_id}: {exc}")
+
+    monitor_pid = _launch_background(
+        [sys.executable, "-m", "kernelgym.worker.worker_monitor", "--persistent"],
+        log_dir / "worker_monitor.log",
+        env,
     )
-    (log_dir / "worker_manager.pid").write_text(f"{pid}\n", encoding="utf-8")
+    print(f"Worker monitor PID: {monitor_pid}")
+
+    worker_ids: list[str] = []
+    for gpu in _parse_gpu_devices(values.get("GPU_DEVICES")):
+        worker_id = f"{node_prefix}_gpu_{gpu}"
+        pid = _launch_background(
+            [
+                sys.executable,
+                "-m",
+                "kernelgym.worker.single_worker",
+                "--worker-id",
+                worker_id,
+                "--device",
+                f"cuda:{gpu}",
+                "--persistent",
+            ],
+            log_dir / f"worker_gpu_{gpu}.log",
+            env,
+        )
+        print(f"{worker_id} PID: {pid}")
+        _register_expected(worker_id, f"cuda:{gpu}", pid)
+        worker_ids.append(worker_id)
+
     cpu_pids: list[str] = []
     for index in range(max(0, int(env.get("CPU_COMPILE_WORKERS", "2")))):
-        cpu_worker_id = f"{updates.get('NODE_ID') or values.get('NODE_ID') or hostname}_cpu_{index}"
+        cpu_worker_id = f"{node_prefix}_cpu_{index}"
         cpu_pid = _launch_background(
             [sys.executable, "-m", "kernelgym.worker.cpu_worker", "--worker-id", cpu_worker_id],
             log_dir / f"worker_cpu_{index}.log",
             env,
         )
+        print(f"{cpu_worker_id} PID: {cpu_pid}")
+        _register_expected(cpu_worker_id, "cpu", cpu_pid)
         cpu_pids.append(str(cpu_pid))
     if cpu_pids:
         (log_dir / "cpu_worker.pids").write_text("\n".join(cpu_pids) + "\n", encoding="utf-8")
 
-    prefix = values.get("NODE_ID") or values.get("WORKER_NAME_PREFIX") or hostname
-    worker_ids = [f"{prefix}_gpu_{gpu}" for gpu in _parse_gpu_devices(values.get("GPU_DEVICES"))]
     (log_dir / "worker_ids.list").write_text("\n".join(worker_ids) + "\n", encoding="utf-8")
-    print(f"WorkerManager PID: {pid}")
     try:
         status = _http_get_json(f"{api_base}/workers/status")
         print(json.dumps(status, indent=2, sort_keys=True))
@@ -766,6 +862,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     stop = subparsers.add_parser("stop", help="stop local KernelGym processes and clear Redis keys")
     stop.add_argument("--profile", default="auto", help=f"auto or known profile: {', '.join(profile_names())}")
+    stop.add_argument(
+        "--graceful-seconds",
+        type=float,
+        default=1,
+        help=(
+            "how long to wait after SIGTERM before SIGKILL; set above the worker drain window "
+            "(KERNELGYM_WORKER_SHUTDOWN_DRAIN_SEC, default 120) for a zero-task-loss stop"
+        ),
+    )
     stop.set_defaults(func=cmd_stop)
 
     return parser

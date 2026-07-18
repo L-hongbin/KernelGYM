@@ -226,8 +226,23 @@ class GPUWorker:
 
         logger.info(f"Stopping GPU worker {self.worker_id}")
 
+        # Drain: give an in-flight task a chance to finish before failing it.
+        # After self.running=False the processing loop still completes the task
+        # it already popped (posting its result and clearing current_task), so
+        # a drained shutdown produces zero spurious "Worker shutdown" failures.
+        drain_sec = max(0, int(getattr(settings, "worker_shutdown_drain_sec", 120)))
+        if self.current_task and drain_sec:
+            logger.info(
+                f"Worker {self.worker_id} draining before shutdown: "
+                f"waiting up to {drain_sec}s for task {self.current_task}"
+            )
+            deadline = time.monotonic() + drain_sec
+            while self.current_task and time.monotonic() < deadline:
+                await asyncio.sleep(0.5)
+
         # Cancel current task if any
         if self.current_task:
+            logger.warning(f"Worker {self.worker_id} drain expired; failing task {self.current_task}")
             try:
                 await self.task_manager.fail_task(self.current_task, "Worker shutdown")
             except Exception:
