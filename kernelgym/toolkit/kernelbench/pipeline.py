@@ -298,6 +298,8 @@ def _apply_coverage_metadata(
         metadata["suspected_decoy"] = True
         metadata["suspected_decoy_reason"] = reason
         metadata["suspected_decoy_threshold"] = _SUSPECTED_DECOY_COVERAGE_THRESHOLD
+        metadata["suspected_decoy_enforced"] = False
+        metadata["suspected_decoy_effect"] = "DIAGNOSTIC_ONLY"
         logger.warning(
             "Custom-kernel CUDA time coverage %.6f is below %.2f for backend=%s; marking as suspected decoy",
             ratio_time,
@@ -321,6 +323,8 @@ def _apply_coverage_metadata(
             "suspected_decoy_reason",
             "suspected_decoy_reasons",
             "suspected_decoy_threshold",
+            "suspected_decoy_enforced",
+            "suspected_decoy_effect",
             "hard_decoy_coverage_candidate",
             "hard_decoy_coverage_threshold",
             "hard_decoy_coverage_gate_applied",

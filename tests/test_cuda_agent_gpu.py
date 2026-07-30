@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from kernelgym.backend.kernelbench.cuda_agent_backend import KernelBenchCudaAgentBackend
+from kernelgym.toolkit.kernelbench.correctness import run_and_check_correctness
 
 
 def _require_cuda_agent_toolchain() -> object:
@@ -45,17 +46,36 @@ import cuda_extension
 
 class ModelNew(torch.nn.Module):
     def forward(self, x):
-        return cuda_extension.identity(x)
+        return cuda_extension.identity(x.float())
 """
     cuda_sources = {
         "kernels/generated.cu": """
-__global__ void identity_kernel(float* x) {}
+#include <cuda_runtime.h>
+#include <cstdint>
+
+__global__ void identity_kernel(const float* input, float* output, int64_t size) {
+    int64_t index = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (index < size) {
+        output[index] = input[index];
+    }
+}
+
+extern "C" void launch_identity(const float* input, float* output, int64_t size) {
+    constexpr int threads = 256;
+    int blocks = static_cast<int>((size + threads - 1) / threads);
+    identity_kernel<<<blocks, threads>>>(input, output, size);
+}
 """,
         "kernels/generated_binding.cpp": """
 #include <torch/extension.h>
+#include <cstdint>
+
+extern "C" void launch_identity(const float* input, float* output, int64_t size);
 
 torch::Tensor identity(torch::Tensor x) {
-    return x;
+    auto output = torch::empty_like(x);
+    launch_identity(x.data_ptr<float>(), output.data_ptr<float>(), x.numel());
+    return output;
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
@@ -78,10 +98,31 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         assert artifact["profiling_hints"]["custom_kernel_names"] == ["identity_kernel"]
 
         handle = backend.load(artifact, device="cuda:0")
-        x = torch.randn(8, device="cuda")
+        x = torch.randn(8, device="cuda", dtype=torch.float16)
         output = backend.run(handle, {"init_inputs": [], "inputs": [x]}, device="cuda:0")["output"]
 
-        assert torch.allclose(output, x)
+        assert torch.allclose(output, x.float())
+
+        class Reference(torch.nn.Module):
+            def forward(self, value):
+                return value.float()
+
+        result = run_and_check_correctness(
+            Reference(),
+            handle["model_cls"](),
+            lambda: [torch.randn(128, device="cuda", dtype=torch.float16)],
+            metadata={},
+            num_correct_trials=1,
+            seed=1234,
+            device=torch.device("cuda:0"),
+            detect_aten_fallback=True,
+        )
+
+        assert result.correctness is True
+        assert result.decoy_kernel is False
+        assert result.metadata["forbidden_aten_op_names"] == []
+        allowed_names = {item["name"] for item in result.metadata["allowed_aten_ops"]}
+        assert {"aten::to", "aten::_to_copy", "aten::empty_strided", "aten::copy_"} <= allowed_names
     finally:
         if handle is not None:
             backend.cleanup(handle)

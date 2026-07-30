@@ -14,11 +14,11 @@ from kernelgym.config import settings
 logger = logging.getLogger(__name__)
 
 
-# MooreEval-style allowlist for ATen operations that do not replace the core
-# computation with a high-level PyTorch implementation. Everything else under
-# ``aten::*`` is forbidden by default. Keep this list explicit and reviewable:
-# adding an operator changes the native-kernel legality contract.
-ALLOWED_ATEN_OPERATORS = frozenset(
+# Exact MooreEval/MusaCoder Appendix J allowlist from
+# https://arxiv.org/abs/2606.04847. Keep the source list separate from local
+# compatibility additions so reviewers can see where KernelGYM diverges from
+# the published policy.
+MUSACODER_APPENDIX_J_ALLOWED_ATEN_OPERATORS = frozenset(
     {
         "aten::_assert_async",
         "aten::_assert_async.msg",
@@ -64,7 +64,25 @@ ALLOWED_ATEN_OPERATORS = frozenset(
         "aten::zeros",
     }
 )
-ATEN_ALLOWLIST_VERSION = "musacoder_appendix_j_v1"
+
+# Modern PyTorch dispatcher names for the same tensor-plumbing operations that
+# Appendix J already permits through older spellings (for example
+# ``aten::_cast_Float`` and ``aten::empty``). These names were observed with
+# PyTorch 2.11 on CUDA. They do not authorize high-level math operators.
+KERNELGYM_COMPAT_ALLOWED_ATEN_OPERATORS = frozenset(
+    {
+        "aten::_to_copy",
+        "aten::detach",
+        "aten::empty_strided",
+        "aten::fill_",
+        "aten::new_empty",
+        "aten::to",
+        "aten::zero_",
+    }
+)
+
+ALLOWED_ATEN_OPERATORS = MUSACODER_APPENDIX_J_ALLOWED_ATEN_OPERATORS | KERNELGYM_COMPAT_ALLOWED_ATEN_OPERATORS
+ATEN_ALLOWLIST_VERSION = "musacoder_appendix_j_plus_kernelgym_pytorch_2_11_compat_v2"
 
 
 def _safe_metric(evt: Any, names: Tuple[str, ...], default: float = 0.0) -> float:

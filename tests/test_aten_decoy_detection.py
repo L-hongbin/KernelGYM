@@ -29,6 +29,29 @@ def test_musacoder_allowlist_accepts_tensor_plumbing(name: str) -> None:
 @pytest.mark.parametrize(
     "name",
     [
+        "aten::to",
+        "aten::_to_copy",
+        "aten::detach",
+        "aten::fill_",
+        "aten::zero_",
+        "aten::new_empty",
+        "aten::empty_strided",
+        "aten::to.dtype",
+    ],
+)
+def test_kernelgym_compat_allowlist_accepts_modern_tensor_plumbing(name: str) -> None:
+    assert profiling.is_allowed_aten_operator(name) is True
+
+
+def test_musacoder_source_allowlist_is_kept_separate_from_compat_additions() -> None:
+    assert "aten::_cast_Float" in profiling.MUSACODER_APPENDIX_J_ALLOWED_ATEN_OPERATORS
+    assert "aten::to" not in profiling.MUSACODER_APPENDIX_J_ALLOWED_ATEN_OPERATORS
+    assert "aten::to" in profiling.KERNELGYM_COMPAT_ALLOWED_ATEN_OPERATORS
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
         "aten::mm",
         "aten::matmul",
         "aten::convolution",
@@ -93,6 +116,8 @@ def test_low_named_kernel_coverage_is_suspicion_not_hard_decoy() -> None:
     assert result.decoy_kernel is False
     assert metadata["raw_custom_kernel_time_coverage"] == pytest.approx(0.0005)
     assert metadata["suspected_decoy"] is True
+    assert metadata["suspected_decoy_enforced"] is False
+    assert metadata["suspected_decoy_effect"] == "DIAGNOSTIC_ONLY"
     assert metadata["hard_decoy_coverage_candidate"] is True
     assert metadata["hard_decoy_coverage_gate_applied"] is False
     assert metadata["hard_decoy_coverage_gate_skip_reason"] == "ALLOWED_LIBRARY_PROVENANCE_UNAVAILABLE"

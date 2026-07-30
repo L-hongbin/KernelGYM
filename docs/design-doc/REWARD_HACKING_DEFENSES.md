@@ -8,6 +8,10 @@ Generated kernels are untrusted code. They may try to pass correctness without d
 
 ## Correctness Defenses
 
+### Per-forward RNG parity
+
+For each correctness trial, the harness seeds input generation and then resets the same trial seed immediately before each of the reference and candidate forwards. This makes stochastic reference and candidate implementations consume the same PyTorch RNG sequence even though they run sequentially. The reset is an independent correctness-policy change; it is not part of ATen fallback detection.
+
 ### Reference before custom
 
 Correctness trials deliberately run the reference model before the custom model. The reference result is computed while only trusted benchmark code has run for the current trial. This avoids a class of hacks where custom code mutates process-wide PyTorch or CUDA state before the reference executes, for example:
@@ -54,9 +58,11 @@ Limitations:
 
 ### ATen compute fallback legality gate
 
-When decoy detection is enabled, every real `ModelNew` correctness forward is wrapped in a CPU-only `torch.profiler` context. Reference forwards run outside that context. The captured `aten::*` calls are checked against the explicit MooreEval/MusaCoder Appendix J allowlist in `kernelgym/toolkit/kernelbench/profiling.py`.
+When decoy detection is enabled, every real `ModelNew` correctness forward is wrapped in a CPU-only `torch.profiler` context. Reference forwards run outside that context. The captured `aten::*` calls are checked against the explicit [MooreEval/MusaCoder Appendix J](https://arxiv.org/abs/2606.04847) allowlist in `kernelgym/toolkit/kernelbench/profiling.py`.
 
-The allowlist contains tensor plumbing and utility operations such as `aten::empty`, `aten::view`, `aten::reshape`, `aten::copy_`, tensor creation, and shape/query operations. Any other `aten::*` call is treated as a high-level compute fallback. A candidate that is numerically correct but invokes `aten::mm`, `aten::convolution`, `aten::sum`, or another unlisted ATen operator is returned with:
+The published Appendix J list is preserved as a separate constant. KernelGYM adds a narrowly scoped PyTorch 2.11 compatibility set for modern dispatcher spellings of the same tensor-plumbing behavior: `aten::to`, `aten::_to_copy`, `aten::detach`, `aten::fill_`, `aten::zero_`, `aten::new_empty`, and `aten::empty_strided`. For example, a CUDA wrapper that calls `.float()` emits `aten::to`, `aten::_to_copy`, `aten::empty_strided`, and `aten::copy_`; treating those names as compute fallback would reject a legal wrapper even though Appendix J permits older `_cast_*`, allocation, and copy spellings.
+
+Any other `aten::*` call is treated as a high-level compute fallback. A candidate that is numerically correct but invokes `aten::mm`, `aten::convolution`, `aten::sum`, or another unlisted ATen operator is returned with:
 
 - `decoy_kernel=true`
 - `policy_violation=true`
@@ -89,7 +95,9 @@ When profiling is enabled, the harness records captured CUDA kernel metadata and
 
 For CUDA-Agent and TVM-FFI, expected custom kernel names come from backend profiling hints when available. Coverage uses only actual CUDA device events; CPU-side ATen aggregates that repeat child CUDA time are excluded from the denominator.
 
-Named custom-kernel CUDA-time coverage below 30% records `suspected_decoy=true`. Coverage below 0.1% additionally records `hard_decoy_coverage_candidate=true`, but does not hard-reject while direct extension-internal cuBLAS/cuDNN provenance remains unavailable: unmatched CUDA time may be a legal vendor-library implementation. The hard legality decision is therefore driven by forbidden ATen compute; named-kernel coverage remains a conservative decoration/bypass signal.
+Named custom-kernel CUDA-time coverage below 30% records `suspected_decoy=true`. Coverage below 0.1% additionally records `hard_decoy_coverage_candidate=true`, but does not hard-reject while direct extension-internal cuBLAS/cuDNN provenance remains unavailable: unmatched CUDA time may be a legal vendor-library implementation. The hard legality decision is therefore driven by forbidden ATen compute; named-kernel coverage remains a conservative diagnostic/bypass signal.
+
+`suspected_decoy` does not change correctness or `decoy_kernel` by itself; the response makes this explicit with `suspected_decoy_enforced=false` and `suspected_decoy_effect=DIAGNOSTIC_ONLY`. The current downstream reward client does not consume this field, and its default configurations have `coverage_reward.enable=false`, so low coverage currently has no training penalty. This is intentional until the profiler can attribute unmatched vendor-library kernels to the candidate extension call chain; restoring the old `num_custom_kernels == 0` hard gate would reject legal direct cuBLAS/cuDNN bindings.
 
 ### Profiler dropout retry
 
@@ -113,6 +121,7 @@ If profiling is enabled and returns no kernels, the performance step can retry p
 - With poison monkeypatched off, the same custom model can reproduce the hacking behavior and incorrectly pass by reusing stale reference intermediate memory.
 - A normal matching CUDA model still passes with poison enabled.
 - Forbidden `aten::mm` is detected on the candidate correctness forward while allowlisted `aten::view` passes.
+- A compiled CUDA extension whose wrapper calls `.float()` is correct and is not rejected; the test verifies the modern `aten::to`/`aten::_to_copy` dispatcher path on GPU.
 - All candidate correctness trials are profiled, so a stateful implementation cannot defer an ATen fallback until a later trial.
 
 `tests/test_aten_decoy_detection.py` covers the explicit allowlist, CUDA-device-only coverage extraction, low-coverage suspicion, and profiler-unavailable behavior.
