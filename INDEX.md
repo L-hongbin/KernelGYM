@@ -30,6 +30,7 @@ This file indexes stable repository docs and evidence locations.
 | `kernelgym/backend/kernelbench/cuda_agent_backend.py` | CUDA-Agent parsing, validation scaffold, compile/load backend. |
 | `kernelgym/backend/kernelbench/tvm_ffi_backend.py` | TVM-FFI compile/load backend and compile artifact cache. |
 | `kernelgym/toolkit/kernelbench/pipeline.py` | KernelBench compile/load/correctness/performance pipeline. |
+| `kernelgym/toolkit/kernelbench/profiling.py` | CUDA profiling, MusaCoder-style ATen allowlist classification, and named-kernel coverage extraction. |
 | `kernelgym/native/cupti_tsc_shim.cpp` | Version-gated LD_PRELOAD shim suppressing Kineto's CUPTI TSC timestamp callback on affected CUDA versions. |
 | `kernelgym/utils/cupti_tsc_shim.py` | Shim build, state query, and Kineto-TSC-fix verification gates. |
 | `kernelgym/utils/device_info.py` | Startup/runtime device metadata detection and serialized-result injection. |
@@ -39,6 +40,7 @@ This file indexes stable repository docs and evidence locations.
 | `kernelgym/worker/gpu_worker.py` | Worker-side task execution and failure handling. |
 | `kernelgym/worker/subprocess_pool.py` | Persistent GPU subprocess pool, recycle, timeout, and pool-size enforcement. |
 | `scripts/manage_core_dumps.py` | Move root-level core dumps into the configured directory and keep only the newest retained files. |
+| `tests/test_aten_decoy_detection.py` | ATen allowlist, device-only CUDA timing, and conservative low-coverage decoy regression tests. |
 
 ## External Source References
 

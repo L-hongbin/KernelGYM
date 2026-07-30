@@ -39,6 +39,8 @@ from kernelgym.utils.error_classifier import classify_compile_error_detail
 logger = logging.getLogger(__name__)
 _STAGE_METADATA_PATH_ENV = "KERNELGYM_STAGE_METADATA_PATH"
 _FAST_RW_ROOT = Path("/dev/shm")
+_HARD_DECOY_COVERAGE_THRESHOLD = 0.001
+_SUSPECTED_DECOY_COVERAGE_THRESHOLD = 0.30
 
 
 def _path_is_under_fast_rw_root(path: Path) -> bool:
@@ -242,6 +244,9 @@ def _apply_coverage_metadata(
         if total_kernel_run_time_in_profiling_us > 0
         else 0
     )
+    coverage_measurement_valid = total_kernel_run_time_in_profiling_us > 0
+    metadata["coverage_measurement_valid"] = coverage_measurement_valid
+    metadata["raw_custom_kernel_time_coverage"] = ratio_time if coverage_measurement_valid else None
     metadata["custom_kernel_cuda_time_coverage"] = (
         f"Custom kernel CUDA time: {custom_kernel_cuda_time_in_profiling_us:.2f}us / "
         f"Total CUDA time: {total_kernel_run_time_in_profiling_us:.2f}us, "
@@ -268,21 +273,61 @@ def _apply_coverage_metadata(
             total_kernel_run_time_in_profiling_us_cpu_cuda
         )
         kernel_exec_result.metadata["custom_kernel_cuda_time_coverage"] = metadata["custom_kernel_cuda_time_coverage"]
+        kernel_exec_result.metadata["coverage_measurement_valid"] = coverage_measurement_valid
+        kernel_exec_result.metadata["raw_custom_kernel_time_coverage"] = (
+            ratio_time if coverage_measurement_valid else None
+        )
         if coverage_backend == "triton":
             kernel_exec_result.metadata["triton_kernel_coverage"] = coverage_text
 
     if not detect_decoy_kernel:
         return
 
-    if num_custom_kernels == 0 and num_total_kernels > 0:
+    if not coverage_measurement_valid:
+        logger.warning("Profiler captured 0 total kernels - likely profiler bug, NOT marking as decoy")
+        metadata["coverage_unavailable"] = True
+        if kernel_exec_result and isinstance(kernel_exec_result.metadata, dict):
+            kernel_exec_result.metadata["coverage_unavailable"] = True
+        return
+
+    if ratio_time < _SUSPECTED_DECOY_COVERAGE_THRESHOLD:
+        reasons = metadata.setdefault("suspected_decoy_reasons", [])
+        reason = "LOW_CUSTOM_KERNEL_TIME_COVERAGE"
+        if reason not in reasons:
+            reasons.append(reason)
+        metadata["suspected_decoy"] = True
+        metadata["suspected_decoy_reason"] = reason
+        metadata["suspected_decoy_threshold"] = _SUSPECTED_DECOY_COVERAGE_THRESHOLD
         logger.warning(
-            "Profiler captured %s kernels but 0 custom kernels for backend=%s - marking as decoy",
-            num_total_kernels,
+            "Custom-kernel CUDA time coverage %.6f is below %.2f for backend=%s; marking as suspected decoy",
+            ratio_time,
+            _SUSPECTED_DECOY_COVERAGE_THRESHOLD,
             coverage_backend,
         )
-        kernel_exec_result.decoy_kernel = True
-    elif num_custom_kernels == 0 and num_total_kernels == 0:
-        logger.warning("Profiler captured 0 total kernels - likely profiler bug, NOT marking as decoy")
+
+    if ratio_time < _HARD_DECOY_COVERAGE_THRESHOLD:
+        # Do not hard-reject from named-kernel coverage alone. The unmatched
+        # CUDA time may be legal cuBLAS/cuDNN work called directly by the
+        # candidate extension. A hard coverage verdict requires runtime
+        # provenance that can exclude those allowed library calls.
+        metadata["hard_decoy_coverage_candidate"] = True
+        metadata["hard_decoy_coverage_threshold"] = _HARD_DECOY_COVERAGE_THRESHOLD
+        metadata["hard_decoy_coverage_gate_applied"] = False
+        metadata["hard_decoy_coverage_gate_skip_reason"] = "ALLOWED_LIBRARY_PROVENANCE_UNAVAILABLE"
+
+    if kernel_exec_result and isinstance(kernel_exec_result.metadata, dict):
+        for key in (
+            "suspected_decoy",
+            "suspected_decoy_reason",
+            "suspected_decoy_reasons",
+            "suspected_decoy_threshold",
+            "hard_decoy_coverage_candidate",
+            "hard_decoy_coverage_threshold",
+            "hard_decoy_coverage_gate_applied",
+            "hard_decoy_coverage_gate_skip_reason",
+        ):
+            if key in metadata:
+                kernel_exec_result.metadata[key] = metadata[key]
 
 
 def _run_correctness_step(
@@ -295,6 +340,7 @@ def _run_correctness_step(
     seed_num: int,
     device: Union[torch.device, int],
     overall_start: float | None = None,
+    detect_decoy_kernel: bool = False,
 ) -> KernelExecResult:
     if verbose:
         logger.info("[Eval] Checking Correctness")
@@ -320,6 +366,7 @@ def _run_correctness_step(
             seed=seed_num,
             device=device,
             stage_update_fn=stage_update_fn,
+            detect_aten_fallback=detect_decoy_kernel,
         )
     except Exception as e:
         metadata["runtime_error"] = e
@@ -968,6 +1015,7 @@ def eval_kernel_against_ref(
         seed_num,
         device,
         overall_start,
+        detect_decoy_kernel,
     )
     _finish_stage(
         metadata,
@@ -975,6 +1023,16 @@ def eval_kernel_against_ref(
         timing_key="kg_kernel_correctness_s",
         start_time=correctness_start,
     )
+
+    if kernel_exec_result.correctness and kernel_exec_result.decoy_kernel:
+        logger.warning(
+            "[Eval] Correct candidate used forbidden ATen compute; skipping performance (reason=%s)",
+            metadata.get("decoy_reason"),
+        )
+        metadata["kg_kernel_total_s"] = perf_counter() - overall_start
+        _sync_exec_result_metadata(kernel_exec_result, metadata)
+        _cleanup()
+        return kernel_exec_result
 
     triton_detect_start = _begin_stage(
         metadata,

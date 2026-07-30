@@ -52,6 +52,20 @@ Limitations:
 
 ## Timing Defenses
 
+### ATen compute fallback legality gate
+
+When decoy detection is enabled, every real `ModelNew` correctness forward is wrapped in a CPU-only `torch.profiler` context. Reference forwards run outside that context. The captured `aten::*` calls are checked against the explicit MooreEval/MusaCoder Appendix J allowlist in `kernelgym/toolkit/kernelbench/profiling.py`.
+
+The allowlist contains tensor plumbing and utility operations such as `aten::empty`, `aten::view`, `aten::reshape`, `aten::copy_`, tensor creation, and shape/query operations. Any other `aten::*` call is treated as a high-level compute fallback. A candidate that is numerically correct but invokes `aten::mm`, `aten::convolution`, `aten::sum`, or another unlisted ATen operator is returned with:
+
+- `decoy_kernel=true`
+- `policy_violation=true`
+- `policy_violation_reason=DISALLOWED_ATEN_COMPUTE`
+- `decoy_reason=DISALLOWED_ATEN_COMPUTE`
+- `forbidden_aten_op_names` and per-trial operator evidence
+
+ATen legality is categorical and does not use a CUDA-time percentage threshold. Profiler initialization/extraction failure sets `aten_detection_valid=false` and records the error; it does not create a decoy verdict.
+
 ### CUDA synchronization
 
 Correctness and timing paths call `torch.cuda.synchronize(device=device)` after reference, custom, warmup, timing, and profiling loops. This prevents default-stream timing from returning before queued work is finished.
@@ -70,8 +84,12 @@ When profiling is enabled, the harness records captured CUDA kernel metadata and
 - `custom_kernel_not_in_profiling`
 - `total_kernel_cuda_time_in_profiling_us`
 - `custom_kernel_cuda_time_in_profiling_us`
+- `raw_custom_kernel_time_coverage`
+- `coverage_measurement_valid`
 
-For CUDA-Agent and TVM-FFI, expected custom kernel names come from backend profiling hints when available. This helps identify no-op wrappers, missing launches, and profiler dropouts.
+For CUDA-Agent and TVM-FFI, expected custom kernel names come from backend profiling hints when available. Coverage uses only actual CUDA device events; CPU-side ATen aggregates that repeat child CUDA time are excluded from the denominator.
+
+Named custom-kernel CUDA-time coverage below 30% records `suspected_decoy=true`. Coverage below 0.1% additionally records `hard_decoy_coverage_candidate=true`, but does not hard-reject while direct extension-internal cuBLAS/cuDNN provenance remains unavailable: unmatched CUDA time may be a legal vendor-library implementation. The hard legality decision is therefore driven by forbidden ATen compute; named-kernel coverage remains a conservative decoration/bypass signal.
 
 ### Profiler dropout retry
 
@@ -94,6 +112,10 @@ If profiling is enabled and returns no kernels, the performance step can retry p
 - With poison enabled, a custom model returning `torch.empty_like` after a reference with a same-shaped intermediate fails correctness.
 - With poison monkeypatched off, the same custom model can reproduce the hacking behavior and incorrectly pass by reusing stale reference intermediate memory.
 - A normal matching CUDA model still passes with poison enabled.
+- Forbidden `aten::mm` is detected on the candidate correctness forward while allowlisted `aten::view` passes.
+- All candidate correctness trials are profiled, so a stateful implementation cannot defer an ATen fallback until a later trial.
+
+`tests/test_aten_decoy_detection.py` covers the explicit allowlist, CUDA-device-only coverage extraction, low-coverage suspicion, and profiler-unavailable behavior.
 
 These tests skip on hosts without PyTorch CUDA.
 
@@ -103,6 +125,7 @@ These tests skip on hosts without PyTorch CUDA.
 - The default path does not isolate reference and custom code in separate processes.
 - The default path does not snapshot or restore every possible PyTorch/CUDA global state mutation by custom code.
 - cuBLAS/cuDNN status returns inside generated extensions cannot be checked by the Python harness unless the extension reports errors.
+- Named CUDA-kernel coverage cannot yet prove whether unmatched GPU time came from extension-internal cuBLAS/cuDNN, so the 0.1% hard coverage gate remains intentionally disabled.
 
 ## Stronger Future Options
 
