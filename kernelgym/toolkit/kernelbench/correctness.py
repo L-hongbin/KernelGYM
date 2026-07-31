@@ -612,12 +612,9 @@ def run_and_check_correctness(
             # state in both runs; otherwise the reference forward advances the
             # RNG and the candidate mismatches even when identical.
             _set_substage("reference_forward", trial=trial)
-<<<<<<< HEAD
             # Input generation may consume RNG. Start both forwards from the
             # same per-trial Torch RNG state so stochastic PyTorch operations
             # are comparable when ModelNew uses the same RNG implementation.
-=======
->>>>>>> a7fc70c (fix(kernelbench): reseed per-forward and support multi-output correctness checks)
             set_seed(trial_seed)
             reference_start = perf_counter()
             output = model(*inputs)

@@ -116,13 +116,10 @@ def time_execution_with_cuda_event(
     verbose: bool = True,
     device: torch.device = None,
     enable_profiling: bool = False,
-<<<<<<< HEAD
     num_profiling_trials: Optional[int] = None,
-=======
     adaptive: bool = False,
     min_trials: int = 20,
     cv_threshold: float = 0.05,
->>>>>>> 7342b02 (feat(kernelbench): adaptive kernel perf trials + separate reference trial count)
 ) -> Tuple[List[float], Dict[str, Any], Dict[str, Any]]:
     if device is None:
         if verbose:
@@ -235,10 +232,6 @@ def time_execution_with_cuda_event(
         "profiling_wall_s": profiling_wall_s,
         "timed_trials_cuda_event_s": sum(elapsed_times) / 1000.0,
         "num_warmup": num_warmup,
-<<<<<<< HEAD
-        "num_trials": num_trials,
-        "num_profiling_trials": num_profiling_trials if enable_profiling else 0,
-=======
         # `num_trials` is the number actually run (may be < requested when adaptive
         # early-stops on a stable CV); `num_trials_requested` is the configured max.
         "num_trials": len(elapsed_times),
@@ -248,8 +241,7 @@ def time_execution_with_cuda_event(
         "adaptive_cv_threshold": cv_threshold if adaptive else None,
         "adaptive_stopped_early": stopped_early,
         "adaptive_final_cv": final_cv,
-        "num_profiling_trials": min(10, num_trials) if enable_profiling else 0,
->>>>>>> 7342b02 (feat(kernelbench): adaptive kernel perf trials + separate reference trial count)
+        "num_profiling_trials": num_profiling_trials if enable_profiling else 0,
         "total_wall_s": perf_counter() - overall_start,
     }
 
