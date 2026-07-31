@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 API_PORT = 20111
 API_WORKERS = 4
 API_RELOAD = False
@@ -57,6 +56,12 @@ class RewardProfile:
             "ENABLE_METRICS": "true",
             "METRICS_PORT": str(METRICS_PORT),
             "ENABLE_PROFILING": "true",
+            "ENABLE_NCU": "true",
+            "NCU_PATH": "/usr/local/cuda-12.9/bin/ncu",
+            "NCU_TIMEOUT_S": "90",
+            "NCU_MAX_KERNELS": "8",
+            "NCU_WARMUP": "2",
+            "NCU_PROFILE_VERSION": "v1",
             "VERBOSE_ERROR_TRACEBACK": "true",
             "SAVE_EVAL_RESULTS": "false",
             "EVAL_RESULTS_PATH": f"logs/{self.name}/eval_results.jsonl",

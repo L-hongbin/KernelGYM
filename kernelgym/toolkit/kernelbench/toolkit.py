@@ -11,17 +11,17 @@ import torch
 from kernelgym.common import ErrorCode
 from kernelgym.config import settings
 from kernelgym.schema import (
-    EvaluationTask,
     EvaluationResult,
+    EvaluationTask,
     KernelEvaluationResult,
     KernelEvaluationTask,
     ReferenceTimingResult,
     ReferenceTimingTask,
 )
-from kernelgym.toolkit.validation import validate_code
+from kernelgym.toolkit.kernelbench import pipeline as kernelbench_pipeline
 from kernelgym.toolkit.kernelbench.binding_detection import resolve_kernel_backend
 from kernelgym.toolkit.kernelbench.exec_types import set_seed
-from kernelgym.toolkit.kernelbench import pipeline as kernelbench_pipeline
+from kernelgym.toolkit.validation import validate_code
 
 from ..base import Toolkit
 
@@ -87,6 +87,7 @@ class KernelBenchToolkit(Toolkit):
                 KernelEvaluationTask.from_dict(task),
                 verbose_errors=task.get("verbose_errors", True),
                 enable_profiling=task.get("enable_profiling", settings.enable_profiling),
+                enable_ncu=task.get("enable_ncu"),
                 backend_adapter=backend,
             )
         else:
@@ -145,6 +146,9 @@ class KernelBenchToolkit(Toolkit):
             enable_profiling = task.enable_profiling
             if enable_profiling is None:
                 enable_profiling = settings.enable_profiling
+            enable_ncu = task.enable_ncu
+            if enable_ncu is None:
+                enable_ncu = settings.enable_ncu
 
             num_warmup = getattr(task, "num_warmup", 3)
             perf_trim_count = getattr(task, "perf_trim_count", 0)
@@ -163,6 +167,7 @@ class KernelBenchToolkit(Toolkit):
                 backend=task.backend,
                 entry_point=task.entry_point,
                 enable_profiling=bool(enable_profiling),
+                enable_ncu=bool(enable_ncu),
                 enable_triton_detection=enable_triton_detection,
                 detect_decoy_kernel=detect_decoy_kernel,
                 backend_adapter=backend_adapter,
@@ -312,6 +317,7 @@ class KernelBenchToolkit(Toolkit):
         task: KernelEvaluationTask,
         verbose_errors: bool = True,
         enable_profiling: bool = False,
+        enable_ncu: bool | None = None,
         backend_adapter=None,
     ) -> KernelEvaluationResult:
         task = replace(task, backend=resolve_kernel_backend(task.kernel_code, task.backend))
@@ -361,6 +367,10 @@ class KernelBenchToolkit(Toolkit):
             num_warmup = getattr(task, "num_warmup", 3)
             perf_trim_count = getattr(task, "perf_trim_count", 0)
             adaptive_perf_trials, perf_min_trials, perf_cv_threshold = _resolve_adaptive_perf(task)
+            if enable_ncu is None:
+                enable_ncu = task.enable_ncu
+            if enable_ncu is None:
+                enable_ncu = settings.enable_ncu
 
             result = kernelbench_pipeline.eval_kernel_against_ref(
                 original_model_src=task.reference_code,
@@ -375,6 +385,7 @@ class KernelBenchToolkit(Toolkit):
                 backend=task.backend,
                 entry_point=task.entry_point,
                 enable_profiling=enable_profiling,
+                enable_ncu=bool(enable_ncu),
                 enable_triton_detection=enable_triton_detection,
                 detect_decoy_kernel=detect_decoy_kernel,
                 backend_adapter=backend_adapter,

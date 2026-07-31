@@ -16,6 +16,8 @@ KernelGYM reward-only supports two deployment modes. Runtime env values come fro
   - `requirements-cuda129.txt` only pins package versions; pip/uv index or mirror selection must come from the
     container image, pip config, uv config, or environment, not from the requirements file.
   - `/usr/local/cuda-12.9/bin/nvcc --version` must report CUDA 12.9.
+- Nsight Compute collection is enabled by default at `/usr/local/cuda-12.9/bin/ncu`. The runtime validator checks the executable and version; deployed workers must have permission to access NVIDIA GPU performance counters.
+- Set `ENABLE_NCU=false` to disable collection globally, or use request field `enable_ncu=false` for one evaluation.
 - If CUDA wheel dependencies cannot be fetched directly, `ensure_venv.sh` retries with
   `http://192.168.28.186:7897` on external nodes. Override with `KERNELGYM_PROXY` or
   `KERNELGYM_FALLBACK_PROXY` only when needed.
@@ -32,8 +34,7 @@ source .venv/bin/activate
 ```
 
 The script validates `redis-server`, `torch.version.cuda == "12.9"`, and `nvcc` from CUDA 12.9. Common overrides are
-not needed: it creates and activates `.venv` with Python 3.12 when missing, then checks `/usr/local/cuda-12.9/bin/nvcc`
-directly.
+not needed: it creates and activates `.venv` with Python 3.12 when missing, then checks `/usr/local/cuda-12.9/bin/nvcc` and `/usr/local/cuda-12.9/bin/ncu` directly.
 
 Use `--profile v1`:
 

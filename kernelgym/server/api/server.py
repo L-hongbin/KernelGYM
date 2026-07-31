@@ -1,52 +1,54 @@
 """FastAPI server for KernelGym."""
 
 import asyncio
+import json
 import logging
+import time
+from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Dict, Optional, Any
+from typing import Any, Dict, Optional
+
+import redis.asyncio as redis
 import uvicorn
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, status, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-import redis.asyncio as redis
-from contextlib import asynccontextmanager
-import json
-import time
-
-from kernelgym.config import settings, setup_logging
-from .models import (
-    EvaluationRequest,
-    EvaluationResponse,
-    BatchEvaluationRequest,
-    BatchEvaluationResponse,
-    TaskStatusResponse,
-    SystemHealthResponse,
-    MetricsResponse,
-    ErrorResponse,
-    WorkflowRequest,
-    WorkflowResponse,
-    MAX_CODE_CHARS,
+from redis.exceptions import (
+    BusyLoadingError,
 )
-from .utils import get_system_health, get_system_metrics, format_timestamp
-from . import system_stats
-from kernelgym.server.task_manager import TaskManager
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import ResponseError as RedisResponseError
+from redis.exceptions import TimeoutError as RedisTimeoutError
+
+from kernelgym.common import ErrorCode, TaskStatus
+from kernelgym.config import settings, setup_logging
 from kernelgym.server.request_defaults import apply_runtime_defaults
 from kernelgym.server.request_hash import request_hash
 from kernelgym.server.scheduler import TaskManagerScheduler
+from kernelgym.server.task_manager import TaskManager
+from kernelgym.utils.error_classifier import classify_error
+from kernelgym.utils.task_status import task_status_from_result_payload
 from kernelgym.workflow import get_workflow_controller
 from kernelgym.workflow.kernelbench_helpers import set_reference_cache
 from kernelgym.workflow.reference_cache import build_reference_runtime_cache
-from redis.exceptions import (
-    BusyLoadingError,
-    ConnectionError as RedisConnectionError,
-    TimeoutError as RedisTimeoutError,
-    ResponseError as RedisResponseError,
+
+from . import system_stats
+from .models import (
+    MAX_CODE_CHARS,
+    BatchEvaluationRequest,
+    BatchEvaluationResponse,
+    ErrorResponse,
+    EvaluationRequest,
+    EvaluationResponse,
+    MetricsResponse,
+    SystemHealthResponse,
+    TaskStatusResponse,
+    WorkflowRequest,
+    WorkflowResponse,
 )
-from kernelgym.utils.error_classifier import classify_error
-from kernelgym.utils.task_status import task_status_from_result_payload
-from kernelgym.common import ErrorCode, TaskStatus
 from .monitoring_routes import router as monitoring_router
+from .utils import format_timestamp, get_system_health, get_system_metrics
 
 # Configure logging with file support
 logger = logging.getLogger("kernelgym.api")
@@ -377,6 +379,8 @@ async def _execute_workflow(
             payload,
             workflow_name=workflow_name or "kernelbench",
             split_compile_and_execute=settings.split_compile_and_execute,
+            enable_ncu=settings.enable_ncu,
+            ncu_profile_version=settings.ncu_profile_version,
         )
     task_id = task_id or payload.get("task_id")
     if not task_id:

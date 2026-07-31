@@ -103,6 +103,14 @@ Named custom-kernel CUDA-time coverage below 30% records `suspected_decoy=true`.
 
 If profiling is enabled and returns no kernels, the performance step can retry profiling according to `settings.profiling_retry_count`. Empty profiler data is treated as a profiler reliability issue, not automatically as a decoy kernel.
 
+### Nsight Compute diagnostics
+
+Correct candidates can additionally run a dedicated Nsight Compute target process. The target reuses the compiled artifact, warms up outside the profiling range, and profiles one bounded forward pass. The compact metric set covers DRAM/L1/L2 throughput, SM activity, occupancy, register pressure, and shared-memory usage.
+
+NCU collection is diagnostic only and does not change CUDA-event runtime, correctness, decoy detection, speedup, or reward. Failures are fail-open and reported under `metadata.ncu.status`, including `unavailable`, `permission_denied`, `unsupported_metrics`, `timeout`, `no_matching_kernel`, and `error`.
+
+`ENABLE_NCU=true` is the deployment default. Requests may override it with `enable_ncu`; compile-only, incorrect, decoy, and performance-disabled tasks skip collection.
+
 ## Static And Compile-Time Defenses
 
 ### Submission validation

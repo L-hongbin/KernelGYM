@@ -35,7 +35,6 @@ from kernelgym.deployment_profiles import (
     get_profile,
     profile_names,
 )
-from kernelgym.utils.device_info import DEVICE_INFO_ENV, detect_device_info, encode_device_info
 from kernelgym.utils.core_dumps import (
     CORE_DUMP_DIR_ENV,
     CORE_DUMP_KEEP_ENV,
@@ -44,6 +43,7 @@ from kernelgym.utils.core_dumps import (
     ensure_core_dump_dir,
     prune_core_dumps,
 )
+from kernelgym.utils.device_info import DEVICE_INFO_ENV, detect_device_info, encode_device_info
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 TORCH_CUDA_ARCH_LIST_ENV = "TORCH_CUDA_ARCH_LIST"
@@ -223,6 +223,17 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
         ("Core dumps", ("KERNELGYM_CORE_DUMP_DIR", "KERNELGYM_CORE_DUMP_KEEP")),
         ("Metrics", ("ENABLE_METRICS", "METRICS_PORT")),
         ("Profiling", ("ENABLE_PROFILING",)),
+        (
+            "Nsight Compute",
+            (
+                "ENABLE_NCU",
+                "NCU_PATH",
+                "NCU_TIMEOUT_S",
+                "NCU_MAX_KERNELS",
+                "NCU_WARMUP",
+                "NCU_PROFILE_VERSION",
+            ),
+        ),
         ("Errors", ("VERBOSE_ERROR_TRACEBACK",)),
         ("Result persistence", ("SAVE_EVAL_RESULTS", "EVAL_RESULTS_PATH")),
         (

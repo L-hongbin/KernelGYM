@@ -88,6 +88,7 @@ Step toggles (override service defaults):
 |---|---|
 | `run_correctness`, `run_performance`, `run_triton_detection` | Per-call overrides for each evaluation step. |
 | `enable_profiling` | `null` = use server `ENABLE_PROFILING` env, else explicit `true`/`false`. |
+| `enable_ncu` | `null` = use server `ENABLE_NCU` env (default `true`), else explicit `true`/`false`. NCU runs only after correctness and performance gates pass. |
 | `enable_triton_detection`, `detect_decoy_kernel` | Decoy-kernel checks; see [REWARD_HACKING_DEFENSES](design-doc/REWARD_HACKING_DEFENSES.md). |
 | `measure_performance` | Legacy alias for `run_performance`. |
 | `verbose_errors` | `null` = server default (`VERBOSE_ERROR_TRACEBACK`). |
@@ -153,6 +154,7 @@ Split compile/execute (advanced, see [COMPILE_ACCELERATION](design-doc/COMPILE_A
 | `correctness_early_stop_enabled`, `correctness_trials_run`, `correctness_current_trial` | Correctness loop state |
 | `kg_kernel_perf_mean_ms`, `kg_kernel_perf_std_ms`, `kg_kernel_perf_min_ms`, `kg_kernel_perf_max_ms` | Per-trial perf stats |
 | `custom_kernel_cuda_time_in_profiling_us`, `*_coverage` | Profiler attribution |
+| `ncu.status`, `ncu.kernels`, `kg_kernel_ncu_profile_s` | Nsight Compute status, compact per-kernel metrics, and collection wall time |
 
 ### Example
 

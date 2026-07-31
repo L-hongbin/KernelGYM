@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import os
 import json
 import logging
+import os
 from pathlib import Path
 from time import monotonic_ns, perf_counter, time
 from typing import Any, Dict, Optional, Union
@@ -13,6 +13,7 @@ import torch
 
 from kernelgym.config import settings
 from kernelgym.toolkit.kernelbench import triton_detect as detect
+from kernelgym.toolkit.kernelbench.correctness import run_and_check_correctness
 from kernelgym.toolkit.kernelbench.exec_types import KernelExecResult, get_error_name, set_seed
 from kernelgym.toolkit.kernelbench.loading import (
     OriginalModelLoadError,
@@ -21,7 +22,11 @@ from kernelgym.toolkit.kernelbench.loading import (
     load_custom_model_with_tempfile,
     load_original_model_and_inputs,
 )
-from kernelgym.toolkit.kernelbench.correctness import run_and_check_correctness
+from kernelgym.toolkit.kernelbench.ncu_profiler import (
+    run_ncu_profile,
+    select_kernel_names,
+    skipped_ncu_result,
+)
 from kernelgym.toolkit.kernelbench.profiling import (
     compute_named_kernel_coverage,
     compute_triton_kernel_coverage,
@@ -34,7 +39,6 @@ from kernelgym.toolkit.kernelbench.timing import (
     time_execution_with_cuda_event,
 )
 from kernelgym.utils.error_classifier import classify_compile_error_detail
-
 
 logger = logging.getLogger(__name__)
 _STAGE_METADATA_PATH_ENV = "KERNELGYM_STAGE_METADATA_PATH"
@@ -655,6 +659,7 @@ def eval_kernel_against_ref(
     backend: str = "cuda",
     entry_point: str = "Model",
     enable_profiling: bool = True,
+    enable_ncu: bool = True,
     enable_triton_detection: bool = True,
     detect_decoy_kernel: bool = True,
     backend_adapter: Optional[Any] = None,
@@ -821,6 +826,7 @@ def eval_kernel_against_ref(
     backend_handle = None
     backend_session = None
     backend_profiling_hints: Optional[Dict[str, Any]] = None
+    artifact: Optional[Dict[str, Any]] = precompiled_artifact
 
     def _cleanup():
         if backend_session is not None:
@@ -1077,6 +1083,10 @@ def eval_kernel_against_ref(
         start_time=triton_detect_start,
     )
     if decoy_detected:
+        metadata["ncu"] = skipped_ncu_result(
+            "skipped_decoy" if enable_ncu else "disabled",
+            settings.ncu_profile_version,
+        )
         metadata["kg_kernel_total_s"] = perf_counter() - overall_start
         _sync_exec_result_metadata(kernel_exec_result, metadata)
         _cleanup()
@@ -1115,6 +1125,42 @@ def eval_kernel_against_ref(
             timing_key="kg_kernel_performance_step_s",
             start_time=performance_start,
         )
+
+    ncu_start = _begin_stage(
+        metadata,
+        prefix="kg_kernel",
+        stage="kernel.ncu_profile",
+        overall_start=overall_start,
+    )
+    if not enable_ncu:
+        metadata["ncu"] = skipped_ncu_result("disabled", settings.ncu_profile_version)
+    elif not kernel_exec_result or not kernel_exec_result.correctness:
+        metadata["ncu"] = skipped_ncu_result("skipped_incorrect", settings.ncu_profile_version)
+    elif not measure_performance:
+        metadata["ncu"] = skipped_ncu_result("skipped_performance_disabled", settings.ncu_profile_version)
+    else:
+        ncu_kernel_names = select_kernel_names(metadata, settings.ncu_max_kernels)
+        metadata["ncu"] = run_ncu_profile(
+            original_model_src=original_model_src,
+            custom_model_src=custom_model_src,
+            artifact=artifact,
+            backend=backend,
+            entry_point=entry_point,
+            device=device,
+            kernel_names=ncu_kernel_names,
+            ncu_path=settings.ncu_path,
+            metrics=settings.ncu_metrics,
+            timeout_s=settings.ncu_timeout_s,
+            max_kernels=settings.ncu_max_kernels,
+            warmup=settings.ncu_warmup,
+            profile_version=settings.ncu_profile_version,
+        )
+    _finish_stage(
+        metadata,
+        stage="kernel.ncu_profile",
+        timing_key="kg_kernel_ncu_profile_s",
+        start_time=ncu_start,
+    )
 
     metadata["kg_kernel_total_s"] = perf_counter() - overall_start
     _sync_exec_result_metadata(kernel_exec_result, metadata)

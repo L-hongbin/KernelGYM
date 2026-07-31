@@ -1,11 +1,10 @@
 """API request/response models for KernelGym server."""
 
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, root_validator, validator
 
-from kernelgym.common import TaskStatus, Backend, Priority, ErrorCode
-
+from kernelgym.common import Backend, ErrorCode, Priority, TaskStatus
 
 MAX_CODE_CHARS = 100000
 
@@ -20,7 +19,9 @@ class EvaluationRequest(BaseModel):
     backend_adapter: str = Field(default="kernelbench", description="Backend adapter name")
     backend: Backend = Field(default=Backend.AUTO, description="Backend type")
     num_correct_trials: int = Field(default=5, ge=1, le=20, description="Number of correctness trials")
-    num_perf_trials: int = Field(default=100, ge=1, le=1000, description="Number of performance trials (max when adaptive)")
+    num_perf_trials: int = Field(
+        default=100, ge=1, le=1000, description="Number of performance trials (max when adaptive)"
+    )
     refer_num_perf_trials: Optional[int] = Field(
         default=None, ge=1, le=1000, description="Reference perf trials; defaults to num_perf_trials when unset"
     )
@@ -68,6 +69,10 @@ class EvaluationRequest(BaseModel):
     enable_profiling: Optional[bool] = Field(
         default=None,
         description="Enable torch.profiler for this request. None=use server default, True=enable, False=disable",
+    )
+    enable_ncu: Optional[bool] = Field(
+        default=None,
+        description="Enable Nsight Compute metrics. None=use server default, True=enable, False=disable",
     )
     enable_triton_detection: Optional[bool] = Field(
         default=None,
@@ -167,6 +172,7 @@ class EvaluationRequest(BaseModel):
                 "is_valid": False,
                 "verbose_errors": None,
                 "enable_profiling": None,
+                "enable_ncu": None,
             }
         }
 

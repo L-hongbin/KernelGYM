@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import List, Dict, Any, ClassVar
+from typing import Any, ClassVar, Dict, List
 
 from pydantic import Field, validator
 from pydantic_settings import BaseSettings
@@ -114,6 +114,33 @@ class Settings(BaseSettings):
             "Declare that the deployed Kineto build already version-gates the CUPTI TSC timestamp "
             "callback, so auto profiling-trial resolution may drop to 1 forward on affected CUPTI versions."
         ),
+    enable_ncu: bool = Field(
+        default=True,
+        env="ENABLE_NCU",
+        description="Collect a compact Nsight Compute metric set for correct kernels.",
+    )
+    ncu_path: str = Field(default="/usr/local/cuda-12.9/bin/ncu", env="NCU_PATH")
+    ncu_timeout_s: int = Field(default=90, env="NCU_TIMEOUT_S")
+    ncu_max_kernels: int = Field(default=8, env="NCU_MAX_KERNELS")
+    ncu_warmup: int = Field(default=2, env="NCU_WARMUP")
+    ncu_profile_version: str = Field(default="v1", env="NCU_PROFILE_VERSION")
+    ncu_metrics: List[str] = Field(
+        default_factory=lambda: [
+            "gpu__time_duration.sum",
+            "dram__cycles_active.avg.pct_of_peak_sustained_elapsed",
+            "gpu__dram_throughput.avg.pct_of_peak_sustained_elapsed",
+            "l1tex__throughput.avg.pct_of_peak_sustained_active",
+            "lts__throughput.avg.pct_of_peak_sustained_elapsed",
+            "gpu__compute_memory_throughput.avg.pct_of_peak_sustained_elapsed",
+            "sm__throughput.avg.pct_of_peak_sustained_elapsed",
+            "sm__issue_active.avg.pct_of_peak_sustained_elapsed",
+            "sm__warps_active.avg.pct_of_peak_sustained_active",
+            "launch__occupancy_per_block_size",
+            "launch__registers_per_thread",
+            "launch__shared_mem_per_block",
+        ],
+        env="NCU_METRICS",
+        description="Compact NCU metric set returned in evaluation metadata.",
     )
 
     adaptive_perf_trials: bool = Field(

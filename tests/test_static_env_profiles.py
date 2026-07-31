@@ -2,7 +2,6 @@ from pathlib import Path
 
 from kernelgym import deployment_profiles as profiles
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -27,6 +26,12 @@ def test_functional_reward_profile_matches_runtime_constants() -> None:
     assert values["DEFAULT_BACKEND"] == "auto"
     assert values["SPLIT_COMPILE_AND_EXECUTE"] == "true"
     assert values["KERNELGYM_CORRECTNESS_GPU_INPUTS"] == "true"
+    assert values["ENABLE_NCU"] == "true"
+    assert values["NCU_PATH"] == "/usr/local/cuda-12.9/bin/ncu"
+    assert values["NCU_TIMEOUT_S"] == "90"
+    assert values["NCU_MAX_KERNELS"] == "8"
+    assert values["NCU_WARMUP"] == "2"
+    assert values["NCU_PROFILE_VERSION"] == "v1"
     assert values["LOG_DIR"] == "logs/v1"
     assert values["PY_LOG_DIR"] == "py_logs/v1"
     assert "GPU_MEMORY_LIMIT" not in values

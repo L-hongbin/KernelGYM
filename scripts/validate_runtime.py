@@ -25,9 +25,10 @@ from pathlib import Path
 
 import torch
 
-
 REQUIRED_CUDA = (12, 9)
 PREFERRED_NVCC = Path("/usr/local/cuda-12.9/bin/nvcc")
+PREFERRED_NCU = Path(os.environ.get("NCU_PATH", "/usr/local/cuda-12.9/bin/ncu"))
+ENABLE_NCU = os.environ.get("ENABLE_NCU", "true").strip().lower() not in {"0", "false", "no", "off"}
 _RELEASE_RE = re.compile(r"release (\d+)\.(\d+)")
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "20110"))
@@ -76,6 +77,27 @@ def _check_nvcc() -> tuple[str, tuple[int, int]]:
             f"expected nvcc release == {REQUIRED_CUDA[0]}.{REQUIRED_CUDA[1]}, got {version[0]}.{version[1]} at {nvcc}"
         )
     return nvcc, version
+
+
+def _check_ncu() -> str | None:
+    if not ENABLE_NCU:
+        print("ncu=skipped (ENABLE_NCU=false)")
+        return None
+    if PREFERRED_NCU.exists():
+        ncu = str(PREFERRED_NCU)
+    else:
+        located = shutil.which("ncu")
+        if not located:
+            raise SystemExit(f"ENABLE_NCU=true but ncu was not found at {PREFERRED_NCU} or on PATH")
+        ncu = located
+    try:
+        output = subprocess.check_output([ncu, "--version"], text=True, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"ncu --version failed at {ncu}: {exc.output or exc}")
+    version_line = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "unknown")
+    print(f"ncu={ncu}")
+    print(f"ncu_version={version_line}")
+    return version_line
 
 
 def _check_cuda_init() -> int:
@@ -245,6 +267,7 @@ def main() -> int:
     print("\n=== Validate CUDA 12.9 + torch ===")
     _check_torch_cuda()
     nvcc, nvcc_version = _check_nvcc()
+    _check_ncu()
     device_count = _check_cuda_init()
     _check_cuda_math_libs()
     _check_redis()

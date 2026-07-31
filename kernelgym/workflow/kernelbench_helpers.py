@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Any, Optional, Tuple
 
 from .kernelbench_types import (
+    EvaluationResult,
     EvaluationTask,
     KernelEvaluationResult,
     KernelEvaluationTask,
-    EvaluationResult,
     ReferenceTimingResult,
     ReferenceTimingTask,
 )
@@ -138,6 +138,7 @@ def _create_paired_tasks(
         device_preference=task.device_preference,
         force_refresh=task.force_refresh,
         enable_profiling=task.enable_profiling,
+        enable_ncu=task.enable_ncu,
         enable_triton_detection=task.enable_triton_detection,
         detect_decoy_kernel=task.detect_decoy_kernel,
         measure_performance=task.measure_performance,

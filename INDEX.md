@@ -33,6 +33,7 @@ This file indexes stable repository docs and evidence locations.
 | `kernelgym/toolkit/kernelbench/profiling.py` | CUDA profiling, exact MusaCoder Appendix J plus explicit PyTorch compatibility ATen classification, and named-kernel coverage extraction. |
 | `kernelgym/native/cupti_tsc_shim.cpp` | Version-gated LD_PRELOAD shim suppressing Kineto's CUPTI TSC timestamp callback on affected CUDA versions. |
 | `kernelgym/utils/cupti_tsc_shim.py` | Shim build, state query, and Kineto-TSC-fix verification gates. |
+| `kernelgym/toolkit/kernelbench/ncu_profiler.py` | Fail-open Nsight Compute collection, report export, and compact per-kernel metric parsing. |
 | `kernelgym/utils/device_info.py` | Startup/runtime device metadata detection and serialized-result injection. |
 | `kernelgym/utils/core_dumps.py` | Core dump directory resolution, migration, and retention helpers. |
 | `kernelgym/workflow/kernelbench.py` | Server-side KernelBench workflow orchestration. |

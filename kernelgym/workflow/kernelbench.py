@@ -2,23 +2,21 @@
 
 from __future__ import annotations
 
-import logging
 import asyncio
-from typing import Any, Dict, Optional
-from pathlib import Path
 import json
+import logging
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 from kernelgym.common import ErrorCode
 from kernelgym.config import settings
 from kernelgym.toolkit.kernelbench.binding_detection import resolve_kernel_backend
-from .kernelbench_types import (
-    EvaluationTask,
-    ReferenceTimingTask,
-    ReferenceTimingResult,
-    KernelEvaluationResult,
-    EvaluationResult,
-)
+from kernelgym.utils.task_status import task_status_from_result_payload
+
+from ..core.scheduler import SchedulerAPI
+from ..core.types import TaskSpec
+from ..core.workflow import WorkflowController, WorkflowState
 from .kernelbench_helpers import (
     _combine_results,
     _create_paired_tasks,
@@ -26,11 +24,13 @@ from .kernelbench_helpers import (
     _put_cached_reference_runtime,
     _validate_code,
 )
-
-from ..core.types import TaskSpec
-from ..core.workflow import WorkflowController, WorkflowState
-from ..core.scheduler import SchedulerAPI
-from kernelgym.utils.task_status import task_status_from_result_payload
+from .kernelbench_types import (
+    EvaluationResult,
+    EvaluationTask,
+    KernelEvaluationResult,
+    ReferenceTimingResult,
+    ReferenceTimingTask,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -259,10 +259,12 @@ class KernelBenchWorkflowController(WorkflowController):
         )
         run_performance = self._first_not_none(eval_task.run_performance, eval_task.measure_performance, True)
         enable_profiling = self._first_not_none(eval_task.enable_profiling, settings.enable_profiling)
+        enable_ncu = self._first_not_none(eval_task.enable_ncu, settings.enable_ncu)
         if compile_only:
             run_correctness = False
             run_performance = False
             enable_profiling = False
+            enable_ncu = False
         return {
             "run_correctness": run_correctness,
             "run_triton_detection": run_triton_detection,
@@ -270,6 +272,7 @@ class KernelBenchWorkflowController(WorkflowController):
             "enable_triton_detection": run_triton_detection,
             "measure_performance": run_performance,
             "enable_profiling": enable_profiling,
+            "enable_ncu": enable_ncu,
         }
 
     @staticmethod

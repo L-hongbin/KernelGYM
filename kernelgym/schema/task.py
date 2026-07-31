@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, Optional
 
 
@@ -41,6 +41,7 @@ class EvaluationTask:
     use_reference_cache: bool = False
     is_valid: bool = False
     enable_profiling: Optional[bool] = None
+    enable_ncu: Optional[bool] = None
     enable_triton_detection: Optional[bool] = None
     detect_decoy_kernel: Optional[bool] = None
     measure_performance: Optional[bool] = None
@@ -126,6 +127,7 @@ class KernelEvaluationTask:
     device_preference: Optional[str] = None
     force_refresh: bool = False
     enable_profiling: Optional[bool] = None
+    enable_ncu: Optional[bool] = None
     enable_triton_detection: Optional[bool] = None
     detect_decoy_kernel: Optional[bool] = None
     measure_performance: Optional[bool] = None

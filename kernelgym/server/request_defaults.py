@@ -10,10 +10,17 @@ def apply_runtime_defaults(
     *,
     workflow_name: str,
     split_compile_and_execute: bool,
+    enable_ncu: bool | None = None,
+    ncu_profile_version: str = "",
 ) -> Dict[str, Any]:
     """Apply deployment-level defaults to an external workflow payload."""
     if payload.get("resources") is None:
         payload["resources"] = None
+    if (workflow_name or "kernelbench") == "kernelbench":
+        if payload.get("enable_ncu") is None and enable_ncu is not None:
+            payload["enable_ncu"] = bool(enable_ncu)
+        if payload.get("enable_ncu") and ncu_profile_version:
+            payload["_ncu_profile_version"] = ncu_profile_version
     if (
         (workflow_name or "kernelbench") == "kernelbench"
         and split_compile_and_execute
