@@ -114,6 +114,7 @@ class Settings(BaseSettings):
             "Declare that the deployed Kineto build already version-gates the CUPTI TSC timestamp "
             "callback, so auto profiling-trial resolution may drop to 1 forward on affected CUPTI versions."
         ),
+    )
     enable_ncu: bool = Field(
         default=True,
         env="ENABLE_NCU",
