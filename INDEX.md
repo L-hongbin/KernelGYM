@@ -39,6 +39,7 @@ This file indexes stable repository docs and evidence locations.
 | `kernelgym/server/task_manager.py` | Redis task queue and worker coordination. |
 | `kernelgym/worker/gpu_worker.py` | Worker-side task execution and failure handling. |
 | `kernelgym/worker/subprocess_pool.py` | Persistent GPU subprocess pool, recycle, timeout, and pool-size enforcement. |
+| `tests/test_subprocess_pool.py` | Subprocess-pool recycle, capacity, stale-reference, and recycled-worker revival regression tests. |
 | `scripts/manage_core_dumps.py` | Move root-level core dumps into the configured directory and keep only the newest retained files. |
 | `tests/test_aten_decoy_detection.py` | Source/compat ATen allowlists, device-only CUDA timing, and conservative low-coverage decoy regression tests. |
 | `tests/test_cuda_agent_gpu.py` | Real CUDA-Agent compile/run coverage, including the `.float()` ATen compatibility path around a custom CUDA kernel. |

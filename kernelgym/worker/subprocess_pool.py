@@ -953,8 +953,15 @@ class SubprocessWorkerPool:
             if cancel_event is not None and cancel_event.is_set():
                 return None
             async with self.lock:
-                # 清理已死亡的 workers
-                self.idle_workers = [w for w in self.idle_workers if w.is_alive()]
+                # Reconcile every pool view before making an allocation. A
+                # worker can exit while idle (or while another task still has
+                # it marked busy), so filtering only ``idle_workers`` leaves a
+                # dead object in ``workers``. Capacity checks then count that
+                # stale object forever and never schedule a replacement.
+                self.workers = [w for w in self.workers if w.is_alive()]
+                self.idle_workers = [w for w in self.idle_workers if w in self.workers and w.is_alive()]
+                self.busy_workers = [w for w in self.busy_workers if w in self.workers and w.is_alive()]
+                self._ensure_capacity_locked(asyncio.get_running_loop())
 
                 if self.idle_workers:
                     worker = self.idle_workers.pop(0)
@@ -1018,8 +1025,11 @@ class SubprocessWorkerPool:
             if worker in self.busy_workers:
                 self.busy_workers.remove(worker)
 
-            # 只有存活的 worker 才归还到 idle pool
-            if worker.is_alive():
+            # A recycled worker is removed from ``workers`` before its
+            # asynchronous shutdown starts. It may still be alive when the
+            # task's finally block gets here, but it must never be made idle
+            # (and eligible for another task) again.
+            if worker in self.workers and worker.is_alive():
                 if worker not in self.idle_workers:
                     self.idle_workers.append(worker)
             self._ensure_capacity_locked(asyncio.get_running_loop())
