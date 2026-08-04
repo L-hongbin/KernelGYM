@@ -20,6 +20,7 @@ This file indexes stable repository docs and evidence locations.
 | `docs/design-doc/TWO_WORKER_WARM_POOL.md` | Two-worker GPU subprocess warm-pool design, capacity invariant, and `v1` verification. |
 | `docs/server-result-cache-guard.md` | Server result cache hash guard design for safe `/evaluate` reuse. |
 | `docs/design-doc/MUSACODER_LOAD_INLINE_BACKEND.md` | load_inline backend for MusaCoder single-block `ModelNew` submissions: detection, code extraction, reuse of the CUDA path. |
+| `handoffs/musacoder/musacoder_mt3_reproduction.md` | Latest MusaCoder-27B three-turn Level 1/2/3 reproduction procedure, pinned branches, launch commands, and final metrics. |
 
 ## Important Code Areas
 
@@ -63,3 +64,4 @@ Tracked review-evidence files only. Untracked run logs and debug artifacts
 | --- | --- |
 | `benchmarks/review_evidence/official_27b_review_evidence.json` | Adversarial review evidence for official 27B 3-binding c3/c8 runs: pairing, sample IDs, coverage, statuses, queue deltas, residuals, and c3/c8 consistency. |
 | `benchmarks/review_evidence/official_27b_perf_step_correctness_summary.json` | Perf-step breakdown split by completed, correct-only, and incorrect-completed rows for official 27B c3/c8 runs. |
+| `handoffs/musacoder/local_artifacts/musacoder_mt3_reference_evidence.txt` | Reviewable pins, dataset sanity, regression checks, and final three-turn MusaCoder artifact summaries. |
