@@ -31,7 +31,7 @@
 
 ### 2.1 代码版本
 
-必须使用以下两个分支，并至少包含表中的固定代码 commit。KernelGym `main` 不能替代专用分支，它缺少 `Backend.LOAD_INLINE`、单块代码抽取、decoy 检查以及正确的 load_inline 路由。KernelGym 分支在固定代码 commit 之后可能还有纯文档提交，不影响复现代码基线。
+必须使用以下两个分支，并至少包含表中的固定代码 commit。KernelGym `main` 不能替代专用分支，它缺少 `Backend.LOAD_INLINE`、单块代码抽取、decoy 检查以及正确的 load_inline 路由。两个分支在固定代码 commit 之后可能还有纯文档提交，不影响复现代码基线。
 
 | 组件 | 仓库与分支 | 固定代码 commit |
 | --- | --- | --- |
@@ -46,13 +46,15 @@ KERNELGYM_REPRO=/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-load-inlin
 
 git -C "$SLIME_REPRO" status -sb
 git -C "$SLIME_REPRO" rev-parse HEAD
+git -C "$SLIME_REPRO" merge-base --is-ancestor \
+  695664604b43b3b3c821e6c76fdb2cdad4b261e4 HEAD
 git -C "$KERNELGYM_REPRO" status -sb
 git -C "$KERNELGYM_REPRO" rev-parse HEAD
 git -C "$KERNELGYM_REPRO" merge-base --is-ancestor \
   55018290b4c27d6f480a93eadac4de307d5b6c6d HEAD
 ```
 
-期望 slime HEAD 为表中 commit；KernelGym 的祖先检查应返回 0。若要严格运行已验证的代码树，可将 KernelGym worktree checkout 到表中的固定代码 commit。KernelGym worktree 中未跟踪的 `wheels` 是本地 wheel 目录链接，不属于分支内容。
+期望两项祖先检查均返回 0。若要严格运行已验证的代码树，可将两个 worktree 分别 checkout 到表中的固定代码 commit。KernelGym worktree 中未跟踪的 `wheels` 是本地 wheel 目录链接，不属于分支内容。
 
 ### 2.2 模型和数据
 

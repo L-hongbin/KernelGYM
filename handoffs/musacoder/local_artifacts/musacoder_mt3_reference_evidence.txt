@@ -6,7 +6,8 @@ Pinned code revisions
 slime:
   remote: git@github.com:L-hongbin/slime-kernel-agent.git
   branch: feature/musacoder-multiturn
-  commit: 695664604b43b3b3c821e6c76fdb2cdad4b261e4
+  code commit: 695664604b43b3b3c821e6c76fdb2cdad4b261e4
+  note: later documentation-only commits on the branch do not change this tested code baseline
 
 KernelGym:
   remote: git@github.com:L-hongbin/KernelGYM.git
