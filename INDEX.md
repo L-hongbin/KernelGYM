@@ -21,6 +21,7 @@ This file indexes stable repository docs and evidence locations.
 | `docs/server-result-cache-guard.md` | Server result cache hash guard design for safe `/evaluate` reuse. |
 | `docs/design-doc/MUSACODER_LOAD_INLINE_BACKEND.md` | load_inline backend for MusaCoder single-block `ModelNew` submissions: detection, code extraction, reuse of the CUDA path. |
 | `handoffs/musacoder/musacoder_mt3_reproduction.md` | Latest MusaCoder-27B three-turn Level 1/2/3 reproduction procedure, pinned branches, launch commands, and final metrics. |
+| `handoffs/musacoder/musacoder_multiturn_handoff.md` | MusaCoder three-round live-feedback architecture handoff, including the load_inline split-compile versioner root cause, fix, and operational lessons. |
 
 ## Important Code Areas
 
