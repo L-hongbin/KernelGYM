@@ -103,7 +103,15 @@ class CPUCompileWorker:
             if backend_name not in self.backend_cache:
                 self.backend_cache[backend_name] = get_backend(backend_name)
 
-            result = self.toolkit_cache[toolkit_name].evaluate(task_data, backend=self.backend_cache[backend_name])
+            # Run the blocking compile off the event loop so _heartbeat_loop keeps
+            # ticking; a synchronous call here starves heartbeats for the whole
+            # compile, and any build longer than WORKER_MONITOR_HEARTBEAT_TIMEOUT
+            # gets this worker killed mid-build by the worker monitor.
+            result = await asyncio.to_thread(
+                self.toolkit_cache[toolkit_name].evaluate,
+                task_data,
+                backend=self.backend_cache[backend_name],
+            )
             metadata = result.setdefault("metadata", {})
             metadata["cpu_worker_id"] = self.worker_id
             metadata["compile_node_id"] = self.node_id

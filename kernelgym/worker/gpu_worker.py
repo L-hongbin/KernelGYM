@@ -44,6 +44,7 @@ class GPUWorker:
         self.task_manager = TaskManager(redis_client)
         self.running = False
         self.current_task: Optional[str] = None
+        self._processing_active = False
         self.tasks_processed = 0
         self.last_heartbeat = None
 
@@ -226,8 +227,30 @@ class GPUWorker:
 
         logger.info(f"Stopping GPU worker {self.worker_id}")
 
+        # Drain: give an in-flight task a chance to finish before failing it.
+        # After self.running=False the processing loop still completes the task
+        # it already popped (posting its result and clearing current_task), so
+        # a drained shutdown produces zero spurious "Worker shutdown" failures.
+        # Wait on the LOOP, not just current_task: a task can already be popped
+        # from its queue before current_task is set. Error/eviction shutdowns
+        # (shutdown_due_to_error) stay immediate.
+        drain_sec = max(0, int(getattr(settings, "worker_shutdown_drain_sec", 120)))
+
+        def _draining() -> bool:
+            return bool(self.current_task or getattr(self, "_processing_active", False))
+
+        if drain_sec and not self.shutdown_due_to_error and _draining():
+            logger.info(
+                f"Worker {self.worker_id} draining before shutdown: "
+                f"waiting up to {drain_sec}s (task: {self.current_task or 'being dequeued'})"
+            )
+            deadline = time.monotonic() + drain_sec
+            while _draining() and time.monotonic() < deadline:
+                await asyncio.sleep(0.5)
+
         # Cancel current task if any
         if self.current_task:
+            logger.warning(f"Worker {self.worker_id} drain expired; failing task {self.current_task}")
             try:
                 await self.task_manager.fail_task(self.current_task, "Worker shutdown")
             except Exception:
@@ -298,6 +321,9 @@ class GPUWorker:
     async def _processing_loop(self):
         """Main processing loop."""
         logger.info(f"Worker {self.worker_id} processing loop started")
+        # Read by stop()'s drain: current_task alone is not enough, because a
+        # task may already be popped from its queue before current_task is set.
+        self._processing_active = True
 
         while self.running:
             try:
@@ -348,6 +374,9 @@ class GPUWorker:
                         break
 
                 await asyncio.sleep(5)  # Sleep longer on error
+
+        self._processing_active = False
+        logger.info(f"Worker {self.worker_id} processing loop exited")
 
     async def _process_task(self, task_data: Dict[str, Any]):
         """Process a single task."""
@@ -705,12 +734,13 @@ class GPUWorker:
         """Send periodic heartbeat to indicate worker is alive."""
         while self.running:
             try:
-                # 先发 API 心跳，只有服务端接受后才更新 Redis 状态，避免幽灵条目
+                # 先发 API 心跳；仅当服务端明确拒绝（409/410，已在内部停机）才退出循环。
+                # 瞬时故障（5xx/网络抖动）仍继续刷新 Redis 心跳，防止 monitor 误杀。
                 ok = await self._send_heartbeat_to_api()
                 if not ok:
                     # _send_heartbeat_to_api 内已处理停机/剔除
                     break
-                # Update Redis status（仅当 API 接受心跳时）
+                # Update Redis status
                 await self._update_worker_status(online=True)
 
                 await asyncio.sleep(10)  # Heartbeat every 10 seconds
@@ -842,10 +872,15 @@ class GPUWorker:
             return False
 
     async def _send_heartbeat_to_api(self) -> bool:
-        """Send heartbeat to API server."""
+        """Send heartbeat to API server.
+
+        Returns False only when the server deliberately rejected this worker
+        (409/410) and shutdown has been initiated; transient failures return
+        True so the heartbeat loop keeps running and Redis stays fresh.
+        """
         try:
             if not self.http_session:
-                return False
+                return True
 
             url = f"{self.api_url}/worker/heartbeat"
             import socket
@@ -857,28 +892,35 @@ class GPUWorker:
             async with self.http_session.post(url, params=params) as response:
                 if response.status == 200:
                     return True
-                # 如果被拒绝（如409/410），主动停机，避免“幽灵心跳”
+                # 仅当服务端明确拒绝该 worker（409/410）时才主动停机，避免“幽灵心跳”
+                if response.status in (409, 410):
+                    logger.warning(
+                        f"Heartbeat rejected: HTTP {response.status}; shutting down worker {self.worker_id}"
+                    )
+                    # 标记，避免监控误判
+                    self.shutdown_due_to_error = True
+                    # 尝试从LB剔除，防止残留
+                    try:
+                        evict_url = f"{self.api_url}/worker/evict_from_lb"
+                        await self.http_session.post(evict_url, params={"worker_id": self.worker_id})
+                    except Exception:
+                        pass
+                    # 主动停止
+                    self.running = False
+                    # Clear current_task to avoid duplicate fail_task in stop()
+                    self.current_task = None
+                    await self.stop()
+                    return False
+                # 其他状态码（如 500，多为 API 侧 Redis 抖动）视为瞬时故障：
+                # 继续心跳循环并照常刷新 Redis 心跳，防止 monitor 误杀 worker
                 logger.warning(
-                    f"Failed to send heartbeat: HTTP {response.status}; shutting down worker {self.worker_id}"
+                    f"Heartbeat got HTTP {response.status}; treating as transient, worker {self.worker_id} stays up"
                 )
-                # 标记，避免监控误判
-                self.shutdown_due_to_error = True
-                # 尝试从LB剔除，防止残留
-                try:
-                    evict_url = f"{self.api_url}/worker/evict_from_lb"
-                    await self.http_session.post(evict_url, params={"worker_id": self.worker_id})
-                except Exception:
-                    pass
-                # 主动停止
-                self.running = False
-                # Clear current_task to avoid duplicate fail_task in stop()
-                self.current_task = None
-                await self.stop()
-                return False
+                return True
 
         except Exception as e:
-            logger.error(f"Error sending heartbeat to API server: {e}")
-            return False
+            logger.error(f"Error sending heartbeat to API server (transient, worker stays up): {e}")
+            return True
 
 
 class WorkerManager:

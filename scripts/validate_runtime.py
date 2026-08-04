@@ -15,6 +15,7 @@ service launches (and starts the daemon).
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -177,6 +178,69 @@ def _check_redis() -> str:
     return version_line
 
 
+_SHIM_PROBE_SNIPPET = """
+import ctypes, json, torch
+device = torch.device("cuda:0")
+x = torch.randn(256, 256, device=device)
+import torch.profiler as profiler
+with profiler.profile(activities=[profiler.ProfilerActivity.CUDA]) as prof:
+    y = x @ x
+    torch.cuda.synchronize()
+kernels = [e for e in prof.key_averages() if getattr(e, "device_time_total", 0) > 0]
+state = int(ctypes.CDLL(None).kernelgym_cupti_tsc_shim_state())
+version = int(ctypes.CDLL(None).kernelgym_cupti_tsc_shim_cupti_version())
+print(json.dumps({"state": state, "cupti_version": version, "kernel_count": len(kernels)}))
+"""
+
+
+def _check_cupti_tsc_shim(device_count: int) -> None:
+    """Build the CUPTI TSC shim and probe that it engages under LD_PRELOAD.
+
+    Diagnostic gate only: a failure prints a WARNING and never blocks the
+    deploy — at runtime, workers fall back to the legacy multi-forward
+    profiling workaround whenever the shim is expected but not engaged.
+    """
+    print("\n=== Validate CUPTI TSC shim ===")
+    from kernelgym.utils import cupti_tsc_shim
+
+    shim_path = cupti_tsc_shim.ensure_shim_built()
+    if shim_path is None:
+        print("WARNING: CUPTI TSC shim build failed; legacy profiling workaround will stay active")
+        return
+    print(f"shim_artifact={shim_path}")
+    if device_count <= 0:
+        print("shim_probe=skipped (no CUDA devices)")
+        return
+    env = os.environ.copy()
+    env["LD_PRELOAD"] = f"{shim_path}:{env['LD_PRELOAD']}" if env.get("LD_PRELOAD") else str(shim_path)
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", _SHIM_PROBE_SNIPPET],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=300,
+        )
+        report = json.loads(completed.stdout.strip().splitlines()[-1]) if completed.returncode == 0 else None
+    except Exception as exc:
+        print(f"WARNING: CUPTI TSC shim probe failed to run: {exc}")
+        return
+    if report is None:
+        print(f"WARNING: CUPTI TSC shim probe exited {completed.returncode}: {completed.stderr[-800:]}")
+        return
+    print(
+        f"shim_state={report['state']} shim_cupti_version={report['cupti_version']} "
+        f"probe_kernels={report['kernel_count']}"
+    )
+    if cupti_tsc_shim.shim_state_healthy(report["state"]) and report["kernel_count"] > 0:
+        print("shim_probe=OK")
+    else:
+        print(
+            "WARNING: CUPTI TSC shim did not engage cleanly; workers will fall back "
+            "to the legacy multi-forward profiling workaround at runtime"
+        )
+
+
 def main() -> int:
     print("\n=== Validate CUDA 12.9 + torch ===")
     _check_torch_cuda()
@@ -184,6 +248,7 @@ def main() -> int:
     device_count = _check_cuda_init()
     _check_cuda_math_libs()
     _check_redis()
+    _check_cupti_tsc_shim(device_count)
     print(
         f"validate_runtime: OK — torch {torch.__version__} (cuda {torch.version.cuda}), "
         f"nvcc {nvcc_version[0]}.{nvcc_version[1]} at {nvcc}, {device_count} cuda device(s)"

@@ -4,17 +4,108 @@ from __future__ import annotations
 
 import logging
 from time import perf_counter
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
 
+from kernelgym.config import settings
 from kernelgym.toolkit.kernelbench.profiling import (
     extract_profiling_metrics,
     profiling_context,
 )
+from kernelgym.utils import cupti_tsc_shim
 
 logger = logging.getLogger(__name__)
+
+# NVIDIA-confirmed CUPTI defect: with cuptiActivityRegisterTimestampCallback
+# (Kineto's TSC fast path), kernel start timestamps can be written as 0, so
+# Kineto drops the record as out-of-window and the reward profiler sees zero
+# CUDA kernels. Introduced in CUDA 12.6 Update 2, fixed in CUDA 13.1. The
+# CUDA version string cannot distinguish 12.6 GA/U1/U2, so the gate
+# conservatively covers all of 12.6.
+_CUPTI_TSC_BUG_MIN_CUDA = (12, 6)
+_CUPTI_TSC_BUG_FIXED_CUDA = (13, 1)
+_LEGACY_PROFILING_TRIALS_CAP = 10
+
+
+def _parse_cuda_version(version: Optional[str]) -> Optional[Tuple[int, int]]:
+    if not version:
+        return None
+    parts = str(version).split(".")
+    try:
+        major = int(parts[0])
+        minor = int(parts[1]) if len(parts) > 1 else 0
+    except (ValueError, IndexError):
+        return None
+    return (major, minor)
+
+
+def cupti_tsc_timestamp_bug_suspected(
+    cuda_version: Optional[str] = None,
+    kineto_tsc_fixed: Optional[bool] = None,
+) -> bool:
+    """Whether the loaded CUDA/CUPTI can emit start=0 kernel timestamps under Kineto's TSC callback.
+
+    Fail-safe: an unknown or unparseable CUDA version counts as affected, so the
+    legacy multi-forward workaround stays active rather than risking empty captures.
+    """
+    if kineto_tsc_fixed is None:
+        kineto_tsc_fixed = settings.kineto_tsc_fixed
+    if kineto_tsc_fixed:
+        return False
+    if cuda_version is None:
+        cuda_version = getattr(torch.version, "cuda", None)
+    parsed = _parse_cuda_version(cuda_version)
+    if parsed is None:
+        return True
+    return _CUPTI_TSC_BUG_MIN_CUDA <= parsed < _CUPTI_TSC_BUG_FIXED_CUDA
+
+
+def resolve_num_profiling_trials(
+    num_trials: int,
+    configured: Optional[int] = None,
+    cuda_version: Optional[str] = None,
+    kineto_tsc_fixed: Optional[bool] = None,
+) -> int:
+    """Resolve how many extra candidate forwards to run inside one profiler context.
+
+    An explicit configuration (>= 1) wins. Otherwise auto mode: a single forward is
+    enough for coverage/decoy semantics, but while the CUPTI TSC timestamp bug is
+    suspected we keep the legacy min(10, num_trials) workaround because a single
+    forward captures no CUDA kernels for slow kernels most of the time.
+    """
+    if configured is None:
+        configured = settings.num_profiling_trials
+    if configured >= 1:
+        return configured
+    if cupti_tsc_timestamp_bug_suspected(cuda_version=cuda_version, kineto_tsc_fixed=kineto_tsc_fixed):
+        return min(_LEGACY_PROFILING_TRIALS_CAP, max(1, num_trials))
+    return 1
+
+
+def kineto_tsc_fix_verified() -> Optional[bool]:
+    """Whether the declared Kineto TSC fix is actually active in this process.
+
+    Meaningful only after a profiler context has run (the LD_PRELOAD shim's
+    state is decided when Kineto first registers its timestamp callback).
+    None when no fix is declared; False when a shim was expected but did not
+    engage — retries must then fall back to the legacy multi-forward count.
+    """
+    return cupti_tsc_shim.kineto_tsc_fix_verified(settings.kineto_tsc_fixed)
+
+
+def _annotate_shim_state(profiling_metrics: Dict[str, Any]) -> None:
+    if cupti_tsc_shim.expected_shim_path() is None:
+        return
+    state = cupti_tsc_shim.shim_state()
+    profiling_metrics["cupti_tsc_shim_state"] = state
+    if not cupti_tsc_shim.shim_state_healthy(state):
+        logger.error(
+            "[Profiling] CUPTI TSC shim expected but not engaged (state=%s); "
+            "single-forward profiling cannot be trusted in this process",
+            state,
+        )
 
 
 def time_execution_with_cuda_event(
@@ -25,6 +116,7 @@ def time_execution_with_cuda_event(
     verbose: bool = True,
     device: torch.device = None,
     enable_profiling: bool = False,
+    num_profiling_trials: Optional[int] = None,
 ) -> Tuple[List[float], Dict[str, Any], Dict[str, Any]]:
     if device is None:
         if verbose:
@@ -32,6 +124,9 @@ def time_execution_with_cuda_event(
         device = torch.cuda.current_device()
 
     overall_start = perf_counter()
+
+    if num_profiling_trials is None or num_profiling_trials < 1:
+        num_profiling_trials = resolve_num_profiling_trials(num_trials)
 
     profiling_metrics: Dict[str, Any] = {}
     profiling_wall_s = 0.0
@@ -80,7 +175,6 @@ def time_execution_with_cuda_event(
             try:
                 torch.cuda.synchronize(device=device)
 
-                num_profiling_trials = min(10, num_trials)
                 logger.info("[Profiling] Running %s additional iterations for profiling...", num_profiling_trials)
 
                 profiling_start = perf_counter()
@@ -92,6 +186,7 @@ def time_execution_with_cuda_event(
 
                 profiling_metrics = extract_profiling_metrics(prof)
                 if profiling_metrics:
+                    _annotate_shim_state(profiling_metrics)
                     logger.info("[Profiling] Captured %s CUDA kernels", profiling_metrics.get("kernel_count", 0))
                     logger.info("[Profiling] Total CUDA time: %.2f us", profiling_metrics.get("total_cuda_time_us", 0))
 
@@ -106,7 +201,7 @@ def time_execution_with_cuda_event(
         "timed_trials_cuda_event_s": sum(elapsed_times) / 1000.0,
         "num_warmup": num_warmup,
         "num_trials": num_trials,
-        "num_profiling_trials": min(10, num_trials) if enable_profiling else 0,
+        "num_profiling_trials": num_profiling_trials if enable_profiling else 0,
         "total_wall_s": perf_counter() - overall_start,
     }
 
@@ -135,6 +230,7 @@ def run_profiling_only(
             torch.cuda.synchronize(device=device)
         profiling_metrics = extract_profiling_metrics(prof)
         if profiling_metrics:
+            _annotate_shim_state(profiling_metrics)
             logger.info("[Profiling] Captured %s CUDA kernels", profiling_metrics.get("kernel_count", 0))
     except Exception as e:
         logger.warning("[Profiling] Profiling-only failed: %s", e)

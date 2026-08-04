@@ -15,6 +15,7 @@ from kernelgym.config import settings
 from kernelgym.toolkit.kernelbench import triton_detect as detect
 from kernelgym.toolkit.kernelbench.exec_types import KernelExecResult, get_error_name, set_seed
 from kernelgym.toolkit.kernelbench.loading import (
+    OriginalModelLoadError,
     graceful_eval_cleanup,
     load_custom_model,
     load_custom_model_with_tempfile,
@@ -27,6 +28,8 @@ from kernelgym.toolkit.kernelbench.profiling import (
 )
 from kernelgym.toolkit.kernelbench.timing import (
     get_timing_stats,
+    kineto_tsc_fix_verified as timing_kineto_tsc_fix_verified,
+    resolve_num_profiling_trials,
     run_profiling_only,
     time_execution_with_cuda_event,
 )
@@ -36,6 +39,8 @@ from kernelgym.utils.error_classifier import classify_compile_error_detail
 logger = logging.getLogger(__name__)
 _STAGE_METADATA_PATH_ENV = "KERNELGYM_STAGE_METADATA_PATH"
 _FAST_RW_ROOT = Path("/dev/shm")
+_HARD_DECOY_COVERAGE_THRESHOLD = 0.001
+_SUSPECTED_DECOY_COVERAGE_THRESHOLD = 0.30
 
 
 def _path_is_under_fast_rw_root(path: Path) -> bool:
@@ -147,6 +152,15 @@ def _sync_exec_result_metadata(result: Optional[KernelExecResult], metadata: Dic
         result.metadata.update(metadata)
 
 
+def _record_model_load_error(metadata: Dict[str, Any], exc: Exception) -> KernelExecResult:
+    metadata["model_load_error"] = str(exc)
+    metadata["model_load_error_name"] = get_error_name(exc)
+    if exc.__cause__ is not None:
+        metadata["model_load_error_cause"] = str(exc.__cause__)
+        metadata["model_load_error_cause_name"] = get_error_name(exc.__cause__)
+    return KernelExecResult(compiled=False, correctness=False, metadata=metadata)
+
+
 def _sanitize_compile_artifact(artifact: Dict[str, Any]) -> Dict[str, Any]:
     hidden = {
         "work_dir",
@@ -230,6 +244,9 @@ def _apply_coverage_metadata(
         if total_kernel_run_time_in_profiling_us > 0
         else 0
     )
+    coverage_measurement_valid = total_kernel_run_time_in_profiling_us > 0
+    metadata["coverage_measurement_valid"] = coverage_measurement_valid
+    metadata["raw_custom_kernel_time_coverage"] = ratio_time if coverage_measurement_valid else None
     metadata["custom_kernel_cuda_time_coverage"] = (
         f"Custom kernel CUDA time: {custom_kernel_cuda_time_in_profiling_us:.2f}us / "
         f"Total CUDA time: {total_kernel_run_time_in_profiling_us:.2f}us, "
@@ -256,21 +273,65 @@ def _apply_coverage_metadata(
             total_kernel_run_time_in_profiling_us_cpu_cuda
         )
         kernel_exec_result.metadata["custom_kernel_cuda_time_coverage"] = metadata["custom_kernel_cuda_time_coverage"]
+        kernel_exec_result.metadata["coverage_measurement_valid"] = coverage_measurement_valid
+        kernel_exec_result.metadata["raw_custom_kernel_time_coverage"] = (
+            ratio_time if coverage_measurement_valid else None
+        )
         if coverage_backend == "triton":
             kernel_exec_result.metadata["triton_kernel_coverage"] = coverage_text
 
     if not detect_decoy_kernel:
         return
 
-    if num_custom_kernels == 0 and num_total_kernels > 0:
+    if not coverage_measurement_valid:
+        logger.warning("Profiler captured 0 total kernels - likely profiler bug, NOT marking as decoy")
+        metadata["coverage_unavailable"] = True
+        if kernel_exec_result and isinstance(kernel_exec_result.metadata, dict):
+            kernel_exec_result.metadata["coverage_unavailable"] = True
+        return
+
+    if ratio_time < _SUSPECTED_DECOY_COVERAGE_THRESHOLD:
+        reasons = metadata.setdefault("suspected_decoy_reasons", [])
+        reason = "LOW_CUSTOM_KERNEL_TIME_COVERAGE"
+        if reason not in reasons:
+            reasons.append(reason)
+        metadata["suspected_decoy"] = True
+        metadata["suspected_decoy_reason"] = reason
+        metadata["suspected_decoy_threshold"] = _SUSPECTED_DECOY_COVERAGE_THRESHOLD
+        metadata["suspected_decoy_enforced"] = False
+        metadata["suspected_decoy_effect"] = "DIAGNOSTIC_ONLY"
         logger.warning(
-            "Profiler captured %s kernels but 0 custom kernels for backend=%s - marking as decoy",
-            num_total_kernels,
+            "Custom-kernel CUDA time coverage %.6f is below %.2f for backend=%s; marking as suspected decoy",
+            ratio_time,
+            _SUSPECTED_DECOY_COVERAGE_THRESHOLD,
             coverage_backend,
         )
-        kernel_exec_result.decoy_kernel = True
-    elif num_custom_kernels == 0 and num_total_kernels == 0:
-        logger.warning("Profiler captured 0 total kernels - likely profiler bug, NOT marking as decoy")
+
+    if ratio_time < _HARD_DECOY_COVERAGE_THRESHOLD:
+        # Do not hard-reject from named-kernel coverage alone. The unmatched
+        # CUDA time may be legal cuBLAS/cuDNN work called directly by the
+        # candidate extension. A hard coverage verdict requires runtime
+        # provenance that can exclude those allowed library calls.
+        metadata["hard_decoy_coverage_candidate"] = True
+        metadata["hard_decoy_coverage_threshold"] = _HARD_DECOY_COVERAGE_THRESHOLD
+        metadata["hard_decoy_coverage_gate_applied"] = False
+        metadata["hard_decoy_coverage_gate_skip_reason"] = "ALLOWED_LIBRARY_PROVENANCE_UNAVAILABLE"
+
+    if kernel_exec_result and isinstance(kernel_exec_result.metadata, dict):
+        for key in (
+            "suspected_decoy",
+            "suspected_decoy_reason",
+            "suspected_decoy_reasons",
+            "suspected_decoy_threshold",
+            "suspected_decoy_enforced",
+            "suspected_decoy_effect",
+            "hard_decoy_coverage_candidate",
+            "hard_decoy_coverage_threshold",
+            "hard_decoy_coverage_gate_applied",
+            "hard_decoy_coverage_gate_skip_reason",
+        ):
+            if key in metadata:
+                kernel_exec_result.metadata[key] = metadata[key]
 
 
 def _run_correctness_step(
@@ -283,6 +344,7 @@ def _run_correctness_step(
     seed_num: int,
     device: Union[torch.device, int],
     overall_start: float | None = None,
+    detect_decoy_kernel: bool = False,
 ) -> KernelExecResult:
     if verbose:
         logger.info("[Eval] Checking Correctness")
@@ -308,6 +370,7 @@ def _run_correctness_step(
             seed=seed_num,
             device=device,
             stage_update_fn=stage_update_fn,
+            detect_aten_fallback=detect_decoy_kernel,
         )
     except Exception as e:
         metadata["runtime_error"] = e
@@ -461,18 +524,28 @@ def _run_performance_step(
             metadata["kg_kernel_perf_max_ms"] = runtime_stats["max"]
             metadata["kg_kernel_perf_num_profile_trials"] = timing_info["num_profiling_trials"]
 
-            if enable_profiling and _profiling_empty(profiling_metrics):
+            profiling_empty_initial = enable_profiling and _profiling_empty(profiling_metrics)
+            profiling_retries_used = 0
+            if profiling_empty_initial:
                 retry_count = max(0, int(getattr(settings, "profiling_retry_count", 0)))
+                # If a CUPTI TSC shim was expected but did not engage in this
+                # process, single-forward profiling cannot be trusted: retry
+                # with the legacy multi-forward workaround instead.
+                retry_trials = resolve_num_profiling_trials(
+                    num_perf_trials,
+                    kineto_tsc_fixed=timing_kineto_tsc_fix_verified(),
+                )
                 for attempt in range(retry_count):
                     logger.warning(
                         "Profiler returned empty results. Retrying (%s/%s)...",
                         attempt + 1,
                         retry_count,
                     )
+                    profiling_retries_used = attempt + 1
                     retry_metrics = run_profiling_only(
                         model_new,
                         *inputs,
-                        num_trials=max(1, min(num_perf_trials, 10)),
+                        num_trials=retry_trials,
                         verbose=verbose,
                         device=device,
                     )
@@ -480,6 +553,22 @@ def _run_performance_step(
                         profiling_metrics = retry_metrics
                         break
                     profiling_metrics = retry_metrics
+
+            if enable_profiling:
+                # Per-task empty-capture bookkeeping so the fleet-wide empty rate can
+                # be computed from result metadata (see docs/design-doc/PROFILER_EMPTY_CAPTURE.md).
+                profiling_empty_final = _profiling_empty(profiling_metrics)
+                metadata["kg_kernel_profiling_empty_initial"] = profiling_empty_initial
+                metadata["kg_kernel_profiling_retries_used"] = profiling_retries_used
+                metadata["kg_kernel_profiling_empty_final"] = profiling_empty_final
+                if profiling_empty_final:
+                    logger.warning(
+                        "[Profiling] empty-capture: no CUDA kernels after %s retries "
+                        "(initial_empty=%s, num_profile_trials=%s)",
+                        profiling_retries_used,
+                        profiling_empty_initial,
+                        timing_info["num_profiling_trials"],
+                    )
 
             if enable_profiling:
                 logger.debug("profiling_metrics type: %s, empty: %s", type(profiling_metrics), not profiling_metrics)
@@ -675,13 +764,24 @@ def eval_kernel_against_ref(
         stage="kernel.load_original_src",
         overall_start=overall_start,
     )
-    Model, get_init_inputs, get_inputs = load_original_model_and_inputs(original_model_src, context, entry_point)
-    _finish_stage(
-        metadata,
-        stage="kernel.load_original_src",
-        timing_key="kg_kernel_load_original_src_s",
-        start_time=load_original_start,
-    )
+    try:
+        Model, get_init_inputs, get_inputs = load_original_model_and_inputs(original_model_src, context, entry_point)
+    except OriginalModelLoadError as exc:
+        _finish_stage(
+            metadata,
+            stage="kernel.load_original_src",
+            timing_key="kg_kernel_load_original_src_s",
+            start_time=load_original_start,
+        )
+        metadata["kg_kernel_total_s"] = perf_counter() - overall_start
+        return _record_model_load_error(metadata, exc)
+    else:
+        _finish_stage(
+            metadata,
+            stage="kernel.load_original_src",
+            timing_key="kg_kernel_load_original_src_s",
+            start_time=load_original_start,
+        )
 
     init_inputs_start = _begin_stage(
         metadata,
@@ -948,6 +1048,7 @@ def eval_kernel_against_ref(
         seed_num,
         device,
         overall_start,
+        detect_decoy_kernel,
     )
     _finish_stage(
         metadata,
@@ -955,6 +1056,16 @@ def eval_kernel_against_ref(
         timing_key="kg_kernel_correctness_s",
         start_time=correctness_start,
     )
+
+    if kernel_exec_result.correctness and kernel_exec_result.decoy_kernel:
+        logger.warning(
+            "[Eval] Correct candidate used forbidden ATen compute; skipping performance (reason=%s)",
+            metadata.get("decoy_reason"),
+        )
+        metadata["kg_kernel_total_s"] = perf_counter() - overall_start
+        _sync_exec_result_metadata(kernel_exec_result, metadata)
+        _cleanup()
+        return kernel_exec_result
 
     triton_detect_start = _begin_stage(
         metadata,
@@ -1070,13 +1181,27 @@ def eval_reference_only(
             stage="reference.load_original_src",
             overall_start=overall_start,
         )
-        Model, get_init_inputs, get_inputs = load_original_model_and_inputs(original_model_src, context, entry_point)
-        _finish_stage(
-            metadata,
-            stage="reference.load_original_src",
-            timing_key="kg_reference_load_original_src_s",
-            start_time=load_original_start,
-        )
+        try:
+            Model, get_init_inputs, get_inputs = load_original_model_and_inputs(
+                original_model_src,
+                context,
+                entry_point,
+            )
+        except OriginalModelLoadError:
+            _finish_stage(
+                metadata,
+                stage="reference.load_original_src",
+                timing_key="kg_reference_load_original_src_s",
+                start_time=load_original_start,
+            )
+            raise
+        else:
+            _finish_stage(
+                metadata,
+                stage="reference.load_original_src",
+                timing_key="kg_reference_load_original_src_s",
+                start_time=load_original_start,
+            )
 
         init_inputs_start = _begin_stage(
             metadata,
@@ -1118,9 +1243,7 @@ def eval_reference_only(
 
     except Exception as e:
         logger.warning("Failed to load original model: %s", e)
-        metadata["model_load_error"] = e
-        metadata["model_load_error_name"] = get_error_name(e)
-        return KernelExecResult(compiled=False, correctness=False, metadata=metadata)
+        return _record_model_load_error(metadata, e)
 
     kernel_exec_result = KernelExecResult(compiled=True, correctness=True, metadata=metadata)
 

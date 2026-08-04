@@ -28,6 +28,27 @@ def test_deploy_node_validate_requires_rank_for_multi_node() -> None:
         raise AssertionError("validate should reject missing node rank")
 
 
+def test_deploy_node_parser_exposes_clear_cache() -> None:
+    deploy_node = load_deploy_node()
+    monkeypatch_args = [
+        "--cluster",
+        "--clear-cache",
+        "--cpu-compile-workers",
+        "3",
+    ]
+
+    old_argv = deploy_node.sys.argv
+    try:
+        deploy_node.sys.argv = ["deploy_node.py", *monkeypatch_args]
+        args = deploy_node.parse_args()
+    finally:
+        deploy_node.sys.argv = old_argv
+
+    assert args.cluster is True
+    assert args.clear_cache is True
+    assert args.cpu_compile_workers == 3
+
+
 def test_deploy_node_main_rejects_master_with_nonzero_rank(monkeypatch) -> None:
     deploy_node = load_deploy_node()
     monkeypatch.setattr(
@@ -89,6 +110,50 @@ def test_deploy_node_start_primary_enables_redis_remote_access(monkeypatch) -> N
             "--redis-remote-access",
         ],
     )
+
+
+def test_deploy_node_start_primary_clear_cache_stops_then_skips_second_stop(monkeypatch) -> None:
+    deploy_node = load_deploy_node()
+    calls = []
+    monkeypatch.setattr(
+        deploy_node,
+        "run",
+        lambda command, allow_failure=False: calls.append(("run", command, allow_failure)),
+    )
+    monkeypatch.setattr(deploy_node, "wait_api", lambda addr: calls.append(("wait_api", addr)))
+    monkeypatch.setattr(deploy_node, "clear_local_caches", lambda: calls.append(("clear_local_caches",)))
+
+    deploy_node.start_primary(None, clear_cache=True)
+
+    assert calls == [
+        (
+            "run",
+            [
+                deploy_node.sys.executable,
+                "-m",
+                "kernelgym.cli.service",
+                "stop",
+                "--profile",
+                "v1",
+            ],
+            True,
+        ),
+        ("clear_local_caches",),
+        (
+            "run",
+            [
+                deploy_node.sys.executable,
+                "-m",
+                "kernelgym.cli.service",
+                "start-local",
+                "--profile",
+                "v1",
+                "--no-stop-first",
+            ],
+            False,
+        ),
+        ("wait_api", "127.0.0.1"),
+    ]
 
 
 def test_deploy_node_start_worker_passes_cpu_compile_workers(monkeypatch) -> None:

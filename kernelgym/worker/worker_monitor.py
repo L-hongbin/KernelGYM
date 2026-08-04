@@ -16,6 +16,7 @@ Enhancement: Persistent monitoring mode (opt-in via --persistent or env)
 
 import asyncio
 import logging
+import socket
 import sys
 import os
 from datetime import datetime, timedelta
@@ -51,6 +52,10 @@ class WorkerMonitor:
         self.restart_queue: asyncio.Queue = asyncio.Queue()
         self.restart_in_progress: Set[str] = set()
         self.persistent: bool = persistent
+        # Restarts spawn processes on THIS host, so a monitor must only ever
+        # enforce workers that belong to this host. In a multi-node cluster the
+        # expected_workers set is shared via the primary's Redis.
+        self.hostname: str = os.environ.get("HOSTNAME") or socket.gethostname() or "local"
 
         # Configuration
         self.heartbeat_timeout = max(5, settings.worker_monitor_heartbeat_timeout)
@@ -104,17 +109,34 @@ class WorkerMonitor:
                 logger.error(f"Error in monitor loop: {e}")
                 await asyncio.sleep(self.monitor_interval)
 
+    async def _load_local_expected_ids(self) -> Set[str]:
+        """Expected worker ids that belong to THIS host.
+
+        Restarting a worker launches a local process, so ids registered by
+        another node (hostname mismatch in the expected_worker hash) must never
+        be enforced here. Ids with no recorded hostname are treated as local
+        for backward compatibility with registrations that predate the field.
+        """
+        raw = await self.redis.smembers(f"{KEY_PREFIX}:expected_workers")
+        all_ids = {wid.decode() if isinstance(wid, bytes) else wid for wid in raw} if raw else set()
+        local_ids: Set[str] = set()
+        for wid in all_ids:
+            edata = await self.redis.hgetall(f"{KEY_PREFIX}:expected_worker:{wid}")
+            owner = edata.get(b"hostname", b"").decode() if edata else ""
+            if not owner or owner == self.hostname:
+                local_ids.add(wid)
+        return local_ids
+
     async def _check_workers(self):
         """Check health of all workers."""
         try:
             # Get all worker keys
-            worker_keys = await self.redis.keys(f"{KEY_PREFIX}:worker:*")
+            worker_keys = [key async for key in self.redis.scan_iter(f"{KEY_PREFIX}:worker:*", count=500)]
             # In persistent mode, load expected workers set once per cycle
             expected_ids: Set[str] = set()
             if self.persistent:
                 try:
-                    raw = await self.redis.smembers(f"{KEY_PREFIX}:expected_workers")
-                    expected_ids = {wid.decode() if isinstance(wid, bytes) else wid for wid in raw} if raw else set()
+                    expected_ids = await self._load_local_expected_ids()
                 except Exception:
                     expected_ids = set()
 
@@ -201,17 +223,13 @@ class WorkerMonitor:
         """In persistent mode, restart workers missing from heartbeat keys
         or with dead PIDs according to expected worker list and process map."""
         try:
-            # Load expected workers set
-            expected_ids_raw = await self.redis.smembers(f"{KEY_PREFIX}:expected_workers")
-            expected_ids = (
-                {wid.decode() if isinstance(wid, bytes) else wid for wid in expected_ids_raw}
-                if expected_ids_raw
-                else set()
-            )
+            # Load expected workers set (only ids owned by this host)
+            expected_ids = await self._load_local_expected_ids()
 
             # Build set of existing heartbeat worker ids
-            existing_keys = await self.redis.keys(f"{KEY_PREFIX}:worker:*")
-            existing_ids = {k.decode().split(":")[-1] for k in existing_keys}
+            existing_ids = {
+                k.decode().split(":")[-1] async for k in self.redis.scan_iter(f"{KEY_PREFIX}:worker:*", count=500)
+            }
 
             # Restart missing-heartbeat workers
             missing_ids = expected_ids - existing_ids

@@ -48,7 +48,7 @@ python -m kernelgym.cli.service start-local --profile v1 --cpu-compile-workers 8
 bash deploy_node.sh --cpu-compile-workers 8
 ```
 
-To stop the running service (kills the API, monitor, GPU/CPU workers, and clears Redis state with the `kernelgym:` prefix):
+To stop the running service (kills the API, monitor, GPU/CPU workers, and shuts down local Redis without saving):
 
 ```bash
 python -m kernelgym.cli.service stop --profile v1
@@ -58,7 +58,7 @@ kernelgym-service stop --profile v1
 bash stop_node.sh
 ```
 
-A typical restart cycle inside the container is `bash stop_node.sh && bash deploy_node.sh`.
+A typical restart cycle inside the container is `bash stop_node.sh && bash deploy_node.sh`. For a cold restart that also removes local Redis persistence and KernelGym compile/work caches before launching, use `bash deploy_node.sh --clear-cache`.
 
 The deployment convenience script is container-only. It runs `ensure_venv.sh`, sources `.venv/bin/activate`, and always stops existing KernelGym worker processes before starting worker-only nodes.
 
@@ -312,6 +312,34 @@ PID=$(redis-cli -p 20110 HGET kernelgym:worker_process:worker_gpu_3 pid); [ -n "
 ```
 
 `POST /worker/evict_from_lb?worker_id=<id>` alone just drains a worker from the load balancer (no kill, no respawn) to quarantine a flaky one. This expected-worker set exists only on the primary; do **not** add worker-only-node ids to it, or the primary would try to launch them locally with the wrong device.
+
+## Profiler Timestamp Policy (CUPTI TSC Bug)
+
+Background and design: `docs/design-doc/PROFILER_EMPTY_CAPTURE.md`. CUDA 12.6u2–13.0 CUPTI can drop CUDA kernel records from `torch.profiler` (empty captures, `time_coverage=0`) when Kineto registers its TSC timestamp callback.
+
+**Default deployment needs no manual step.** Profile `v1` sets `KERNELGYM_CUPTI_TSC_SHIM=true`: at startup the service builds a version-gated `LD_PRELOAD` shim (`kernelgym/native/cupti_tsc_shim.cpp`, artifact under `.native/`), preloads it into all service processes, and sets `KINETO_TSC_FIXED=true`, so profiling runs a single candidate forward per profiler context. Every gate fails open to the legacy 10-forward workaround: shim build failure skips injection, and workers that detect an expected-but-unengaged shim retry empty captures with the legacy count.
+
+What the operator should check after a deploy:
+
+1. `deploy_node.sh` output (from `scripts/validate_runtime.py`) contains a `=== Validate CUPTI TSC shim ===` block ending in `shim_probe=OK`, with `shim_state=1` (engaged, CUDA 12.6–13.0) or `shim_state=2` (passthrough on fixed CUPTI 13.1+). Any `WARNING:` line there means the legacy workaround is active — the service still works, just with slower profiling.
+2. Profiling-enabled results should show `kg_kernel_perf_num_profile_trials: 1` and `cupti_tsc_shim_state: 1` inside `metadata.profiling`.
+3. Watch the empty-capture rate: `kg_kernel_profiling_empty_initial` / `kg_kernel_profiling_retries_used` / `kg_kernel_profiling_empty_final` in result metadata, and `[Profiling] empty-capture:` warnings in the worker logs (e.g. `logs/v1/workers.log`). Keep `PROFILING_RETRY_COUNT=1`.
+
+Manual operations:
+
+- **Disable the shim** (rollback to the always-on 10-forward workaround):
+
+  ```bash
+  export KERNELGYM_CUPTI_TSC_SHIM=false   # ambient env deliberately overrides the profile for this key;
+                                          # edit kernelgym/deployment_profiles.py for a permanent change
+  bash stop_node.sh && bash deploy_node.sh --cluster
+  ```
+
+  or force the legacy count directly with `export NUM_PROFILING_TRIALS=10` and restart. The timestamp callback is process-level state chosen before CUPTI activity enable, so a restart is mandatory for any of these switches; never flip them on a running service.
+
+- **After deploying a Kineto/torch build that version-gates the TSC callback in source**: set `KERNELGYM_CUPTI_TSC_SHIM=false` and `KINETO_TSC_FIXED=true` in the profile env and restart; the declaration is then trusted without the shim.
+
+- **After upgrading the node to a matched CUDA/CUPTI 13.1+ stack** (driver must be >= 580; do not swap `libcupti.so` alone): no config change — the shim passes registration through to the real CUPTI, and auto resolution independently detects the fixed CUDA version. Once the fleet is on 13.1+, remove `KERNELGYM_CUPTI_TSC_SHIM` from the profile.
 
 ## Verification
 

@@ -369,3 +369,72 @@ def test_pool_size_2_failed_replacement_keeps_top_up_pending(monkeypatch) -> Non
         assert len(pool.workers) + pool.pending_replacements == pool.pool_size
 
     asyncio.run(scenario())
+
+
+def test_return_worker_does_not_revive_recycling_worker(monkeypatch) -> None:
+    """The task finally block must not return an untracked recycled worker."""
+
+    async def scenario() -> None:
+        pool = _pool_without_processes(pool_size=1)
+        recycling = FakeWorker("recycling", alive=True)
+        pool.workers = [recycling]
+        pool.busy_workers = [recycling]
+
+        threads: list[_NoOpThread] = []
+
+        def fake_thread(*args, **kwargs):  # noqa: ANN002, ANN003
+            thread = _NoOpThread(*args, **kwargs)
+            threads.append(thread)
+            return thread
+
+        monkeypatch.setattr(subprocess_pool.threading, "Thread", fake_thread)
+
+        # _restart_worker removes the worker immediately, while its process is
+        # still alive until the captured background shutdown thread runs.
+        await pool._restart_worker(recycling)  # type: ignore[arg-type]
+        assert recycling.is_alive() is True
+        assert recycling not in pool.workers
+        assert len(threads) == 1 and threads[0].started is True
+
+        # This is the execute_task finally path that used to resurrect it.
+        await pool._return_worker(recycling)  # type: ignore[arg-type]
+
+        assert recycling not in pool.workers
+        assert recycling not in pool.idle_workers
+        assert recycling not in pool.busy_workers
+        assert pool.pending_replacements == 1
+
+    asyncio.run(scenario())
+
+
+def test_get_idle_worker_reconciles_stale_pool_state_and_tops_up(monkeypatch) -> None:
+    """Dead tracked and live untracked references cannot block pool recovery."""
+
+    async def scenario() -> None:
+        pool = _pool_without_processes(pool_size=2)
+        dead_idle = FakeWorker("dead-idle", alive=False)
+        dead_busy = FakeWorker("dead-busy", alive=False)
+        untracked_idle = FakeWorker("untracked-idle", alive=True)
+        untracked_busy = FakeWorker("untracked-busy", alive=True)
+        pool.workers = [dead_idle, dead_busy]
+        pool.idle_workers = [dead_idle, untracked_idle]
+        pool.busy_workers = [dead_busy, untracked_busy]
+
+        threads: list[_NoOpThread] = []
+
+        def fake_thread(*args, **kwargs):  # noqa: ANN002, ANN003
+            thread = _NoOpThread(*args, **kwargs)
+            threads.append(thread)
+            return thread
+
+        monkeypatch.setattr(subprocess_pool.threading, "Thread", fake_thread)
+
+        assert await pool._get_idle_worker(timeout=0.2) is None
+        assert pool.workers == []
+        assert pool.idle_workers == []
+        assert pool.busy_workers == []
+        assert pool.pending_replacements == pool.pool_size
+        assert len(threads) == pool.pool_size
+        assert all(thread.started for thread in threads)
+
+    asyncio.run(scenario())

@@ -305,8 +305,10 @@ class TaskManager:
 
         while True:
             try:
-                worker_keys = await self.redis.keys(f"{self.worker_prefix}*")
-                worker_ids = [key.decode().replace(self.worker_prefix, "") for key in worker_keys]
+                worker_ids = [
+                    key.decode().replace(self.worker_prefix, "")
+                    async for key in self.redis.scan_iter(f"{self.worker_prefix}*", count=500)
+                ]
                 now = datetime.now()
                 now_iso = now.isoformat()
 

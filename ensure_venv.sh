@@ -119,10 +119,13 @@ ensure_python_env() {
         if ! python - <<'PY' >/dev/null 2>&1
 import redis
 import torch
+import einops
+import librosa
 import tvm_ffi
 PY
         then
             needs_thirdparty=1
+            needs_editable=1
         fi
     fi
 
@@ -155,7 +158,7 @@ PY
         # touches what's missing.
         network uv pip install "${find_links_arg[@]}" -r requirements-cuda129.txt
     else
-        echo "torch/redis/tvm_ffi already importable, skipping requirements-cuda129.txt install"
+        echo "torch/redis/einops/librosa/tvm_ffi already importable, skipping requirements-cuda129.txt install"
     fi
 }
 

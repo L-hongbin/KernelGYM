@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     api_port: ClassVar[int] = API_PORT
     api_workers: ClassVar[int] = API_WORKERS
     api_reload: ClassVar[bool] = API_RELOAD
+    api_worker_healthcheck_timeout_sec: int = Field(
+        default=60,
+        env="API_WORKER_HEALTHCHECK_TIMEOUT_SEC",
+        description=(
+            "uvicorn kills a child that misses a keep-alive ping for this long. The 5s default "
+            "murders children mid torch-import (GIL held during NFS dlopen), causing endless recycling."
+        ),
+    )
 
     gpu_devices: List[int] = Field(default_factory=lambda: list(range(8)), env="GPU_DEVICES")
     node_id: str = Field(default="", env="NODE_ID")
@@ -90,6 +98,23 @@ class Settings(BaseSettings):
         env="PROFILING_RETRY_COUNT",
         description="Retry count when profiler returns empty results (0 to disable).",
     )
+    num_profiling_trials: int = Field(
+        default=-1,
+        env="NUM_PROFILING_TRIALS",
+        description=(
+            "Extra candidate forwards per profiler context. Values < 1 mean auto: 1 forward when the "
+            "CUPTI TSC timestamp bug is absent (CUDA >= 13.1 or KINETO_TSC_FIXED=true), otherwise the "
+            "legacy min(10, num_trials) workaround that masks empty captures on CUDA 12.6u2-13.0."
+        ),
+    )
+    kineto_tsc_fixed: bool = Field(
+        default=False,
+        env="KINETO_TSC_FIXED",
+        description=(
+            "Declare that the deployed Kineto build already version-gates the CUPTI TSC timestamp "
+            "callback, so auto profiling-trial resolution may drop to 1 forward on affected CUPTI versions."
+        ),
+    )
 
     reference_cache_dataset_path: str = Field(default="", env="REFERENCE_CACHE_DATASET_PATH")
     val_data_cache_dataset_path: str = Field(default="", env="VAL_DATA_CACHE_DATASET_PATH")
@@ -130,6 +155,14 @@ class Settings(BaseSettings):
     worker_queue_wait_monitor_interval: int = Field(default=20, env="WORKER_QUEUE_WAIT_MONITOR_INTERVAL")
     worker_queue_wait_scan_limit: int = Field(default=200, env="WORKER_QUEUE_WAIT_SCAN_LIMIT")
     worker_execution_timeout_grace_sec: int = Field(default=60, env="WORKER_EXECUTION_TIMEOUT_GRACE_SEC")
+    worker_shutdown_drain_sec: int = Field(
+        default=120,
+        env="KERNELGYM_WORKER_SHUTDOWN_DRAIN_SEC",
+        description=(
+            "On SIGTERM, wait up to this many seconds for the in-flight task to finish "
+            "before failing it with 'Worker shutdown'. 0 disables draining."
+        ),
+    )
     worker_execution_timeout_monitor_interval: int = Field(default=30, env="WORKER_EXECUTION_TIMEOUT_MONITOR_INTERVAL")
     worker_pool_size: int = Field(
         default=2,
@@ -160,12 +193,12 @@ class Settings(BaseSettings):
     cache_ttl: int = Field(default=3600, env="CACHE_TTL")
     enable_result_cache: bool = Field(default=True, env="ENABLE_RESULT_CACHE")
     terminal_task_ttl_sec: int = Field(
-        default=24 * 3600,
+        default=12 * 3600,
         env="TERMINAL_TASK_TTL_SEC",
         description="TTL for completed/failed task status hashes. Set <=0 to keep terminal task records indefinitely.",
     )
     terminal_result_ttl_sec: int = Field(
-        default=24 * 3600,
+        default=12 * 3600,
         env="TERMINAL_RESULT_TTL_SEC",
         description="TTL for completed/failed result cache hashes. Set <=0 to keep terminal result records indefinitely.",
     )
@@ -391,11 +424,40 @@ def get_logging_config() -> Dict[str, Any]:
     return config
 
 
+_QUEUE_LISTENERS: List[Any] = []
+_LOGGING_CONFIGURED_PID: int | None = None
+
+
+def _install_queue_handlers(logger_names: List[str]) -> None:
+    """Re-home each configured logger's handlers behind a QueueHandler.
+
+    Emission then only enqueues in-memory; the actual console/file writes
+    happen on a QueueListener thread, so slow sinks (NFS-backed log files)
+    can never stall the caller — in the API server that caller is the
+    asyncio event loop serving every request and worker heartbeat.
+    """
+    import atexit
+    import logging
+    import logging.handlers
+    import queue
+
+    for name in logger_names:
+        target = logging.getLogger(name)
+        sinks = list(target.handlers)
+        if not sinks or any(isinstance(h, logging.handlers.QueueHandler) for h in sinks):
+            continue
+        q: queue.Queue = queue.Queue()
+        listener = logging.handlers.QueueListener(q, *sinks, respect_handler_level=True)
+        listener.start()
+        _QUEUE_LISTENERS.append(listener)
+        atexit.register(listener.stop)
+        target.handlers = [logging.handlers.QueueHandler(q)]
+
+
 def setup_logging(component_name: str = "server"):
     import logging.config
 
-    config = get_logging_config()
-    logging.config.dictConfig(config)
+    global _LOGGING_CONFIGURED_PID
 
     if component_name == "api":
         logger_name = "kernelgym.api"
@@ -403,6 +465,20 @@ def setup_logging(component_name: str = "server"):
         logger_name = "kernelgym.worker"
     else:
         logger_name = ""
+
+    # Configure at most once per process: a second dictConfig would close the
+    # handlers the queue listeners are still writing to, which is how the
+    # "I/O operation on closed file" logging-error floods started.
+    if _LOGGING_CONFIGURED_PID == os.getpid():
+        return logging.getLogger(logger_name)
+
+    config = get_logging_config()
+    logging.config.dictConfig(config)
+    _install_queue_handlers(list(config["loggers"].keys()))
+    # A broken sink must never inject "--- Logging error ---" tracebacks into
+    # stderr (they land in the service's redirected stdout log and flood it).
+    logging.raiseExceptions = False
+    _LOGGING_CONFIGURED_PID = os.getpid()
 
     logger = logging.getLogger(logger_name)
     logger.info(f"Logging configured for {component_name} - File logging: {settings.log_to_file}")

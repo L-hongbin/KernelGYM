@@ -16,6 +16,10 @@ from kernelgym.toolkit.kernelbench.exec_types import (
     get_error_name,
     set_seed,
 )
+from kernelgym.toolkit.kernelbench.profiling import (
+    aten_operator_profiling_context,
+    extract_aten_operator_metrics,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -107,9 +111,8 @@ def _read_backend_attr(root: Any, path: tuple[str, ...]) -> tuple[bool, Any]:
             return False, None
         if obj is None:
             return False, None
-    attr = path[-1]
     try:
-        return True, getattr(obj, attr)
+        return True, getattr(obj, path[-1])
     except Exception:
         return False, None
 
@@ -123,9 +126,8 @@ def _write_backend_attr(root: Any, path: tuple[str, ...], value: Any) -> bool:
             return False
         if obj is None:
             return False
-    attr = path[-1]
     try:
-        setattr(obj, attr, value)
+        setattr(obj, path[-1], value)
         return True
     except Exception:
         return False
@@ -133,18 +135,19 @@ def _write_backend_attr(root: Any, path: tuple[str, ...], value: Any) -> bool:
 
 @contextmanager
 def _true_fp32_correctness_context(metadata: dict):
-    """Force CUDA fp32 ops to true fp32 during correctness, then restore."""
+    """Force CUDA float32 ops to true fp32 during correctness, then restore."""
     enabled = _env_flag(_CORRECTNESS_DISABLE_TF32_ENV, default=True)
     metadata["correctness_tf32_disabled"] = bool(enabled)
     if not enabled:
         yield
         return
 
-    # PyTorch 2.9+ prefers per-op fp32_precision settings. Do not mix those
-    # with legacy allow_tf32 flags when they are available; PyTorch can raise
-    # if old and new APIs imply different cuDNN operator policies.
+    # PyTorch 2.9+ prefers per-op fp32_precision settings. Avoid mixing those
+    # with legacy allow_tf32 flags when they are available; newer PyTorch can
+    # raise if the old and new APIs imply different cuDNN policies.
     has_cudnn_conv_precision, _ = _read_backend_attr(torch.backends, ("cudnn", "conv", "fp32_precision"))
     has_matmul_precision, _ = _read_backend_attr(torch.backends, ("cuda", "matmul", "fp32_precision"))
+
     attr_targets = []
     if has_cudnn_conv_precision:
         attr_targets.append(("cudnn.conv.fp32_precision", ("cudnn", "conv", "fp32_precision"), "ieee"))
@@ -154,17 +157,16 @@ def _true_fp32_correctness_context(metadata: dict):
         attr_targets.append(("cuda.matmul.fp32_precision", ("cuda", "matmul", "fp32_precision"), "ieee"))
     else:
         attr_targets.append(("cuda.matmul.allow_tf32", ("cuda", "matmul", "allow_tf32"), False))
-    saved_attrs: list[tuple[str, tuple[str, ...], Any]] = []
-    applied: dict[str, str] = {}
+    saved_attrs: list[tuple[tuple[str, ...], Any]] = []
     before: dict[str, str] = {}
-
+    applied: dict[str, str] = {}
     for label, path, value in attr_targets:
         exists, old_value = _read_backend_attr(torch.backends, path)
         if not exists:
             continue
         before[label] = str(old_value)
         if _write_backend_attr(torch.backends, path, value):
-            saved_attrs.append((label, path, old_value))
+            saved_attrs.append((path, old_value))
             applied[label] = str(value)
 
     old_matmul_precision = None
@@ -192,7 +194,7 @@ def _true_fp32_correctness_context(metadata: dict):
                 torch.set_float32_matmul_precision(old_matmul_precision)
             except Exception:
                 pass
-        for _, path, old_value in reversed(saved_attrs):
+        for path, old_value in reversed(saved_attrs):
             _write_backend_attr(torch.backends, path, old_value)
 
 
@@ -349,6 +351,7 @@ def run_and_check_correctness(
     pass_on_time_budget: bool | None = None,
     budget_min_pass_trials: int | None = None,
     stage_update_fn: Callable[[str], None] | None = None,
+    detect_aten_fallback: bool = False,
 ) -> KernelExecResult:
     pass_count = 0
     trials_run = 0
@@ -385,7 +388,9 @@ def run_and_check_correctness(
     metadata["correctness_inplace_compare_enabled"] = True
     metadata["correctness_reference_alias_clone_trials"] = []
     metadata["correctness_reference_cache_poison_enabled"] = True
+    metadata["correctness_forward_seed_reset_enabled"] = True
     metadata["correctness_tolerance_source"] = "kernelbench_precision_or_fp32_integral"
+    metadata["aten_detection_enabled"] = bool(detect_aten_fallback)
     if max_wall_time_s is not None:
         metadata["correctness_max_wall_s"] = max_wall_time_s
 
@@ -399,6 +404,59 @@ def run_and_check_correctness(
         metadata["correctness_input_generation_trial_s"] = input_generation_durations
         metadata["correctness_input_transfer_trial_s"] = input_transfer_durations
         metadata["correctness_reference_alias_clone_trial_s"] = reference_alias_clone_durations
+
+    def _record_aten_trial_metrics(aten_metrics: dict[str, Any], trial: int) -> None:
+        trial_record = {"trial": trial, **aten_metrics}
+        trial_records = metadata.setdefault("aten_detection_trials", [])
+        trial_records.append(trial_record)
+        metadata["aten_detection_trials_run"] = len(trial_records)
+        metadata["aten_allowlist_version"] = aten_metrics.get("aten_allowlist_version")
+        metadata["aten_detection_valid"] = all(bool(record.get("aten_detection_valid")) for record in trial_records)
+
+        errors = [
+            {"trial": record["trial"], "error": record.get("aten_detection_error")}
+            for record in trial_records
+            if not record.get("aten_detection_valid")
+        ]
+        if errors:
+            metadata["aten_detection_errors"] = errors
+
+        merged_ops: dict[str, dict[str, Any]] = {}
+        for record in trial_records:
+            for item in record.get("aten_ops", []):
+                name = item["name"]
+                merged = merged_ops.setdefault(
+                    name,
+                    {
+                        "name": name,
+                        "normalized_name": item["normalized_name"],
+                        "count": 0,
+                        "cpu_time_us": 0.0,
+                        "allowed": item["allowed"],
+                    },
+                )
+                merged["count"] += item["count"]
+                merged["cpu_time_us"] += item["cpu_time_us"]
+
+        aten_ops = [merged_ops[name] for name in sorted(merged_ops)]
+        allowed_ops = [item for item in aten_ops if item["allowed"]]
+        forbidden_ops = [item for item in aten_ops if not item["allowed"]]
+        metadata["aten_ops"] = aten_ops
+        metadata["allowed_aten_ops"] = allowed_ops
+        metadata["forbidden_aten_ops"] = forbidden_ops
+        metadata["forbidden_aten_op_names"] = [item["name"] for item in forbidden_ops]
+        metadata["aten_operator_count"] = sum(item["count"] for item in aten_ops)
+        metadata["allowed_aten_operator_count"] = sum(item["count"] for item in allowed_ops)
+        metadata["forbidden_aten_operator_count"] = sum(item["count"] for item in forbidden_ops)
+
+        if forbidden_ops:
+            metadata["policy_violation"] = True
+            metadata["policy_violation_reason"] = "DISALLOWED_ATEN_COMPUTE"
+            metadata["decoy_reason"] = "DISALLOWED_ATEN_COMPUTE"
+            logger.warning(
+                "[ATen Detection] Forbidden candidate operators: %s",
+                metadata["forbidden_aten_op_names"],
+            )
 
     def _maybe_finish_on_time_budget() -> KernelExecResult | None:
         if max_wall_time_s is None or trials_run == 0:
@@ -417,7 +475,12 @@ def run_and_check_correctness(
                 metadata["correctness_issue"] = (
                     f"Correctness time budget reached after {pass_count} passing trials; accepted early"
                 )
-                return KernelExecResult(compiled=True, correctness=True, metadata=metadata)
+                return KernelExecResult(
+                    compiled=True,
+                    correctness=True,
+                    decoy_kernel=bool(metadata.get("policy_violation")),
+                    metadata=metadata,
+                )
             metadata["correctness_time_budget_overrun_to_min_pass"] = True
             return None
 
@@ -492,6 +555,10 @@ def run_and_check_correctness(
                 logger.debug("inputs: %s", first_input_device)
 
             _set_substage("reference_forward", trial=trial)
+            # Input generation may consume RNG. Start both forwards from the
+            # same per-trial Torch RNG state so stochastic PyTorch operations
+            # are comparable when ModelNew uses the same RNG implementation.
+            set_seed(trial_seed)
             reference_start = perf_counter()
             output = model(*inputs)
             torch.cuda.synchronize(device=device)
@@ -513,9 +580,15 @@ def run_and_check_correctness(
 
             try:
                 _set_substage("custom_forward", trial=trial)
+                set_seed(trial_seed)
                 custom_start = perf_counter()
-                output_new = model_new(*inputs)
-                torch.cuda.synchronize(device=device)
+                profile_aten_operators = bool(detect_aten_fallback)
+                with aten_operator_profiling_context(profile_aten_operators) as aten_prof:
+                    output_new = model_new(*inputs)
+                    torch.cuda.synchronize(device=device)
+                if profile_aten_operators:
+                    aten_metrics = extract_aten_operator_metrics(aten_prof)
+                    _record_aten_trial_metrics(aten_metrics, trial)
                 custom_trial_durations.append(perf_counter() - custom_start)
                 trials_run = trial + 1
                 del inputs
@@ -587,5 +660,10 @@ def run_and_check_correctness(
     _record_trial_metadata()
 
     if pass_count == num_correct_trials:
-        return KernelExecResult(compiled=True, correctness=True, metadata=metadata)
+        return KernelExecResult(
+            compiled=True,
+            correctness=True,
+            decoy_kernel=bool(metadata.get("policy_violation")),
+            metadata=metadata,
+        )
     return KernelExecResult(compiled=True, correctness=False, metadata=metadata)

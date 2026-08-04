@@ -26,6 +26,7 @@ from .models import (
     ErrorResponse,
     WorkflowRequest,
     WorkflowResponse,
+    MAX_CODE_CHARS,
 )
 from .utils import get_system_health, get_system_metrics, format_timestamp
 from . import system_stats
@@ -341,6 +342,26 @@ def _strip_status(payload: Dict[str, Any]) -> Dict[str, Any]:
     return cleaned
 
 
+def _sanitize_validation_errors(errors: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    sanitized_errors: list[Dict[str, Any]] = []
+    for error in errors:
+        sanitized = {key: value for key, value in error.items() if key != "input"}
+        input_value = error.get("input")
+        if isinstance(input_value, str):
+            sanitized["input_type"] = "str"
+            sanitized["input_length"] = len(input_value)
+            if len(input_value) > MAX_CODE_CHARS:
+                sanitized["max_length"] = MAX_CODE_CHARS
+        elif "input" in error:
+            sanitized["input_type"] = type(input_value).__name__
+
+        ctx = sanitized.get("ctx")
+        if isinstance(ctx, dict):
+            sanitized["ctx"] = {key: str(value) for key, value in ctx.items()}
+        sanitized_errors.append(sanitized)
+    return sanitized_errors
+
+
 async def _execute_workflow(
     task_mgr: TaskManager,
     workflow_name: str,
@@ -385,7 +406,7 @@ async def _execute_workflow(
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle Pydantic validation errors."""
-    error_details = exc.errors()
+    error_details = _sanitize_validation_errors(exc.errors())
     error_msg = f"Request validation failed: {error_details}"
     logger.error(f"Validation error for {request.url}: {error_msg}")
 
@@ -904,4 +925,5 @@ if __name__ == "__main__":
         workers=settings.api_workers,
         reload=settings.api_reload,
         log_level=settings.log_level.lower(),
+        timeout_worker_healthcheck=settings.api_worker_healthcheck_timeout_sec,
     )

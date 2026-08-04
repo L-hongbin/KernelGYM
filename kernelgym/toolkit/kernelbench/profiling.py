@@ -14,6 +14,213 @@ from kernelgym.config import settings
 logger = logging.getLogger(__name__)
 
 
+# Exact MooreEval/MusaCoder Appendix J allowlist from
+# https://arxiv.org/abs/2606.04847. Keep the source list separate from local
+# compatibility additions so reviewers can see where KernelGYM diverges from
+# the published policy.
+MUSACODER_APPENDIX_J_ALLOWED_ATEN_OPERATORS = frozenset(
+    {
+        "aten::_assert_async",
+        "aten::_assert_async.msg",
+        "aten::_assert_scalar",
+        "aten::_assert_tensor_metadata",
+        "aten::_cast_Byte",
+        "aten::_cast_Char",
+        "aten::_cast_Double",
+        "aten::_cast_Float",
+        "aten::_cast_Half",
+        "aten::_cast_Int",
+        "aten::_cast_Long",
+        "aten::_cast_Short",
+        "aten::_local_scalar_dense",
+        "aten::alias",
+        "aten::allclose",
+        "aten::arange",
+        "aten::as_strided",
+        "aten::broadcast_to",
+        "aten::clone",
+        "aten::contiguous",
+        "aten::copy_",
+        "aten::empty",
+        "aten::empty_like",
+        "aten::equal",
+        "aten::expand",
+        "aten::flatten",
+        "aten::full",
+        "aten::item",
+        "aten::ones",
+        "aten::permute",
+        "aten::rand",
+        "aten::randint",
+        "aten::randn",
+        "aten::reshape",
+        "aten::select",
+        "aten::slice",
+        "aten::squeeze",
+        "aten::stride",
+        "aten::transpose",
+        "aten::unsqueeze",
+        "aten::view",
+        "aten::zeros",
+    }
+)
+
+# Modern PyTorch dispatcher names for the same tensor-plumbing operations that
+# Appendix J already permits through older spellings (for example
+# ``aten::_cast_Float`` and ``aten::empty``). These names were observed with
+# PyTorch 2.11 on CUDA. They do not authorize high-level math operators.
+KERNELGYM_COMPAT_ALLOWED_ATEN_OPERATORS = frozenset(
+    {
+        "aten::_to_copy",
+        "aten::detach",
+        "aten::empty_strided",
+        "aten::fill_",
+        "aten::new_empty",
+        "aten::to",
+        "aten::zero_",
+    }
+)
+
+ALLOWED_ATEN_OPERATORS = MUSACODER_APPENDIX_J_ALLOWED_ATEN_OPERATORS | KERNELGYM_COMPAT_ALLOWED_ATEN_OPERATORS
+ATEN_ALLOWLIST_VERSION = "musacoder_appendix_j_plus_kernelgym_pytorch_2_11_compat_v2"
+
+
+def _safe_metric(evt: Any, names: Tuple[str, ...], default: float = 0.0) -> float:
+    for name in names:
+        if hasattr(evt, name):
+            value = getattr(evt, name)
+            if callable(value):
+                try:
+                    value = value()
+                except Exception:
+                    continue
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+    return default
+
+
+def _safe_int_metric(evt: Any, names: Tuple[str, ...], default: int = 0) -> int:
+    for name in names:
+        if hasattr(evt, name):
+            value = getattr(evt, name)
+            if callable(value):
+                try:
+                    value = value()
+                except Exception:
+                    continue
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+    return default
+
+
+def normalize_aten_operator_name(name: str) -> str:
+    """Normalize profiler overload names to the allowlist's operator name."""
+
+    name = str(name)
+    if not name.startswith("aten::"):
+        return name
+    namespace, operator = name.split("::", 1)
+    base_operator = operator.split(".", 1)[0]
+    return f"{namespace}::{base_operator}"
+
+
+def is_allowed_aten_operator(name: str) -> bool:
+    return name in ALLOWED_ATEN_OPERATORS or normalize_aten_operator_name(name) in ALLOWED_ATEN_OPERATORS
+
+
+@contextmanager
+def aten_operator_profiling_context(enabled: bool = True):
+    """Capture CPU operator events around one real candidate forward.
+
+    CPU activity is sufficient for detecting ATen dispatcher calls and avoids
+    making legality depend on CUPTI CUDA-activity reliability. Initialization
+    failures fail open and are reported as unavailable, never as a decoy.
+    Exceptions raised by the candidate forward still propagate to correctness.
+    """
+
+    if not enabled:
+        yield None
+        return
+
+    try:
+        import torch.profiler as profiler
+
+        prof = profiler.profile(
+            activities=[profiler.ProfilerActivity.CPU],
+            record_shapes=False,
+            profile_memory=False,
+            with_stack=False,
+            on_trace_ready=None,
+        )
+        prof.__enter__()
+    except Exception as exc:
+        logger.warning("[ATen Detection] Failed to initialize CPU profiler: %s", exc)
+        yield None
+        return
+
+    try:
+        yield prof
+    finally:
+        try:
+            prof.__exit__(None, None, None)
+        except Exception as exc:
+            logger.warning("[ATen Detection] Failed to stop CPU profiler: %s", exc)
+
+
+def extract_aten_operator_metrics(prof: Optional["torch.profiler.profile"]) -> Dict[str, Any]:
+    """Classify ATen calls captured inside the candidate-forward scope."""
+
+    if prof is None:
+        return {
+            "aten_detection_valid": False,
+            "aten_detection_error": "ATen operator profiler unavailable",
+            "aten_allowlist_version": ATEN_ALLOWLIST_VERSION,
+        }
+
+    try:
+        events = prof.key_averages()
+        aten_ops: list[dict[str, Any]] = []
+        for evt in events:
+            name = str(getattr(evt, "key", ""))
+            if not name.startswith("aten::"):
+                continue
+            aten_ops.append(
+                {
+                    "name": name,
+                    "normalized_name": normalize_aten_operator_name(name),
+                    "count": _safe_int_metric(evt, ("count",), 0),
+                    "cpu_time_us": _safe_metric(evt, ("cpu_time_total", "cpu_time"), 0.0),
+                    "allowed": is_allowed_aten_operator(name),
+                }
+            )
+
+        aten_ops.sort(key=lambda item: item["name"])
+        allowed_ops = [item for item in aten_ops if item["allowed"]]
+        forbidden_ops = [item for item in aten_ops if not item["allowed"]]
+        return {
+            "aten_detection_valid": True,
+            "aten_allowlist_version": ATEN_ALLOWLIST_VERSION,
+            "aten_operator_count": sum(item["count"] for item in aten_ops),
+            "allowed_aten_operator_count": sum(item["count"] for item in allowed_ops),
+            "forbidden_aten_operator_count": sum(item["count"] for item in forbidden_ops),
+            "aten_ops": aten_ops,
+            "allowed_aten_ops": allowed_ops,
+            "forbidden_aten_ops": forbidden_ops,
+            "forbidden_aten_op_names": [item["name"] for item in forbidden_ops],
+        }
+    except Exception as exc:
+        logger.warning("[ATen Detection] Failed to extract operator metrics: %s", exc)
+        return {
+            "aten_detection_valid": False,
+            "aten_detection_error": str(exc),
+            "aten_allowlist_version": ATEN_ALLOWLIST_VERSION,
+        }
+
+
 def _matches_profiler_name(captured: str, profiler_name: str) -> bool:
     cap = captured.lower()
     prof = profiler_name.lower()
@@ -171,36 +378,6 @@ def extract_profiling_metrics(prof: Optional["torch.profiler.profile"]) -> Dict[
 
         logger.debug(f"[Profiler] Captured {total_events} total events")
 
-        def _safe_metric(evt: Any, names: Tuple[str, ...], default: float = 0.0) -> float:
-            for name in names:
-                if hasattr(evt, name):
-                    value = getattr(evt, name)
-                    if callable(value):
-                        try:
-                            value = value()
-                        except Exception:
-                            continue
-                    try:
-                        return float(value)
-                    except (TypeError, ValueError):
-                        continue
-            return default
-
-        def _safe_int_metric(evt: Any, names: Tuple[str, ...], default: int = 0) -> int:
-            for name in names:
-                if hasattr(evt, name):
-                    value = getattr(evt, name)
-                    if callable(value):
-                        try:
-                            value = value()
-                        except Exception:
-                            continue
-                    try:
-                        return int(value)
-                    except (TypeError, ValueError):
-                        continue
-            return default
-
         cuda_kernels = []
         total_cpu_time = 0.0
         total_self_cuda_time = 0.0
@@ -225,7 +402,10 @@ def extract_profiling_metrics(prof: Optional["torch.profiler.profile"]) -> Dict[
                 continue
             device_type = getattr(evt, "device_type", None)
             if device_type is not None and device_type != profiler.DeviceType.CUDA:
-                pass
+                # CPU-side ATen aggregates expose the CUDA time of their child
+                # kernels. They are not CUDA device events and including them
+                # double-counts the coverage denominator.
+                continue
             elif device_type == profiler.DeviceType.CUDA:
                 cuda_device_event_count += 1
             cuda_time_event_count += 1
