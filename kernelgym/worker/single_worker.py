@@ -10,7 +10,6 @@ import redis.asyncio as redis
 
 from kernelgym.config import settings
 
-KEY_PREFIX = settings.redis_key_prefix
 from kernelgym.config import setup_logging
 from kernelgym.worker.gpu_worker import GPUWorker
 
@@ -45,12 +44,9 @@ async def main():
         logger.error(f"Worker error: {e}")
         sys.exit(1)
     finally:
-        try:
-            # In persistent mode, clear process info on clean exit
-            if args.persistent:
-                await redis_client.delete(f"{KEY_PREFIX}:worker_process:{args.worker_id}")
-        except Exception:
-            pass
+        # The worker must never delete its own process map.  Its process-group
+        # leader can exit before a CUDA child; only WorkerMonitor can prove the
+        # complete group is gone and generation-CAS the map away before spawn.
         await worker.stop()
         await redis_client.aclose()
 

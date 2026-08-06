@@ -13,6 +13,7 @@ This file indexes stable repository docs and evidence locations.
 | `docs/SOURCE_LINEAGE.md` | Source repositories and imported/excluded behavior. |
 | `docs/IMPLEMENTATION_DIFFERENCES.md` | Current implementation differences from source repositories. |
 | `docs/design-doc/COMPILE_ACCELERATION.md` | CUDA-Agent compile acceleration design. |
+| `docs/design-doc/GPU_FAULT_CONTAINMENT.md` | Docker-only CUDA fault containment, fresh-context probe, durable quarantine, page-user alert, and manual recovery design. |
 | `docs/design-doc/PROFILER_EMPTY_CAPTURE.md` | CUPTI TSC timestamp bug root cause and version-gated profiling-trial policy. |
 | `docs/design-doc/REWARD_HACKING_DEFENSES.md` | Current reward-hacking defense design notes. |
 | `docs/design-doc/RUNTIME_COORDINATION_STORAGE.md` | Proposed split between live runtime coordination and long-lived result/cache storage. |
@@ -35,12 +36,20 @@ This file indexes stable repository docs and evidence locations.
 | `kernelgym/utils/cupti_tsc_shim.py` | Shim build, state query, and Kineto-TSC-fix verification gates. |
 | `kernelgym/utils/device_info.py` | Startup/runtime device metadata detection and serialized-result injection. |
 | `kernelgym/utils/core_dumps.py` | Core dump directory resolution, migration, and retention helpers. |
+| `kernelgym/utils/gpu_quarantine.py` | Redis plus shared-filesystem GPU/worker quarantine latch and manual-clear primitives. |
+| `kernelgym/utils/page_user_notifier.py` | Mode-restricted page-user MCP client for physical-GPU quarantine and worker-process exclusion alerts. |
+| `kernelgym/cli/service.py` | Service lifecycle with process-generation fencing, whole-group drain proof, and fail-closed replacement startup. |
 | `kernelgym/workflow/kernelbench.py` | Server-side KernelBench workflow orchestration. |
 | `kernelgym/server/task_manager.py` | Redis task queue and worker coordination. |
 | `kernelgym/worker/gpu_worker.py` | Worker-side task execution and failure handling. |
 | `kernelgym/worker/subprocess_pool.py` | Persistent GPU subprocess pool, recycle, timeout, and pool-size enforcement. |
+| `kernelgym/worker/worker_monitor.py` | Generation-fenced worker supervision, bounded restart, and unsafe process-group quarantine. |
 | `tests/test_subprocess_pool.py` | Subprocess-pool recycle, capacity, stale-reference, and recycled-worker revival regression tests. |
 | `scripts/manage_core_dumps.py` | Move root-level core dumps into the configured directory and keep only the newest retained files. |
+| `scripts/manage_gpu_quarantine.py` | Inspect or explicitly clear a stopped GPU worker's durable safety latch. |
+| `tests/test_task_manager_redis_integration.py` | Opt-in disposable-Redis integration coverage for atomic GPU claims, cancelled frozen-claim terminal recovery, refresh fencing, and queue CAS. |
+| `tests/test_gpu_quarantine_gate.py` | Durable physical-latch, scheduler-admission, deduplication, and manual-clear regression coverage. |
+| `tests/test_page_user_notifier.py` | Mock-network MCP protocol, credential safety, redaction, cancellation, and delivery-deduplication coverage. |
 | `tests/test_aten_decoy_detection.py` | Source/compat ATen allowlists, device-only CUDA timing, and conservative low-coverage decoy regression tests. |
 | `tests/test_cuda_agent_gpu.py` | Real CUDA-Agent compile/run coverage, including the `.float()` ATen compatibility path around a custom CUDA kernel. |
 

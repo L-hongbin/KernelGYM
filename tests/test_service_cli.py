@@ -1,4 +1,20 @@
+import signal
+
+import pytest
+
 from kernelgym.cli import service
+
+
+def _isolate_worker_start(monkeypatch) -> None:
+    client = object()
+    monkeypatch.setattr(service, "_with_torch_cuda_arch_list", lambda values: values)
+    monkeypatch.setattr(service, "detect_device_info", lambda: {})
+    monkeypatch.setattr(service, "_redis_client", lambda values: client)
+    monkeypatch.setattr(service, "_kill_processes", lambda *args, **kwargs: True)
+    monkeypatch.setattr(service, "_collect_pids", lambda pattern: [])
+    monkeypatch.setattr(service, "_clear_expected_workers_for_host", lambda *args, **kwargs: True)
+    monkeypatch.setattr(service, "_assert_worker_process_slot_empty", lambda *args, **kwargs: None)
+    monkeypatch.setattr(service, "_register_expected_worker", lambda *args, **kwargs: None)
 
 
 def test_service_parser_exposes_expected_commands() -> None:
@@ -189,6 +205,7 @@ def test_write_env_file_groups_torch_cuda_arch_list(tmp_path) -> None:
 
 
 def test_start_worker_node_uses_explicit_server_env(tmp_path, monkeypatch) -> None:
+    _isolate_worker_start(monkeypatch)
     server_env = tmp_path / "server.env"
     server_env.write_text(
         "\n".join(
@@ -217,6 +234,7 @@ def test_start_worker_node_uses_explicit_server_env(tmp_path, monkeypatch) -> No
 
 
 def test_start_worker_node_generates_values_from_profile(monkeypatch) -> None:
+    _isolate_worker_start(monkeypatch)
     captured_envs = []
     monkeypatch.setattr(service, "_check_worker_connectivity", lambda values: None)
     monkeypatch.setattr(
@@ -252,6 +270,7 @@ def test_start_worker_node_generates_values_from_profile(monkeypatch) -> None:
 
 
 def test_start_worker_node_writes_logs_under_hostname_subdir(monkeypatch) -> None:
+    _isolate_worker_start(monkeypatch)
     captured_logs = []
     monkeypatch.setattr(service, "_hostname", lambda: "node7")
     monkeypatch.setattr(service, "_check_worker_connectivity", lambda values: None)
@@ -338,6 +357,9 @@ def test_clear_expected_workers_for_host_preserves_other_hosts() -> None:
         def hget(self, key, field):
             return self.hashes.get(key, {}).get(field)
 
+        def hgetall(self, key):
+            return dict(self.hashes.get(key, {}))
+
         def srem(self, key, member):
             self.sets.get(key, set()).discard(member)
 
@@ -346,7 +368,403 @@ def test_clear_expected_workers_for_host_preserves_other_hosts() -> None:
                 self.hashes.pop(key, None)
 
     client = FakeClient()
-    service._clear_expected_workers_for_host(client, "host-a")
+    assert service._clear_expected_workers_for_host(client, "host-a") is True
     assert client.sets["kernelgym:expected_workers"] == {"node-1_gpu_0"}
     assert "kernelgym:expected_worker:node-1_gpu_0" in client.hashes
     assert "kernelgym:expected_worker:worker_gpu_0" not in client.hashes
+
+
+def test_default_stop_grace_exceeds_worker_drain(monkeypatch) -> None:
+    monkeypatch.setenv("KERNELGYM_WORKER_SHUTDOWN_DRAIN_SEC", "17")
+
+    assert service._default_stop_grace_seconds() == 47
+    assert service.build_parser().parse_args(["stop"]).graceful_seconds is None
+
+
+def test_authenticated_worker_stop_requires_complete_session_drain(monkeypatch) -> None:
+    identity = service._ProcessIdentity(pid=1234, start_ticks="88", state="S", process_group=1234, session_id=1234)
+    monkeypatch.setattr(service, "_read_process_identity", lambda pid: identity)
+    monkeypatch.setattr(service, "_cmdline_matches_worker", lambda pid, worker_id: True)
+    observed_by_wait = []
+    monkeypatch.setattr(
+        service,
+        "_wait_for_session_drain",
+        lambda session_id, groups, timeout: observed_by_wait.append((session_id, set(groups), timeout)) or False,
+    )
+    forced = []
+    monkeypatch.setattr(
+        service,
+        "_force_kill_worker_session",
+        lambda session_id, **kwargs: forced.append((session_id, kwargs)) or (True, ""),
+    )
+    signals = []
+    monkeypatch.setattr(service.os, "killpg", lambda process_group, signum: signals.append((process_group, signum)))
+
+    stopped, reason = service._stop_authenticated_worker_group(
+        "worker_gpu_0",
+        pid=1234,
+        expected_start_ticks="88",
+        process_group=1234,
+        graceful_seconds=5,
+    )
+
+    assert stopped is True
+    assert reason == ""
+    assert signals == [(1234, signal.SIGTERM)]
+    assert observed_by_wait == [(1234, {1234}, 5)]
+    assert forced == [
+        (
+            1234,
+            {
+                "expected_leader_start_ticks": "88",
+                "observed_process_groups": {1234},
+            },
+        )
+    ]
+
+
+def test_session_force_kill_freezes_newly_discovered_inner_groups_to_fixed_point(monkeypatch) -> None:
+    def member(pid, state, process_group):
+        return service._ProcessIdentity(
+            pid=pid,
+            start_ticks=str(pid * 10),
+            state=state,
+            process_group=process_group,
+            session_id=100,
+        )
+
+    snapshots = iter(
+        [
+            [member(100, "S", 100), member(201, "S", 200)],
+            [member(100, "T", 100), member(201, "T", 200), member(301, "T", 300)],
+            [member(100, "T", 100), member(201, "T", 200), member(301, "T", 300)],
+            [member(100, "T", 100), member(201, "T", 200), member(301, "T", 300)],
+        ]
+    )
+    monkeypatch.setattr(service, "_live_session_members", lambda session_id: next(snapshots))
+    monkeypatch.setattr(service.time, "sleep", lambda seconds: None)
+    signals = []
+    monkeypatch.setattr(service.os, "killpg", lambda process_group, signum: signals.append((process_group, signum)))
+    drained = []
+    monkeypatch.setattr(
+        service,
+        "_wait_for_session_drain",
+        lambda session_id, groups, timeout: drained.append((session_id, set(groups))) or True,
+    )
+
+    stopped, reason = service._force_kill_worker_session(
+        100,
+        expected_leader_start_ticks="1000",
+        observed_process_groups={100},
+    )
+
+    assert stopped is True
+    assert reason == ""
+    assert signals == [
+        (100, signal.SIGSTOP),
+        (200, signal.SIGSTOP),
+        (100, signal.SIGSTOP),
+        (200, signal.SIGSTOP),
+        (300, signal.SIGSTOP),
+        (100, signal.SIGKILL),
+        (200, signal.SIGKILL),
+        (300, signal.SIGKILL),
+    ]
+    assert drained == [(100, {100, 200, 300})]
+
+
+def test_session_freeze_fails_closed_when_member_never_stops(monkeypatch) -> None:
+    member = service._ProcessIdentity(
+        pid=100,
+        start_ticks="88",
+        state="D",
+        process_group=100,
+        session_id=100,
+    )
+    monkeypatch.setattr(service, "_live_session_members", lambda session_id: [member])
+    monotonic_values = iter([0.0, 1.0])
+    monkeypatch.setattr(service.time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(service.time, "sleep", lambda seconds: None)
+    signals = []
+    monkeypatch.setattr(service.os, "killpg", lambda process_group, signum: signals.append((process_group, signum)))
+
+    frozen, groups, reason = service._freeze_worker_session(
+        100,
+        expected_leader_start_ticks="88",
+        timeout=0.5,
+    )
+
+    assert frozen is False
+    assert groups == {100}
+    assert "did not freeze" in reason
+    assert signals == [(100, signal.SIGSTOP)]
+
+
+def test_session_drain_requires_empty_sid_and_esrch_for_every_observed_group(monkeypatch) -> None:
+    monkeypatch.setattr(service, "_live_session_members", lambda session_id: [])
+    outcomes = {100: True, 200: False}
+    monkeypatch.setattr(service, "_process_group_is_drained", lambda process_group: outcomes[process_group])
+
+    assert service._session_is_drained(100, {100, 200}) is False
+
+
+def test_discovered_service_root_escalates_its_complete_session(monkeypatch) -> None:
+    identity = service._ProcessIdentity(
+        pid=4321,
+        start_ticks="77",
+        state="S",
+        process_group=4321,
+        session_id=4321,
+    )
+    monkeypatch.setattr(service, "_read_process_identity", lambda pid: identity)
+    monkeypatch.setattr(service, "_cmdline_matches_pattern", lambda pid, pattern: True)
+    monkeypatch.setattr(service, "_wait_for_session_drain", lambda *args, **kwargs: False)
+    forced = []
+    monkeypatch.setattr(
+        service,
+        "_force_kill_worker_session",
+        lambda session_id, **kwargs: forced.append((session_id, kwargs)) or (True, ""),
+    )
+    signals = []
+    monkeypatch.setattr(service.os, "killpg", lambda process_group, signum: signals.append((process_group, signum)))
+
+    stopped, reason = service._stop_discovered_process_group(4321, "worker-pattern", 3)
+
+    assert stopped is True
+    assert reason == ""
+    assert signals == [(4321, signal.SIGTERM)]
+    assert forced == [
+        (
+            4321,
+            {
+                "expected_leader_start_ticks": "77",
+                "observed_process_groups": {4321},
+            },
+        )
+    ]
+
+
+def test_safe_registered_session_is_generation_cas_deleted(monkeypatch) -> None:
+    class FakeClient:
+        def __init__(self):
+            self.eval_args = None
+
+        def hgetall(self, key):
+            return {
+                "pid": "1234",
+                "proc_start_ticks": "88",
+                "process_group": "1234",
+                "session_id": "1234",
+                "device": "cuda:0",
+            }
+
+        def eval(self, *args):
+            self.eval_args = args
+            return 1
+
+    stopped_with = []
+    monkeypatch.setattr(
+        service,
+        "_stop_authenticated_worker_group",
+        lambda *args, **kwargs: stopped_with.append(kwargs) or (True, ""),
+    )
+    client = FakeClient()
+
+    assert service._drain_registered_worker(client, "worker_gpu_0", graceful_seconds=5) is True
+    assert stopped_with[0]["session_id"] == 1234
+    assert client.eval_args is not None
+    assert "session_id" in client.eval_args[0]
+    assert client.eval_args[-2:] == ("1", "worker_gpu_0")
+
+
+def test_unsafe_registered_group_is_quarantined_without_deleting_map(monkeypatch) -> None:
+    class FakeClient:
+        def __init__(self):
+            self.eval_called = False
+
+        def hgetall(self, key):
+            return {
+                "pid": "1234",
+                "proc_start_ticks": "88",
+                "process_group": "1234",
+                "session_id": "1234",
+                "device": "cuda:0",
+            }
+
+        def eval(self, *args):
+            self.eval_called = True
+            return 1
+
+    client = FakeClient()
+    monkeypatch.setattr(
+        service,
+        "_stop_authenticated_worker_group",
+        lambda *args, **kwargs: (False, "group survived"),
+    )
+    quarantines = []
+    monkeypatch.setattr(
+        service,
+        "_quarantine_unsafe_worker_group",
+        lambda client, worker_id, device, reason: quarantines.append((worker_id, device, reason)),
+    )
+
+    assert service._drain_registered_worker(client, "worker_gpu_0", graceful_seconds=5) is False
+    assert client.eval_called is False
+    assert quarantines == [("worker_gpu_0", "cuda:0", "group survived")]
+
+
+def test_register_expected_worker_writes_full_identity_with_if_empty_lua(monkeypatch) -> None:
+    identity = service._ProcessIdentity(pid=2345, start_ticks="99", state="S", process_group=2345, session_id=2345)
+    service._LAUNCHED_IDENTITIES[2345] = identity
+    monkeypatch.setattr(service, "_read_process_identity", lambda pid: identity)
+    monkeypatch.setattr(service, "_cmdline_matches_worker", lambda pid, worker_id: True)
+
+    class FakeClient:
+        def __init__(self):
+            self.args = None
+
+        def eval(self, *args):
+            self.args = args
+            return 1
+
+    client = FakeClient()
+    service._register_expected_worker(client, "worker_gpu_0", "cuda:0", "node21", "v1", 2345)
+
+    assert client.args is not None
+    assert client.args[1] == 3
+    assert "proc_start_ticks" in client.args[0]
+    assert "process_group" in client.args[0]
+    assert "session_id" in client.args[0]
+    assert "2345" in client.args
+    assert "99" in client.args
+    assert 2345 not in service._LAUNCHED_IDENTITIES
+
+
+def test_register_rejection_drains_just_spawned_group_and_aborts(monkeypatch) -> None:
+    identity = service._ProcessIdentity(pid=3456, start_ticks="101", state="S", process_group=3456, session_id=3456)
+    service._LAUNCHED_IDENTITIES[3456] = identity
+    monkeypatch.setattr(service, "_read_process_identity", lambda pid: identity)
+    monkeypatch.setattr(service, "_cmdline_matches_worker", lambda pid, worker_id: True)
+    aborts = []
+    monkeypatch.setattr(
+        service,
+        "_abort_unregistered_launch",
+        lambda client, worker_id, device, pid, reason: aborts.append((worker_id, device, pid, reason)) or True,
+    )
+
+    class FakeClient:
+        def eval(self, *args):
+            return 0
+
+    with pytest.raises(SystemExit, match="replacement launch aborted"):
+        service._register_expected_worker(FakeClient(), "worker_gpu_0", "cuda:0", "node21", "v1", 3456)
+
+    assert aborts == [("worker_gpu_0", "cuda:0", 3456, "an older process generation still owns the worker map")]
+    service._LAUNCHED_IDENTITIES.pop(3456, None)
+
+
+def test_launch_identity_read_error_reaps_exact_handle_and_quarantines(tmp_path, monkeypatch) -> None:
+    class FakeProcess:
+        pid = 4567
+
+        def __init__(self):
+            self.returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -signal.SIGKILL
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    process = FakeProcess()
+    monkeypatch.setattr(service.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(service, "ensure_core_dump_dir", lambda value: tmp_path)
+    monkeypatch.setattr(service, "prune_core_dumps", lambda *args: None)
+    monkeypatch.setattr(
+        service,
+        "_read_process_identity",
+        lambda pid: (_ for _ in ()).throw(RuntimeError("bad proc stat")),
+    )
+    quarantines = []
+    monkeypatch.setattr(
+        service,
+        "_quarantine_unsafe_worker_group",
+        lambda client, worker_id, device, reason: quarantines.append((worker_id, device, reason)),
+    )
+
+    with pytest.raises(RuntimeError, match="Could not record launch identity"):
+        service._launch_background(
+            ["python", "-m", "kernelgym.worker.single_worker", "--worker-id", "w", "--device", "cuda:0"],
+            tmp_path / "worker.log",
+            {},
+        )
+
+    assert process.returncode == -signal.SIGKILL
+    assert quarantines[0][:2] == ("w", "cuda:0")
+    assert "before session authentication" in quarantines[0][2]
+
+
+def test_unregistered_launch_without_start_ticks_never_signals_bare_scope(monkeypatch) -> None:
+    monkeypatch.setattr(service, "_read_process_identity", lambda pid: None)
+    monkeypatch.setattr(service, "_session_is_drained", lambda session_id, groups: False)
+    monkeypatch.setattr(
+        service,
+        "_force_kill_worker_session",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not signal a bare SID")),
+    )
+    quarantines = []
+    monkeypatch.setattr(
+        service,
+        "_quarantine_unsafe_worker_group",
+        lambda client, worker_id, device, reason: quarantines.append((worker_id, device, reason)),
+    )
+
+    stopped = service._abort_unregistered_launch(None, "worker_gpu_0", "cuda:0", 4567, "registration failed")
+
+    assert stopped is False
+    assert quarantines[0][:2] == ("worker_gpu_0", "cuda:0")
+    assert "no authenticated start_ticks" in quarantines[0][2]
+
+
+def test_start_local_aborts_before_launch_when_stop_is_incomplete(monkeypatch) -> None:
+    monkeypatch.setattr(service, "cmd_stop", lambda args: 1)
+    monkeypatch.setattr(
+        service,
+        "_ensure_redis",
+        lambda values: (_ for _ in ()).throw(AssertionError("must not start Redis")),
+    )
+    args = type("Args", (), {"profile": "v1", "no_stop_first": True})()
+
+    with pytest.raises(SystemExit, match="not safely drained"):
+        service.cmd_start_local(args)
+
+
+def test_worker_node_start_stops_monitor_and_aborts_on_undrained_local_worker(tmp_path, monkeypatch) -> None:
+    server_env = tmp_path / "server.env"
+    server_env.write_text(
+        "API_HOST=192.0.2.1\nREDIS_HOST=192.0.2.1\nGPU_DEVICES=[0]\nCPU_COMPILE_WORKERS=0\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(service, "_check_worker_connectivity", lambda values: None)
+    monkeypatch.setattr(service, "_http_post_json", lambda url: {"node_id": "node-test", "hostname": "node-test"})
+    monkeypatch.setattr(service, "_redis_client", lambda values: object())
+    calls = []
+
+    def stop_processes(pattern, description, *args, **kwargs):
+        calls.append(pattern)
+        return pattern != "kernelgym.worker.single_worker"
+
+    monkeypatch.setattr(service, "_kill_processes", stop_processes)
+    monkeypatch.setattr(
+        service,
+        "_clear_expected_workers_for_host",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not clear process maps")),
+    )
+
+    with pytest.raises(SystemExit, match="did not drain safely"):
+        service.cmd_start_worker_node(type("Args", (), {"server_env": str(server_env)})())
+
+    assert calls == ["kernelgym.worker.worker_monitor", "kernelgym.worker.single_worker"]
