@@ -16,9 +16,10 @@ bash scripts/start_container.sh
 
 ### 1. Bootstrap the environment
 
-`ensure_venv.sh` is idempotent. It validates CUDA 12.9, installs `redis-server` (via apt when missing), creates the repo-local `.venv` with Python 3.12, and installs torch / torchvision / apache-tvm-ffi (preferring local `./wheels/*.whl` over the configured index).
+`set_env.sh` idempotently repairs the interpreter link used by an existing shared `.venv`. `ensure_venv.sh` then validates CUDA 12.9, installs `redis-server` (via apt when missing), creates the repo-local `.venv` with Python 3.12 when absent, and installs torch / torchvision / apache-tvm-ffi (preferring local `./wheels/*.whl` over the configured index).
 
 ```bash
+bash set_env.sh
 bash ensure_venv.sh
 ```
 
@@ -29,6 +30,12 @@ bash deploy_node.sh --nnodes 1
 ```
 
 `deploy_node.sh` activates `.venv`, scrubs `LD_LIBRARY_PATH` / `PYTHONPATH` of host-Python torch trees, runs `scripts/validate_runtime.py`, then starts the API server (`:20111`), worker monitor, 8 GPU workers, and the profile's CPU compile workers. Override that count with `--cpu-compile-workers N` or `--cpu-workers N`.
+
+Add `--block-terminal` when the deploy command should stay in the foreground (for example, as the container's foreground command). After startup succeeds, Ctrl-C, SIGTERM, or a terminal hangup stops this node's KernelGym services before the command exits:
+
+```bash
+bash deploy_node.sh --cluster --block-terminal
+```
 
 For a cold restart that removes local Redis persistence plus KernelGym compile/work caches before launching:
 

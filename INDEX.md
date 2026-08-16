@@ -25,7 +25,7 @@ This file indexes stable repository docs and evidence locations.
 
 | Path | Purpose |
 | --- | --- |
-| `deploy_node.sh` | Container-only single/multi-node startup with cluster/join, CPU worker override, and `--clear-cache` cold-start option. |
+| `deploy_node.sh` | Container-only single/multi-node startup with cluster/join, CPU worker override, `--clear-cache` cold start, and `--block-terminal` foreground lifecycle. |
 | `scripts/start_container.sh` | Physical-host Docker container startup; defaults to Docker `--init` for subprocess reaping. |
 | `scripts/debug_line451_rmsnorm_nondeterminism.py` | Standalone reproduction for line 451 RMSNorm CUDA-Agent nondeterministic correctness. |
 | `kernelgym/backend/kernelbench/cuda_agent_backend.py` | CUDA-Agent parsing, validation scaffold, compile/load backend. |
@@ -38,11 +38,11 @@ This file indexes stable repository docs and evidence locations.
 | `kernelgym/utils/core_dumps.py` | Core dump directory resolution, migration, and retention helpers. |
 | `kernelgym/utils/gpu_quarantine.py` | Redis plus shared-filesystem GPU/worker quarantine latch and manual-clear primitives. |
 | `kernelgym/utils/page_user_notifier.py` | Mode-restricted page-user MCP client for physical-GPU quarantine and worker-process exclusion alerts. |
-| `kernelgym/cli/service.py` | Service lifecycle with process-generation fencing, whole-group drain proof, and fail-closed replacement startup. |
+| `kernelgym/cli/service.py` | Service lifecycle with admission-first shutdown, process-generation fencing, whole-group drain proof, and fail-closed replacement startup. |
 | `kernelgym/workflow/kernelbench.py` | Server-side KernelBench workflow orchestration. |
 | `kernelgym/server/task_manager.py` | Redis task queue and worker coordination. |
 | `kernelgym/worker/gpu_worker.py` | Worker-side task execution and failure handling. |
-| `kernelgym/worker/subprocess_pool.py` | Persistent GPU subprocess pool, recycle, timeout, and pool-size enforcement. |
+| `kernelgym/worker/subprocess_pool.py` | Persistent GPU subprocess pool, crash containment proof, fresh-context recovery, recycle, timeout, and pool-size enforcement. |
 | `kernelgym/worker/worker_monitor.py` | Generation-fenced worker supervision, bounded restart, and unsafe process-group quarantine. |
 | `tests/test_subprocess_pool.py` | Subprocess-pool recycle, capacity, stale-reference, and recycled-worker revival regression tests. |
 | `scripts/manage_core_dumps.py` | Move root-level core dumps into the configured directory and keep only the newest retained files. |

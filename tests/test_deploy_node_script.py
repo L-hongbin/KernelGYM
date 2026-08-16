@@ -28,11 +28,12 @@ def test_deploy_node_validate_requires_rank_for_multi_node() -> None:
         raise AssertionError("validate should reject missing node rank")
 
 
-def test_deploy_node_parser_exposes_clear_cache() -> None:
+def test_deploy_node_parser_exposes_runtime_options() -> None:
     deploy_node = load_deploy_node()
     monkeypatch_args = [
         "--cluster",
         "--clear-cache",
+        "--block-terminal",
         "--cpu-compile-workers",
         "3",
     ]
@@ -46,7 +47,39 @@ def test_deploy_node_parser_exposes_clear_cache() -> None:
 
     assert args.cluster is True
     assert args.clear_cache is True
+    assert args.block_terminal is True
     assert args.cpu_compile_workers == 3
+
+
+def test_deploy_node_block_terminal_stops_local_services(monkeypatch) -> None:
+    deploy_node = load_deploy_node()
+    calls = []
+    monkeypatch.setattr(deploy_node, "wait_for_shutdown_signal", lambda: deploy_node.signal.SIGTERM)
+    monkeypatch.setattr(deploy_node, "run", lambda command: calls.append(command))
+
+    deploy_node.block_terminal()
+
+    assert calls == [
+        [
+            deploy_node.sys.executable,
+            "-m",
+            "kernelgym.cli.service",
+            "stop",
+            "--profile",
+            "v1",
+        ]
+    ]
+
+
+def test_deploy_node_finish_only_blocks_when_requested(monkeypatch) -> None:
+    deploy_node = load_deploy_node()
+    calls = []
+    monkeypatch.setattr(deploy_node, "block_terminal", lambda: calls.append("block"))
+
+    assert deploy_node.finish_deployment(Namespace(block_terminal=False)) == 0
+    assert calls == []
+    assert deploy_node.finish_deployment(Namespace(block_terminal=True)) == 0
+    assert calls == ["block"]
 
 
 def test_deploy_node_main_rejects_master_with_nonzero_rank(monkeypatch) -> None:

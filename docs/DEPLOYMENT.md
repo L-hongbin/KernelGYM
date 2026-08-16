@@ -27,6 +27,7 @@ KernelGYM reward-only supports two deployment modes. Runtime env values come fro
 Create the environment in the runtime where reward will execute (run from the repo root):
 
 ```bash
+bash set_env.sh
 bash ensure_venv.sh --recreate
 source .venv/bin/activate
 ```
@@ -60,7 +61,7 @@ bash stop_node.sh
 
 A typical restart cycle inside the container is `bash stop_node.sh && bash deploy_node.sh`. For a cold restart that also removes local Redis persistence and KernelGym compile/work caches before launching, use `bash deploy_node.sh --clear-cache`.
 
-The deployment convenience script is container-only. It runs `ensure_venv.sh`, sources `.venv/bin/activate`, and always stops existing KernelGym worker processes before starting worker-only nodes.
+The deployment convenience script is container-only. It runs `set_env.sh`, ensures `redis-server` is installed, sources `.venv/bin/activate`, and validates the runtime. It does not create or install `.venv`; run `ensure_venv.sh` once when bootstrapping a container or when the environment's packages need repair. It always stops existing KernelGym worker processes before starting worker-only nodes.
 
 ## Mode 1: Physical Host, Then Docker
 
@@ -145,7 +146,7 @@ bash deploy_node.sh --cluster              # on the primary, ready for joins
 bash deploy_node.sh --join 192.168.16.40   # on each worker node (primary's address)
 ```
 
-The script is intended to run from inside containers, one invocation per host. `--cluster` makes the primary accept remote workers; `--join <primary>` brings a node in with a server-allocated id (no rank). `--cpu-compile-workers N` / `--cpu-workers N` is forwarded to both. The older `--nnodes N --node-rank R --master-addr <ip>` form still works but is deprecated in favor of `--cluster` / `--join`.
+The script is intended to run from inside containers, one invocation per host. `--cluster` makes the primary accept remote workers; `--join <primary>` brings a node in with a server-allocated id (no rank). `--cpu-compile-workers N` / `--cpu-workers N` is forwarded to both. Add `--block-terminal` to any role when the deploy command should stay in the foreground; after startup succeeds, Ctrl-C, SIGTERM, or a terminal hangup stops that node's KernelGym services before the command exits. The older `--nnodes N --node-rank R --master-addr <ip>` form still works but is deprecated in favor of `--cluster` / `--join`.
 
 ## Multi-Node Tutorial
 

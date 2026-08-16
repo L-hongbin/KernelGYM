@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -55,6 +57,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "after stopping this node, delete local Redis persistence and KernelGym compile/work caches before start"
+        ),
+    )
+    parser.add_argument(
+        "--block-terminal",
+        action="store_true",
+        help=(
+            "after startup succeeds, remain in the foreground; Ctrl-C, SIGTERM, or a terminal hangup "
+            "stops this node's KernelGym services"
         ),
     )
     return parser.parse_args()
@@ -145,6 +155,46 @@ def section(title: str) -> None:
     """Print a visual section break so deploy phases are easy to scan in the log."""
     print()
     print(f"=== {title} ===")
+
+
+def wait_for_shutdown_signal() -> signal.Signals:
+    """Wait without a signal-delivery race and return the requested shutdown signal."""
+    stop_requested = threading.Event()
+    received_signal = signal.SIGTERM
+    handled_signals = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGHUP"):
+        handled_signals.append(signal.SIGHUP)
+    previous_handlers = {signum: signal.getsignal(signum) for signum in handled_signals}
+
+    def request_shutdown(signum: int, _frame: object) -> None:
+        nonlocal received_signal
+        received_signal = signal.Signals(signum)
+        stop_requested.set()
+
+    for signum in handled_signals:
+        signal.signal(signum, request_shutdown)
+    try:
+        while not stop_requested.wait(timeout=3600):
+            pass
+    finally:
+        for signum, previous_handler in previous_handlers.items():
+            signal.signal(signum, previous_handler)
+    return received_signal
+
+
+def block_terminal() -> None:
+    """Keep the deploy command in the foreground and own local service cleanup."""
+    section("Block terminal")
+    print("KernelGym is ready. Waiting in the foreground; press Ctrl-C to stop this node.", flush=True)
+    received_signal = wait_for_shutdown_signal()
+    print(f"Received {received_signal.name}; stopping this node's KernelGym services.", flush=True)
+    run([sys.executable, "-m", "kernelgym.cli.service", "stop", "--profile", "v1"])
+
+
+def finish_deployment(args: argparse.Namespace) -> int:
+    if bool(getattr(args, "block_terminal", False)):
+        block_terminal()
+    return 0
 
 
 def _append_cpu_compile_workers(command: list[str], cpu_compile_workers: int | None) -> list[str]:
@@ -258,10 +308,10 @@ def main() -> int:
     # Preferred count-free interface: no nnodes, no node-rank.
     if cluster:
         start_primary(None, args.cpu_compile_workers, redis_remote_access=True, clear_cache=clear_cache)
-        return 0
+        return finish_deployment(args)
     if join:
         start_worker(join, None, args.cpu_compile_workers, clear_cache=clear_cache)
-        return 0
+        return finish_deployment(args)
 
     # Legacy torchrun-style path (deprecated).
     if args.nnodes != 1 or args.node_rank is not None or args.master_addr:
@@ -270,7 +320,7 @@ def main() -> int:
         )
     if args.nnodes == 1:
         start_primary(args.node_rank, args.cpu_compile_workers, clear_cache=clear_cache)
-        return 0
+        return finish_deployment(args)
 
     # Role is determined by whether this container can see itself as --master-addr.
     is_master = args.master_addr in local_ids()
@@ -282,7 +332,7 @@ def main() -> int:
         start_primary(args.node_rank, args.cpu_compile_workers, redis_remote_access=True, clear_cache=clear_cache)
     else:
         start_worker(args.master_addr, args.node_rank, args.cpu_compile_workers, clear_cache=clear_cache)
-    return 0
+    return finish_deployment(args)
 
 
 if __name__ == "__main__":
