@@ -36,6 +36,8 @@ def test_deploy_node_parser_exposes_runtime_options() -> None:
         "--block-terminal",
         "--cpu-compile-workers",
         "3",
+        "--gpu-devices",
+        "0,1,2,3",
     ]
 
     old_argv = deploy_node.sys.argv
@@ -49,6 +51,7 @@ def test_deploy_node_parser_exposes_runtime_options() -> None:
     assert args.clear_cache is True
     assert args.block_terminal is True
     assert args.cpu_compile_workers == 3
+    assert args.gpu_devices == "0,1,2,3"
 
 
 def test_deploy_node_block_terminal_stops_local_services(monkeypatch) -> None:
@@ -189,7 +192,7 @@ def test_deploy_node_start_primary_clear_cache_stops_then_skips_second_stop(monk
     ]
 
 
-def test_deploy_node_start_worker_passes_cpu_compile_workers(monkeypatch) -> None:
+def test_deploy_node_start_worker_passes_runtime_overrides(monkeypatch) -> None:
     deploy_node = load_deploy_node()
     calls = []
     monkeypatch.setattr(
@@ -199,7 +202,7 @@ def test_deploy_node_start_worker_passes_cpu_compile_workers(monkeypatch) -> Non
     )
     monkeypatch.setattr(deploy_node, "wait_api", lambda addr: calls.append(("wait_api", addr)))
 
-    deploy_node.start_worker("192.168.16.40", 1, cpu_compile_workers=7)
+    deploy_node.start_worker("192.168.16.40", 1, cpu_compile_workers=7, gpu_devices="0,1,2,3")
 
     assert calls[-1] == (
         "run",
@@ -216,6 +219,8 @@ def test_deploy_node_start_worker_passes_cpu_compile_workers(monkeypatch) -> Non
             "1",
             "--cpu-compile-workers",
             "7",
+            "--gpu-devices",
+            "0,1,2,3",
         ],
         False,
     )

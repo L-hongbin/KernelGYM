@@ -23,6 +23,37 @@ PROJECT_ROOT = Path(__file__).parent.parent
 KERNELBENCH_ROOT = PROJECT_ROOT.parent
 
 
+def _parse_gpu_devices_value(value: Any) -> List[int]:
+    if isinstance(value, str):
+        raw = value.strip()
+        if raw.lower() == "auto":
+            raise ValueError("GPU_DEVICES=auto must be resolved by the KernelGym service launcher")
+        try:
+            import json
+
+            parsed = json.loads(raw)
+            items = parsed if isinstance(parsed, list) else [parsed]
+        except Exception:
+            items = [item.strip() for item in raw.split(",") if item.strip()]
+    elif isinstance(value, (list, tuple)):
+        items = list(value)
+    else:
+        items = [value]
+
+    if not items:
+        raise ValueError("GPU_DEVICES must contain at least one CUDA device index")
+    devices: List[int] = []
+    for item in items:
+        text = str(item).strip()
+        if isinstance(item, bool) or not text.isascii() or not text.isdigit():
+            raise ValueError(f"invalid CUDA device index: {item!r}")
+        device = int(text)
+        if device in devices:
+            raise ValueError(f"duplicate CUDA device index: {device}")
+        devices.append(device)
+    return devices
+
+
 class Settings(BaseSettings):
     """Application settings with environment variable support."""
 
@@ -221,22 +252,7 @@ class Settings(BaseSettings):
 
     @validator("gpu_devices", pre=True)
     def validate_gpu_devices(cls, v):
-        if isinstance(v, str):
-            try:
-                import json
-
-                parsed = json.loads(v)
-                if isinstance(parsed, list):
-                    return [int(x) for x in parsed]
-                return [int(parsed)]
-            except Exception:
-                try:
-                    return [int(x.strip()) for x in v.split(",")]
-                except Exception:
-                    return list(range(8))
-        if isinstance(v, list):
-            return [int(x) for x in v]
-        return list(range(8))
+        return _parse_gpu_devices_value(v)
 
     @validator("gpu_arch", pre=True)
     def validate_gpu_arch(cls, v):
@@ -295,19 +311,8 @@ class Settings(BaseSettings):
 
         @classmethod
         def prepare_field_value(cls, field_name: str, field, field_value, value_is_complex: bool):
-            if field_name == "gpu_devices" and isinstance(field_value, str):
-                try:
-                    import json
-
-                    parsed = json.loads(field_value)
-                    if isinstance(parsed, list):
-                        return [int(x) for x in parsed]
-                    return [int(parsed)]
-                except Exception:
-                    try:
-                        return [int(x.strip()) for x in field_value.split(",")]
-                    except Exception:
-                        return list(range(8))
+            if field_name == "gpu_devices" and field_value is not None:
+                return _parse_gpu_devices_value(field_value)
             if field_name == "gpu_arch" and isinstance(field_value, str):
                 try:
                     import json

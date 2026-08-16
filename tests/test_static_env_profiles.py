@@ -22,7 +22,7 @@ def test_functional_reward_profile_matches_runtime_constants() -> None:
     assert values["REDIS_PASSWORD"] == profiles.REDIS_PASSWORD
     assert values["REDIS_KEY_PREFIX"] == profiles.REDIS_KEY_PREFIX
     assert values["METRICS_PORT"] == str(profiles.METRICS_PORT)
-    assert values["GPU_DEVICES"] == "[0,1,2,3,4,5,6,7]"
+    assert values["GPU_DEVICES"] == "auto"
     assert values["CPU_COMPILE_WORKERS"] == "24"
     assert values["DEFAULT_BACKEND"] == "auto"
     assert values["SPLIT_COMPILE_AND_EXECUTE"] == "true"
@@ -42,6 +42,12 @@ def test_functional_reward_profile_matches_runtime_constants() -> None:
 
 def test_auto_is_alias_for_default_functional_profile() -> None:
     assert profiles.get_profile("auto").env() == profiles.get_profile("v1").env()
+
+
+def test_profile_can_explicitly_select_container_logical_gpu_subset() -> None:
+    profile = profiles.RewardProfile(name="subset", gpu_devices=(0, 2))
+
+    assert profile.env()["GPU_DEVICES"] == "[0,2]"
 
 
 def test_profiles_do_not_accept_host_based_names() -> None:

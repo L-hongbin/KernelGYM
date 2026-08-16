@@ -7,6 +7,11 @@ from kernelgym.cli import service
 
 def _isolate_worker_start(monkeypatch) -> None:
     client = object()
+    monkeypatch.setattr(
+        service,
+        "_resolve_gpu_devices",
+        lambda values: {**values, "GPU_DEVICES": "[0]"},
+    )
     monkeypatch.setattr(service, "_with_torch_cuda_arch_list", lambda values: values)
     monkeypatch.setattr(service, "detect_device_info", lambda: {})
     monkeypatch.setattr(service, "_redis_client", lambda values: client)
@@ -38,6 +43,8 @@ def test_service_parser_exposes_expected_commands() -> None:
             "1",
             "--cpu-compile-workers",
             "6",
+            "--gpu-devices",
+            "0,1,2,3",
         ]
     )
     stop_args = parser.parse_args(["stop", "--profile", "v1"])
@@ -47,6 +54,7 @@ def test_service_parser_exposes_expected_commands() -> None:
     assert worker_args.master_addr == "192.168.16.40"
     assert worker_args.node_rank == "1"
     assert worker_args.cpu_compile_workers == 6
+    assert worker_args.gpu_devices == "0,1,2,3"
     assert stop_args.profile == "v1"
 
 
@@ -73,7 +81,7 @@ def test_worker_profile_values_reuses_deployment_profile() -> None:
 
     assert values["API_HOST"] == "192.168.16.40"
     assert values["REDIS_HOST"] == "192.168.16.40"
-    assert values["GPU_DEVICES"] == "[0,1,2,3,4,5,6,7]"
+    assert values["GPU_DEVICES"] == "auto"
     assert values["NODE_ID"] == "v1-worker-1"
     assert values["WORKER_NAME_PREFIX"] == "v1-worker-1"
     assert values["LOG_DIR"] == "logs/v1-worker-1-worker"
@@ -166,14 +174,72 @@ def test_service_env_detects_device_info(monkeypatch) -> None:
     assert env["KERNELGYM_CORE_DUMP_DIR"].endswith("logs/core_dumps/" + service._hostname())
 
 
-def test_runtime_overrides_can_set_cpu_compile_workers() -> None:
+def test_runtime_overrides_can_set_worker_capacity() -> None:
     values = service._apply_runtime_overrides(
-        {"CPU_COMPILE_WORKERS": "24"},
-        type("Args", (), {"cpu_compile_workers": 3, "redis_remote_access": True})(),
+        {"CPU_COMPILE_WORKERS": "24", "GPU_DEVICES": "auto"},
+        type(
+            "Args",
+            (),
+            {"cpu_compile_workers": 3, "gpu_devices": "0,2", "redis_remote_access": True},
+        )(),
     )
 
     assert values["CPU_COMPILE_WORKERS"] == "3"
+    assert values["GPU_DEVICES"] == "0,2"
     assert values["KERNELGYM_REDIS_REMOTE_ACCESS"] == "true"
+
+
+def test_resolve_gpu_devices_auto_uses_container_visible_count(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(service, "_detect_visible_gpu_count", lambda: 4)
+
+    values = service._resolve_gpu_devices({"GPU_DEVICES": "auto"})
+
+    assert values["GPU_DEVICES"] == "[0,1,2,3]"
+    assert "source=auto visible_count=4 devices=[0,1,2,3]" in capsys.readouterr().out
+
+
+def test_resolve_gpu_devices_validates_explicit_logical_subset(monkeypatch) -> None:
+    monkeypatch.setattr(service, "_detect_visible_gpu_count", lambda: 4)
+
+    values = service._resolve_gpu_devices({"GPU_DEVICES": "0, 2"})
+
+    assert values["GPU_DEVICES"] == "[0,2]"
+
+
+@pytest.mark.parametrize("configured", ["", "4", "0,0", "gpu0", "[true]", "[]"])
+def test_resolve_gpu_devices_rejects_invalid_or_unavailable_selection(monkeypatch, configured) -> None:
+    monkeypatch.setattr(service, "_detect_visible_gpu_count", lambda: 4)
+
+    with pytest.raises(SystemExit):
+        service._resolve_gpu_devices({"GPU_DEVICES": configured})
+
+
+def test_detect_visible_gpu_count_requires_working_torch(monkeypatch) -> None:
+    monkeypatch.setattr(service, "_detect_visible_gpu_count_with_torch", lambda: None)
+
+    with pytest.raises(SystemExit, match="configured PyTorch runtime"):
+        service._detect_visible_gpu_count()
+
+
+def test_detect_visible_gpu_count_rejects_empty_container(monkeypatch) -> None:
+    monkeypatch.setattr(service, "_detect_visible_gpu_count_with_torch", lambda: 0)
+
+    with pytest.raises(SystemExit, match="No CUDA devices are visible"):
+        service._detect_visible_gpu_count()
+
+
+@pytest.mark.parametrize("configured", ["auto", "[]", "0,0", "gpu0", "[true]"])
+def test_settings_gpu_devices_parser_fails_loudly(configured) -> None:
+    from kernelgym.config.settings import _parse_gpu_devices_value
+
+    with pytest.raises(ValueError):
+        _parse_gpu_devices_value(configured)
+
+
+def test_settings_gpu_devices_parser_accepts_explicit_subset() -> None:
+    from kernelgym.config.settings import _parse_gpu_devices_value
+
+    assert _parse_gpu_devices_value("0,2") == [0, 2]
 
 
 def test_ensure_redis_configures_remote_access_for_existing_redis(monkeypatch) -> None:
@@ -975,6 +1041,7 @@ def test_unregistered_launch_without_start_ticks_never_signals_bare_scope(monkey
 
 
 def test_start_local_aborts_before_launch_when_stop_is_incomplete(monkeypatch) -> None:
+    monkeypatch.setattr(service, "_resolve_gpu_devices", lambda values: {**values, "GPU_DEVICES": "[0]"})
     monkeypatch.setattr(service, "cmd_stop", lambda args: 1)
     monkeypatch.setattr(
         service,
@@ -985,6 +1052,22 @@ def test_start_local_aborts_before_launch_when_stop_is_incomplete(monkeypatch) -
 
     with pytest.raises(SystemExit, match="not safely drained"):
         service.cmd_start_local(args)
+
+
+def test_start_local_resolves_gpu_devices_before_stopping(monkeypatch) -> None:
+    monkeypatch.setattr(
+        service,
+        "_resolve_gpu_devices",
+        lambda values: (_ for _ in ()).throw(SystemExit("no visible GPUs")),
+    )
+    monkeypatch.setattr(
+        service,
+        "cmd_stop",
+        lambda args: (_ for _ in ()).throw(AssertionError("must not stop before GPU preflight")),
+    )
+
+    with pytest.raises(SystemExit, match="no visible GPUs"):
+        service.cmd_start_local(type("Args", (), {"profile": "v1"})())
 
 
 def test_worker_node_start_stops_monitor_and_aborts_on_undrained_local_worker(tmp_path, monkeypatch) -> None:

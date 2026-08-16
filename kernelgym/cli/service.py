@@ -51,7 +51,9 @@ from kernelgym.utils.core_dumps import (
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 TORCH_CUDA_ARCH_LIST_ENV = "TORCH_CUDA_ARCH_LIST"
+GPU_DEVICES_AUTO = "auto"
 _CUDA_ARCH_PATTERN = re.compile(r"^[0-9]+(?:\.[0-9]+)?$")
+_GPU_DEVICE_INDEX_PATTERN = re.compile(r"^[0-9]+$")
 _PROCESS_GROUP_KILL_GRACE_SECONDS = 10.0
 
 
@@ -344,6 +346,9 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
 
 def _apply_runtime_overrides(values: dict[str, str], args: argparse.Namespace) -> dict[str, str]:
     updated = dict(values)
+    gpu_devices = getattr(args, "gpu_devices", None)
+    if gpu_devices is not None:
+        updated["GPU_DEVICES"] = str(gpu_devices)
     cpu_compile_workers = getattr(args, "cpu_compile_workers", None)
     if cpu_compile_workers is not None:
         if cpu_compile_workers < 0:
@@ -370,16 +375,85 @@ def _update_env_file(path: Path, updates: dict[str, str]) -> None:
 
 
 def _parse_gpu_devices(raw: str | None) -> list[str]:
-    if not raw:
-        return ["0"]
-    value = raw.strip()
+    value = str(raw or "").strip()
+    if not value or value.lower() == GPU_DEVICES_AUTO:
+        raise ValueError("GPU device selection must be resolved before workers are launched")
     try:
         parsed = json.loads(value)
-        if isinstance(parsed, list):
-            return [str(item) for item in parsed]
-        return [str(parsed)]
+        items = parsed if isinstance(parsed, list) else [parsed]
     except Exception:
-        return [item.strip() for item in value.split(",") if item.strip()]
+        items = [item.strip() for item in value.split(",") if item.strip()]
+
+    devices: list[str] = []
+    for item in items:
+        text = str(item).strip()
+        if isinstance(item, bool) or not _GPU_DEVICE_INDEX_PATTERN.fullmatch(text):
+            raise ValueError(f"invalid CUDA device index: {item!r}")
+        normalized = str(int(text))
+        if normalized in devices:
+            raise ValueError(f"duplicate CUDA device index: {normalized}")
+        devices.append(normalized)
+    return devices
+
+
+def _detect_visible_gpu_count_with_torch() -> int | None:
+    try:
+        import torch
+    except Exception:
+        return None
+    try:
+        return int(torch.cuda.device_count())
+    except Exception:
+        return None
+
+
+def _detect_visible_gpu_count() -> int:
+    count = _detect_visible_gpu_count_with_torch()
+    if count is None:
+        # nvidia-smi is deliberately not a fallback: it may ignore a
+        # CUDA_VISIBLE_DEVICES-only restriction and report host-wide devices.
+        # PyTorch is the runtime that will execute tasks, so its logical CUDA
+        # namespace is the authoritative worker namespace.
+        raise SystemExit("Cannot detect container-visible CUDA devices with the configured PyTorch runtime")
+    if count <= 0:
+        raise SystemExit(
+            "No CUDA devices are visible to PyTorch inside this container; "
+            "check container GPU passthrough, CUDA_VISIBLE_DEVICES, and driver health"
+        )
+    return count
+
+
+def _resolve_gpu_devices(values: dict[str, str]) -> dict[str, str]:
+    """Resolve auto or validate an explicit logical CUDA device list."""
+    configured = values.get("GPU_DEVICES")
+    raw = GPU_DEVICES_AUTO if configured is None else str(configured).strip()
+    if not raw:
+        raise SystemExit("GPU_DEVICES cannot be blank; use 'auto' or at least one CUDA device index")
+    automatic = raw.lower() == GPU_DEVICES_AUTO
+    if automatic:
+        visible_count = _detect_visible_gpu_count()
+        devices = [str(index) for index in range(visible_count)]
+        source = "auto"
+    else:
+        try:
+            devices = _parse_gpu_devices(raw)
+        except ValueError as exc:
+            raise SystemExit(f"Invalid GPU_DEVICES={raw!r}: {exc}") from exc
+        if not devices:
+            raise SystemExit("GPU_DEVICES cannot be empty; this deployment requires at least one visible GPU")
+        visible_count = _detect_visible_gpu_count()
+        out_of_range = [device for device in devices if int(device) >= visible_count]
+        if out_of_range:
+            raise SystemExit(
+                f"GPU_DEVICES selects unavailable logical device(s) {out_of_range}; "
+                f"container-visible range is 0..{visible_count - 1}"
+            )
+        source = "explicit"
+
+    updated = dict(values)
+    updated["GPU_DEVICES"] = json.dumps([int(device) for device in devices], separators=(",", ":"))
+    print(f"GPU device selection: source={source} visible_count={visible_count} devices={updated['GPU_DEVICES']}")
+    return updated
 
 
 def _port_is_open(host: str, port: int, timeout: float = 1.0) -> bool:
@@ -1611,13 +1685,15 @@ def cmd_stop(args: argparse.Namespace) -> int:
 
 
 def cmd_start_local(args: argparse.Namespace) -> int:
+    values = _apply_runtime_overrides(_profile_values(args.profile), args)
+    values = _resolve_gpu_devices(values)
+
     # ``--no-stop-first`` is retained for CLI compatibility, but it is not a
     # safety bypass: a no-op verified stop is cheap after --clear-cache and is
     # still required to prove that no prior process group survived.
     if cmd_stop(argparse.Namespace(profile=args.profile)) != 0:
         raise SystemExit("Refusing start-local because the previous process groups were not safely drained")
 
-    values = _apply_runtime_overrides(_profile_values(args.profile), args)
     if args.log_dir:
         values["LOG_DIR"] = args.log_dir
     if args.eval_results_path:
@@ -1724,6 +1800,7 @@ def cmd_start_worker_node(args: argparse.Namespace) -> int:
             getattr(args, "profile", "auto"), master_addr, getattr(args, "node_rank", None)
         )
     values = _apply_runtime_overrides(values, args)
+    values = _resolve_gpu_devices(values)
     values = _with_torch_cuda_arch_list(values)
     _check_worker_connectivity(values)
 
@@ -1866,6 +1943,11 @@ def build_parser() -> argparse.ArgumentParser:
     start_local.add_argument("--log-dir", default=None)
     start_local.add_argument("--eval-results-path", default=None)
     start_local.add_argument("--cpu-compile-workers", "--cpu-workers", type=int, default=None)
+    start_local.add_argument(
+        "--gpu-devices",
+        default=None,
+        help="auto (default) or a comma/JSON list of container-logical CUDA device indices",
+    )
     start_local.add_argument("--redis-remote-access", action="store_true")
     start_local.add_argument("--no-stop-first", action="store_true")
     start_local.set_defaults(func=cmd_start_local)
@@ -1876,6 +1958,11 @@ def build_parser() -> argparse.ArgumentParser:
     worker_node.add_argument("--master-addr", default=None)
     worker_node.add_argument("--node-rank", default=None)
     worker_node.add_argument("--cpu-compile-workers", "--cpu-workers", type=int, default=None)
+    worker_node.add_argument(
+        "--gpu-devices",
+        default=None,
+        help="auto (default) or a comma/JSON list of container-logical CUDA device indices",
+    )
     worker_node.set_defaults(func=cmd_start_worker_node)
 
     stop = subparsers.add_parser("stop", help="stop local KernelGym processes and clear Redis keys")

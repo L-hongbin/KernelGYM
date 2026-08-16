@@ -146,7 +146,7 @@ bash deploy_node.sh --cluster              # on the primary, ready for joins
 bash deploy_node.sh --join 192.168.16.40   # on each worker node (primary's address)
 ```
 
-The script is intended to run from inside containers, one invocation per host. `--cluster` makes the primary accept remote workers; `--join <primary>` brings a node in with a server-allocated id (no rank). `--cpu-compile-workers N` / `--cpu-workers N` is forwarded to both. Add `--block-terminal` to any role when the deploy command should stay in the foreground; after startup succeeds, Ctrl-C, SIGTERM, or a terminal hangup stops that node's KernelGym services before the command exits. The older `--nnodes N --node-rank R --master-addr <ip>` form still works but is deprecated in favor of `--cluster` / `--join`.
+The script is intended to run from inside containers, one invocation per host. `--cluster` makes the primary accept remote workers; `--join <primary>` brings a node in with a server-allocated id (no rank). Each node auto-detects the logical CUDA devices visible inside its container, so 8-card and 4-card containers can use the same command. Use `--gpu-devices 0,1` only to select a subset; `--cpu-compile-workers N` / `--cpu-workers N` overrides CPU compile capacity. Add `--block-terminal` to any role when the deploy command should stay in the foreground; after startup succeeds, Ctrl-C, SIGTERM, or a terminal hangup stops this node's KernelGym services before the command exits. The older `--nnodes N --node-rank R --master-addr <ip>` form still works but is deprecated in favor of `--cluster` / `--join`.
 
 ## Multi-Node Tutorial
 

@@ -26,7 +26,7 @@ class RewardProfile:
     name: str
     api_host: str = "0.0.0.0"
     redis_host: str = "localhost"
-    gpu_devices: tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6, 7)
+    gpu_devices: tuple[int, ...] | None = None
 
     def env(self) -> dict[str, str]:
         return {
@@ -36,7 +36,13 @@ class RewardProfile:
             "API_PORT": str(API_PORT),
             "API_WORKERS": str(API_WORKERS),
             "API_RELOAD": bool_env(API_RELOAD),
-            "GPU_DEVICES": "[" + ",".join(str(device) for device in self.gpu_devices) + "]",
+            # Resolve against the CUDA devices visible inside the container at
+            # service startup unless this profile explicitly selects a subset.
+            "GPU_DEVICES": (
+                "auto"
+                if self.gpu_devices is None
+                else "[" + ",".join(str(device) for device in self.gpu_devices) + "]"
+            ),
             "NODE_ID": self.name,
             "REDIS_HOST": self.redis_host,
             "REDIS_PORT": str(REDIS_PORT),

@@ -53,6 +53,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--master-port", type=int, default=API_PORT)
     parser.add_argument("--cpu-compile-workers", "--cpu-workers", type=int, default=None)
     parser.add_argument(
+        "--gpu-devices",
+        default=None,
+        help="auto (default) or a comma/JSON list of container-logical CUDA device indices",
+    )
+    parser.add_argument(
         "--clear-cache",
         action="store_true",
         help=(
@@ -197,15 +202,23 @@ def finish_deployment(args: argparse.Namespace) -> int:
     return 0
 
 
-def _append_cpu_compile_workers(command: list[str], cpu_compile_workers: int | None) -> list[str]:
-    if cpu_compile_workers is None:
-        return command
-    return [*command, "--cpu-compile-workers", str(cpu_compile_workers)]
+def _append_runtime_overrides(
+    command: list[str],
+    cpu_compile_workers: int | None,
+    gpu_devices: str | None,
+) -> list[str]:
+    updated = list(command)
+    if cpu_compile_workers is not None:
+        updated += ["--cpu-compile-workers", str(cpu_compile_workers)]
+    if gpu_devices is not None:
+        updated += ["--gpu-devices", gpu_devices]
+    return updated
 
 
 def start_primary(
     node_rank: int | None,
     cpu_compile_workers: int | None = None,
+    gpu_devices: str | None = None,
     *,
     redis_remote_access: bool = False,
     clear_cache: bool = False,
@@ -221,9 +234,10 @@ def start_primary(
     if clear_cache:
         command.append("--no-stop-first")
     run(
-        _append_cpu_compile_workers(
+        _append_runtime_overrides(
             command,
             cpu_compile_workers,
+            gpu_devices,
         )
     )
     section("Wait for API")
@@ -234,6 +248,7 @@ def start_worker(
     master_addr: str,
     node_rank: int | None,
     cpu_compile_workers: int | None = None,
+    gpu_devices: str | None = None,
     *,
     clear_cache: bool = False,
 ) -> None:
@@ -259,7 +274,7 @@ def start_worker(
     # No rank -> the server auto-allocates a stable per-hostname node id.
     if node_rank is not None:
         command += ["--node-rank", str(node_rank)]
-    run(_append_cpu_compile_workers(command, cpu_compile_workers))
+    run(_append_runtime_overrides(command, cpu_compile_workers, gpu_devices))
 
 
 def validate(args: argparse.Namespace) -> None:
@@ -304,13 +319,20 @@ def main() -> int:
     cluster = bool(getattr(args, "cluster", False))
     join = str(getattr(args, "join", "") or "")
     clear_cache = bool(getattr(args, "clear_cache", False))
+    gpu_devices = getattr(args, "gpu_devices", None)
 
     # Preferred count-free interface: no nnodes, no node-rank.
     if cluster:
-        start_primary(None, args.cpu_compile_workers, redis_remote_access=True, clear_cache=clear_cache)
+        start_primary(
+            None,
+            args.cpu_compile_workers,
+            gpu_devices,
+            redis_remote_access=True,
+            clear_cache=clear_cache,
+        )
         return finish_deployment(args)
     if join:
-        start_worker(join, None, args.cpu_compile_workers, clear_cache=clear_cache)
+        start_worker(join, None, args.cpu_compile_workers, gpu_devices, clear_cache=clear_cache)
         return finish_deployment(args)
 
     # Legacy torchrun-style path (deprecated).
@@ -319,7 +341,7 @@ def main() -> int:
             "[deploy_node] note: --nnodes/--node-rank are deprecated; prefer --cluster (primary) and --join <addr> (worker)."
         )
     if args.nnodes == 1:
-        start_primary(args.node_rank, args.cpu_compile_workers, clear_cache=clear_cache)
+        start_primary(args.node_rank, args.cpu_compile_workers, gpu_devices, clear_cache=clear_cache)
         return finish_deployment(args)
 
     # Role is determined by whether this container can see itself as --master-addr.
@@ -329,9 +351,21 @@ def main() -> int:
     if not is_master and args.node_rank == 0:
         raise SystemExit("--node-rank 0 must run on the node matching --master-addr")
     if is_master:
-        start_primary(args.node_rank, args.cpu_compile_workers, redis_remote_access=True, clear_cache=clear_cache)
+        start_primary(
+            args.node_rank,
+            args.cpu_compile_workers,
+            gpu_devices,
+            redis_remote_access=True,
+            clear_cache=clear_cache,
+        )
     else:
-        start_worker(args.master_addr, args.node_rank, args.cpu_compile_workers, clear_cache=clear_cache)
+        start_worker(
+            args.master_addr,
+            args.node_rank,
+            args.cpu_compile_workers,
+            gpu_devices,
+            clear_cache=clear_cache,
+        )
     return finish_deployment(args)
 
 
