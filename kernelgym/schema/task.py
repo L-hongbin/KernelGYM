@@ -14,6 +14,7 @@ class EvaluationTask:
     toolkit: str = "kernelbench"
     backend_adapter: str = "kernelbench"
     backend: str = "triton"
+    precision: str = "fp32"
     num_correct_trials: int = 5
     num_perf_trials: int = 100
     num_warmup: int = 3
@@ -98,6 +99,7 @@ class KernelEvaluationTask:
     toolkit: str = "kernelbench"
     backend_adapter: str = "kernelbench"
     backend: str = "triton"
+    precision: str = "fp32"
     num_correct_trials: int = 5
     num_perf_trials: int = 100
     num_warmup: int = 3

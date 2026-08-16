@@ -115,6 +115,7 @@ def _create_paired_tasks(
         toolkit=task.toolkit,
         backend_adapter=task.backend_adapter,
         backend=task.backend,
+        precision=task.precision,
         num_correct_trials=task.num_correct_trials,
         num_perf_trials=task.num_perf_trials,
         num_warmup=task.num_warmup,

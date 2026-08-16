@@ -18,6 +18,7 @@ def test_schema_exposes_compile_acceleration_fields() -> None:
     fields = _model_fields(EvaluationRequest)
     assert "num_warmup" in fields
     assert "perf_trim_count" in fields
+    assert "precision" in fields
     assert "split_compile_and_execute" in fields
     assert "pure_compile_task" in fields
     assert "enable_compile_artifact_cache" in fields
@@ -301,7 +302,8 @@ build extension.so: link generated.cuda.o generated_binding.o binding.o
 def test_tvm_ffi_compile_artifact_cache_reuses_built_work_dir(tmp_path, monkeypatch) -> None:
     calls = {"build": 0}
 
-    def fake_precheck(model_code, cuda_sources, *, entry_point):
+    def fake_precheck(model_code, cuda_sources, *, entry_point, precision):
+        assert precision == "fp32"
         return (
             "",
             None,

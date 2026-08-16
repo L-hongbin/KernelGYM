@@ -405,6 +405,7 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
     def compile(self, code: str, **kwargs: Any) -> Dict[str, Any]:
         device = self._normalize_device(kwargs.get("device"))
         entry_point = kwargs.get("entry_point", "ModelNew")
+        precision = kwargs.get("precision", "fp32")
         explicit_sources = self._normalize_cuda_sources_input(kwargs.get("cuda_sources"))
         enable_compile_artifact_cache = self._compile_artifact_cache_enabled(kwargs)
 
@@ -426,6 +427,7 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
             model_code,
             cuda_sources,
             entry_point=entry_point,
+            precision=precision,
         )
         if not precheck_info.get("passed", False):
             return {

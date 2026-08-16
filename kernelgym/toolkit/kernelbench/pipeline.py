@@ -643,6 +643,7 @@ def eval_kernel_against_ref(
     build_dir: os.PathLike = None,
     device: Union[torch.device, int] = (torch.cuda.current_device() if torch.cuda.is_available() else None),
     backend: str = "cuda",
+    precision: str = "fp32",
     entry_point: str = "Model",
     enable_profiling: bool = True,
     enable_triton_detection: bool = True,
@@ -668,6 +669,7 @@ def eval_kernel_against_ref(
     metadata: Dict[str, Any] = {}
     metadata["hardware"] = "compile-only" if compile_only else torch.cuda.get_device_name(device=device)
     metadata["device"] = str(device)
+    metadata["precision"] = precision
     overall_start = perf_counter()
 
     if is_triton and not compile_only:
@@ -699,6 +701,7 @@ def eval_kernel_against_ref(
                 custom_model_src,
                 device=device,
                 backend=backend,
+                precision=precision,
                 entry_point=f"{entry_point}New",
                 build_dir=build_dir,
                 enable_compile_artifact_cache=enable_compile_artifact_cache,
@@ -842,6 +845,7 @@ def eval_kernel_against_ref(
                     custom_model_src,
                     device=device,
                     backend=backend,
+                    precision=precision,
                     entry_point=f"{entry_point}New",
                     build_dir=build_dir,
                     enable_compile_artifact_cache=enable_compile_artifact_cache,

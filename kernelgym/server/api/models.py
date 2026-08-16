@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field, root_validator, validator
 
 from kernelgym.common import TaskStatus, Backend, Priority, ErrorCode
+from kernelgym.schema.precision import normalize_precision
 
 
 MAX_CODE_CHARS = 100000
@@ -19,6 +20,10 @@ class EvaluationRequest(BaseModel):
     toolkit: str = Field(default="kernelbench", description="Toolkit adapter name")
     backend_adapter: str = Field(default="kernelbench", description="Backend adapter name")
     backend: Backend = Field(default=Backend.AUTO, description="Backend type")
+    precision: str = Field(
+        default="fp32",
+        description="Reference task precision: fp32, fp16, or bf16",
+    )
     num_correct_trials: int = Field(default=5, ge=1, le=20, description="Number of correctness trials")
     num_perf_trials: int = Field(default=100, ge=1, le=1000, description="Number of performance trials")
     num_warmup: int = Field(default=3, ge=0, le=100, description="Number of warmup iterations")
@@ -124,6 +129,10 @@ class EvaluationRequest(BaseModel):
             raise ValueError("Task ID must be between 1 and 100 characters")
         return v
 
+    @validator("precision", pre=True, always=True)
+    def validate_precision(cls, v):
+        return normalize_precision(v, strict=True)
+
     @validator("target_node_id", "target_hostname")
     def validate_target_identity(cls, v):
         if v is None:
@@ -164,6 +173,7 @@ class EvaluationRequest(BaseModel):
                 "toolkit": "kernelbench",
                 "backend_adapter": "kernelbench",
                 "backend": "cuda",
+                "precision": "fp32",
                 "num_correct_trials": 5,
                 "num_perf_trials": 100,
                 "timeout": 300,

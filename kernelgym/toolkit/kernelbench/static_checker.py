@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import re
 from typing import Callable
 
+from kernelgym.schema.precision import normalize_precision
+
 
 @dataclass(frozen=True)
 class StaticCheckResult:
@@ -154,26 +156,8 @@ _FP32_TO_FP16_PATTERNS = [
 ]
 
 
-def _normalize_precision(precision: str) -> str:
-    normalized = precision.strip().lower()
-    precision_map = {
-        "fp32": "fp32",
-        "float32": "fp32",
-        "torch.float32": "fp32",
-        "fp16": "fp16",
-        "float16": "fp16",
-        "half": "fp16",
-        "torch.float16": "fp16",
-        "torch.half": "fp16",
-        "bf16": "bf16",
-        "bfloat16": "bf16",
-        "torch.bfloat16": "bf16",
-    }
-    return precision_map.get(normalized, normalized)
-
-
 def check_precision_downgrade(code: str, precision: str = "fp32") -> tuple[bool, str]:
-    if _normalize_precision(precision) != "fp32":
+    if normalize_precision(precision) != "fp32":
         return False, ""
     return _search_patterns(
         code,
@@ -225,7 +209,7 @@ def validate_kernel_static(
 
     errors: list[str] = []
     warnings_out: list[str] = []
-    normalized_precision = _normalize_precision(precision)
+    normalized_precision = normalize_precision(precision)
 
     for check_name in all_checks:
         check = _CHECKS.get(check_name)

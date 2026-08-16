@@ -64,6 +64,7 @@ def test_split_compile_execute_targets_idle_gpu_node() -> None:
             reference_code="class Model: pass",
             kernel_code="class ModelNew: pass",
             backend="cuda_agent",
+            precision="bf16",
             split_compile_and_execute=True,
             enable_compile_artifact_cache=True,
         )
@@ -75,11 +76,13 @@ def test_split_compile_execute_targets_idle_gpu_node() -> None:
         assert result["task_id"] == "parent_kernel"
         compile_payload, execute_payload = scheduler.submissions
         assert compile_payload["required_resource"] == "cpu"
+        assert compile_payload["precision"] == "bf16"
         assert compile_payload["node_affinity"] == "required"
         assert compile_payload["target_node_id"] == "node-b"
         assert compile_payload["target_gpu_worker_id"] == "node-b_gpu_3"
         assert compile_payload["target_gpu_selection_strategy"] == "idle"
         assert execute_payload["required_resource"] == "gpu"
+        assert execute_payload["precision"] == "bf16"
         assert execute_payload["node_affinity"] == "required"
         assert execute_payload["target_node_id"] == "node-b"
         assert execute_payload["artifact_node_id"] == "node-b"

@@ -30,6 +30,7 @@ This file indexes stable repository docs and evidence locations.
 | `scripts/debug_line451_rmsnorm_nondeterminism.py` | Standalone reproduction for line 451 RMSNorm CUDA-Agent nondeterministic correctness. |
 | `kernelgym/backend/kernelbench/cuda_agent_backend.py` | CUDA-Agent parsing, validation scaffold, compile/load backend. |
 | `kernelgym/backend/kernelbench/tvm_ffi_backend.py` | TVM-FFI compile/load backend and compile artifact cache. |
+| `kernelgym/schema/precision.py` | Canonical FP32/FP16/BF16 aliases and fail-closed internal normalization. |
 | `kernelgym/toolkit/kernelbench/pipeline.py` | KernelBench compile/load/correctness/performance pipeline. |
 | `kernelgym/toolkit/kernelbench/profiling.py` | CUDA profiling, exact MusaCoder Appendix J plus explicit PyTorch compatibility ATen classification, and named-kernel coverage extraction. |
 | `kernelgym/native/cupti_tsc_shim.cpp` | Version-gated LD_PRELOAD shim suppressing Kineto's CUPTI TSC timestamp callback on affected CUDA versions. |
@@ -52,6 +53,7 @@ This file indexes stable repository docs and evidence locations.
 | `tests/test_page_user_notifier.py` | Mock-network MCP protocol, credential safety, redaction, cancellation, and delivery-deduplication coverage. |
 | `tests/test_aten_decoy_detection.py` | Source/compat ATen allowlists, device-only CUDA timing, and conservative low-coverage decoy regression tests. |
 | `tests/test_cuda_agent_gpu.py` | Real CUDA-Agent compile/run coverage, including the `.float()` ATen compatibility path around a custom CUDA kernel. |
+| `tests/test_precision_passthrough.py` | Precision API normalization, policy, task propagation, cache hashing, pipeline, and backend precheck regression coverage. |
 
 ## External Source References
 
