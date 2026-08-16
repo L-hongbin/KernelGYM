@@ -58,6 +58,7 @@ class PageUserNotificationOutcome:
 class _PageUserConfig:
     url: str = field(repr=False)
     authorization: str = field(repr=False)
+    proxy: Optional[str] = field(repr=False)
     timeout_seconds: float
     agent: str
     host: str
@@ -180,6 +181,25 @@ def _load_config(config_path: Optional[os.PathLike[str] | str]) -> _PageUserConf
     if not isinstance(authorization, str) or not authorization.strip():
         raise _NotificationError("config_invalid", "page-user MCP config requires authorization")
 
+    proxy = payload.get("proxy")
+    if proxy is not None:
+        try:
+            parsed_proxy = urlsplit(proxy) if isinstance(proxy, str) else None
+        except ValueError:
+            parsed_proxy = None
+        if (
+            parsed_proxy is None
+            or parsed_proxy.scheme not in {"http", "https"}
+            or not parsed_proxy.hostname
+            or parsed_proxy.query
+            or parsed_proxy.fragment
+            or parsed_proxy.path not in {"", "/"}
+        ):
+            raise _NotificationError(
+                "config_invalid",
+                "page-user MCP proxy must be an HTTP(S) proxy URL without a path, query, or fragment",
+            )
+
     raw_timeout = payload.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
     if isinstance(raw_timeout, bool):
         raise _NotificationError("config_invalid", "page-user MCP timeout_seconds must be numeric")
@@ -196,6 +216,7 @@ def _load_config(config_path: Optional[os.PathLike[str] | str]) -> _PageUserConf
     return _PageUserConfig(
         url=url,
         authorization=authorization,
+        proxy=proxy,
         timeout_seconds=timeout_seconds,
         agent=str(payload.get("agent") or "kernelgym"),
         host=str(payload.get("host") or ""),
@@ -206,25 +227,30 @@ def _load_config(config_path: Optional[os.PathLike[str] | str]) -> _PageUserConf
 
 def _redact(message: object, config: _PageUserConfig) -> str:
     text = str(message)
-    parsed_url = urlsplit(config.url)
-    secrets = {
-        config.authorization,
-        config.url,
-        urlunsplit((parsed_url.scheme, parsed_url.netloc, parsed_url.path, parsed_url.query, "")),
-        urlunsplit((parsed_url.scheme, parsed_url.netloc, parsed_url.path, "", "")),
-        parsed_url.netloc,
-        parsed_url.hostname or "",
-        parsed_url.username or "",
-        unquote(parsed_url.username or ""),
-        parsed_url.password or "",
-        unquote(parsed_url.password or ""),
-        parsed_url.path if len(parsed_url.path) > 1 else "",
-        parsed_url.query,
-        parsed_url.fragment,
-    }
-    for _, value in parse_qsl(parsed_url.query, keep_blank_values=True):
-        secrets.add(value)
-        secrets.add(unquote(value))
+    secrets = {config.authorization}
+    for sensitive_url in (config.url, config.proxy):
+        if not sensitive_url:
+            continue
+        parsed_url = urlsplit(sensitive_url)
+        secrets.update(
+            {
+                sensitive_url,
+                urlunsplit((parsed_url.scheme, parsed_url.netloc, parsed_url.path, parsed_url.query, "")),
+                urlunsplit((parsed_url.scheme, parsed_url.netloc, parsed_url.path, "", "")),
+                parsed_url.netloc,
+                parsed_url.hostname or "",
+                parsed_url.username or "",
+                unquote(parsed_url.username or ""),
+                parsed_url.password or "",
+                unquote(parsed_url.password or ""),
+                parsed_url.path if len(parsed_url.path) > 1 else "",
+                parsed_url.query,
+                parsed_url.fragment,
+            }
+        )
+        for _, value in parse_qsl(parsed_url.query, keep_blank_values=True):
+            secrets.add(value)
+            secrets.add(unquote(value))
     if " " in config.authorization:
         secrets.add(config.authorization.split(" ", 1)[1])
     for secret in sorted((value for value in secrets if value), key=len, reverse=True):
@@ -256,6 +282,7 @@ async def _post_json(
         json=payload,
         headers=headers,
         allow_redirects=False,
+        proxy=config.proxy,
     ) as response:
         body_bytes = bytearray()
         while len(body_bytes) <= MAX_RESPONSE_BYTES:
@@ -491,7 +518,10 @@ async def send_page_user_notification(
     try:
         timeout = aiohttp.ClientTimeout(total=config.timeout_seconds)
         async with asyncio.timeout(config.timeout_seconds):
-            async with aiohttp.ClientSession(timeout=timeout) as client:
+            # Container egress commonly requires HTTPS_PROXY. aiohttp does
+            # not read proxy environment variables unless trust_env is set,
+            # which otherwise turns a reachable MCP endpoint into a timeout.
+            async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as client:
                 try:
                     await _send_modern(client, config, arguments)
                     return PageUserNotificationOutcome(True, protocol_version=MODERN_PROTOCOL_VERSION)

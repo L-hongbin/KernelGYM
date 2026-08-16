@@ -53,6 +53,7 @@ class FakeSession:
         self.responses = deque(responses)
         self.requests: list[dict[str, Any]] = []
         self.timeout = None
+        self.trust_env = None
 
     async def __aenter__(self) -> "FakeSession":
         return self
@@ -67,6 +68,7 @@ class FakeSession:
         json: dict[str, Any],
         headers: dict[str, str],
         allow_redirects: bool,
+        proxy: str | None,
     ) -> FakeResponse:
         self.requests.append(
             {
@@ -74,6 +76,7 @@ class FakeSession:
                 "json": json,
                 "headers": dict(headers),
                 "allow_redirects": allow_redirects,
+                "proxy": proxy,
             }
         )
         response = self.responses.popleft()
@@ -121,8 +124,9 @@ def _write_config(path: Path, **overrides: Any) -> Path:
 def _install_fake_session(monkeypatch, responses: list[FakeResponse | BaseException]) -> FakeSession:  # noqa: ANN001
     session = FakeSession(responses)
 
-    def factory(*, timeout):  # noqa: ANN001
+    def factory(*, timeout, trust_env):  # noqa: ANN001
         session.timeout = timeout
+        session.trust_env = trust_env
         return session
 
     monkeypatch.setattr(notifier.aiohttp, "ClientSession", factory)
@@ -229,7 +233,8 @@ def test_config_is_read_from_verified_fd_during_path_replacement(monkeypatch, tm
 
 
 def test_modern_stateless_tool_call_succeeds_with_expected_envelope(monkeypatch, tmp_path) -> None:  # noqa: ANN001
-    config_path = _write_config(tmp_path / "page-user.json")
+    proxy = "http://proxy.invalid:8080"
+    config_path = _write_config(tmp_path / "page-user.json", proxy=proxy)
     body = "event: message\ndata: " + _rpc_result(1) + "\n\n"
     fake = _install_fake_session(monkeypatch, [FakeResponse(200, body)])
 
@@ -250,6 +255,7 @@ def test_modern_stateless_tool_call_succeeds_with_expected_envelope(monkeypatch,
     request = fake.requests[0]
     assert request["url"] == "https://page-user.invalid/mcp"
     assert request["allow_redirects"] is False
+    assert request["proxy"] == proxy
     assert request["headers"]["Authorization"] == AUTHORIZATION
     assert request["headers"]["MCP-Protocol-Version"] == "2026-07-28"
     assert request["headers"]["Mcp-Method"] == "tools/call"
@@ -269,6 +275,7 @@ def test_modern_stateless_tool_call_succeeds_with_expected_envelope(monkeypatch,
     assert request["json"]["params"]["_meta"]["io.modelcontextprotocol/clientInfo"]["name"] == "kernelgym"
     assert isinstance(fake.timeout, aiohttp.ClientTimeout)
     assert fake.timeout.total == 2
+    assert fake.trust_env is True
     assert AUTHORIZATION not in repr(outcome)
 
 
@@ -436,6 +443,33 @@ def test_transport_error_redacts_url_credentials_query_and_fragment(monkeypatch,
     for secret in (url, "page-user.invalid", "query-secret", "fragment-secret", "url-password"):
         assert secret not in repr(outcome)
     assert len(fake.requests) == 1
+
+
+def test_transport_error_redacts_proxy_credentials(monkeypatch, tmp_path) -> None:  # noqa: ANN001
+    proxy = "http://proxy-user:proxy-password@proxy.invalid:8080"
+    config_path = _write_config(tmp_path / "page-user.json", proxy=proxy)
+    fake = _install_fake_session(
+        monkeypatch,
+        [aiohttp.ClientConnectionError(f"failed to connect through {proxy}")],
+    )
+
+    outcome = asyncio.run(notifier.send_page_user_notification("GPU quarantined", config_path=config_path))
+
+    assert outcome.success is False
+    assert outcome.error_kind == "transport_error"
+    assert "[REDACTED]" in str(outcome.error)
+    for secret in (proxy, "proxy.invalid", "proxy-user", "proxy-password"):
+        assert secret not in repr(outcome)
+    assert len(fake.requests) == 1
+
+
+def test_invalid_proxy_is_rejected_before_network(monkeypatch, tmp_path) -> None:  # noqa: ANN001
+    config_path = _write_config(tmp_path / "page-user.json", proxy="socks5://proxy.invalid:1080")
+
+    outcome = asyncio.run(notifier.send_page_user_notification("GPU quarantined", config_path=config_path))
+
+    assert outcome.success is False
+    assert outcome.error_kind == "config_invalid"
 
 
 def test_timeout_is_structured_and_does_not_fall_back(monkeypatch, tmp_path) -> None:  # noqa: ANN001
