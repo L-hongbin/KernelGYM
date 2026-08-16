@@ -1,5 +1,6 @@
 import importlib.util
 from argparse import Namespace
+from datetime import datetime
 from pathlib import Path
 
 
@@ -52,6 +53,8 @@ def test_deploy_node_parser_exposes_runtime_options() -> None:
     assert args.block_terminal is True
     assert args.cpu_compile_workers == 3
     assert args.gpu_devices == "0,1,2,3"
+    assert args.no_startup_warmup is False
+    assert args.startup_warmup_timeout == 1800
 
 
 def test_deploy_node_block_terminal_stops_local_services(monkeypatch) -> None:
@@ -83,6 +86,161 @@ def test_deploy_node_finish_only_blocks_when_requested(monkeypatch) -> None:
     assert calls == []
     assert deploy_node.finish_deployment(Namespace(block_terminal=True)) == 0
     assert calls == ["block"]
+
+
+def test_deploy_node_finish_runs_node_warmup_before_blocking(monkeypatch) -> None:
+    deploy_node = load_deploy_node()
+    calls = []
+    monkeypatch.setattr(
+        deploy_node,
+        "run_startup_warmup",
+        lambda host, timeout: calls.append(("warmup", host, timeout)),
+    )
+    monkeypatch.setattr(deploy_node, "block_terminal", lambda: calls.append(("block",)))
+
+    args = Namespace(block_terminal=True, no_startup_warmup=False, startup_warmup_timeout=1234)
+    assert deploy_node.finish_deployment(args, api_host="192.168.16.21") == 0
+    assert calls == [("warmup", "192.168.16.21", 1234), ("block",)]
+
+
+def test_deploy_node_waits_for_all_registered_local_workers(monkeypatch) -> None:
+    deploy_node = load_deploy_node()
+    heartbeat = datetime.now().isoformat()
+    snapshots = iter(
+        [
+            {
+                "gpu": {
+                    "hostname": "host-a",
+                    "device": "cuda:0",
+                    "status": "online",
+                    "last_heartbeat": heartbeat,
+                    "online": "true",
+                    "health_state": "initializing",
+                    "accepting_tasks": "false",
+                },
+                "cpu": {
+                    "hostname": "host-a",
+                    "device": "cpu",
+                    "status": "online",
+                    "last_heartbeat": heartbeat,
+                    "online": "true",
+                },
+            },
+            {
+                "gpu": {
+                    "hostname": "host-a",
+                    "device": "cuda:0",
+                    "status": "online",
+                    "last_heartbeat": heartbeat,
+                    "online": "true",
+                    "health_state": "healthy",
+                    "accepting_tasks": "true",
+                },
+                "cpu": {
+                    "hostname": "host-a",
+                    "device": "cpu",
+                    "status": "online",
+                    "last_heartbeat": heartbeat,
+                    "online": "true",
+                },
+            },
+        ]
+    )
+    monkeypatch.setattr(deploy_node, "_http_get_json", lambda _url: next(snapshots))
+    monkeypatch.setattr(deploy_node.time, "sleep", lambda _seconds: None)
+
+    deploy_node.wait_node_workers("192.168.16.21", "host-a", timeout=30)
+
+
+def test_deploy_node_ignores_stale_or_offline_worker_registrations(monkeypatch) -> None:
+    deploy_node = load_deploy_node()
+    heartbeat = datetime.now().isoformat()
+    snapshot = {
+        "gpu": {
+            "hostname": "host-a",
+            "device": "cuda:0",
+            "status": "online",
+            "last_heartbeat": heartbeat,
+            "online": "true",
+            "health_state": "healthy",
+            "accepting_tasks": "true",
+        },
+        "cpu": {
+            "hostname": "host-a",
+            "device": "cpu",
+            "status": "online",
+            "last_heartbeat": heartbeat,
+            "online": "true",
+        },
+        "old_gpu": {
+            "hostname": "host-a",
+            "device": "cuda:1",
+            "status": "offline",
+            "last_heartbeat": "2000-01-01T00:00:00",
+            "online": "initializing",
+            "health_state": "initializing",
+            "accepting_tasks": "false",
+        },
+        "stale_gpu": {
+            "hostname": "host-a",
+            "device": "cuda:2",
+            "status": "online",
+            "last_heartbeat": "2000-01-01T00:00:00",
+            "online": "true",
+            "health_state": "healthy",
+            "accepting_tasks": "true",
+        },
+    }
+    monkeypatch.setattr(deploy_node, "_http_get_json", lambda _url: snapshot)
+
+    deploy_node.wait_node_workers("192.168.16.21", "host-a", timeout=30)
+
+
+def test_deploy_node_startup_warmup_is_targeted_and_strict(monkeypatch) -> None:
+    deploy_node = load_deploy_node()
+    calls = []
+    monkeypatch.setattr(deploy_node.socket, "gethostname", lambda: "host-a")
+    monkeypatch.setattr(
+        deploy_node,
+        "wait_node_workers",
+        lambda host, hostname: calls.append(("wait", host, hostname)),
+    )
+    monkeypatch.setattr(deploy_node, "run", lambda command: calls.append(("run", command)))
+
+    deploy_node.run_startup_warmup("192.168.16.21", 1800)
+
+    assert calls[0] == ("wait", "192.168.16.21", "host-a")
+    command = calls[1][1]
+    assert command[:2] == [deploy_node.sys.executable, str(deploy_node.ROOT_DIR / "scripts" / "test_reward.py")]
+    assert command[command.index("--target-hostname") + 1] == "host-a"
+    assert command[command.index("--client-timeout") + 1] == "1800"
+    assert command[command.index("--timeout") + 1] == "1740"
+    assert "--require-correct" in command
+
+
+def test_deploy_node_rejects_zero_cpu_workers_with_default_warmup() -> None:
+    deploy_node = load_deploy_node()
+    args = Namespace(
+        nnodes=1,
+        node_rank=None,
+        master_addr="",
+        master_port=20111,
+        cpu_compile_workers=0,
+        no_startup_warmup=False,
+        startup_warmup_timeout=1800,
+        cluster=False,
+        join="",
+    )
+
+    try:
+        deploy_node.validate(args)
+    except SystemExit as exc:
+        assert "requires --no-startup-warmup" in str(exc)
+    else:
+        raise AssertionError("zero CPU workers must fail before a required startup warmup")
+
+    args.no_startup_warmup = True
+    deploy_node.validate(args)
 
 
 def test_deploy_node_main_rejects_master_with_nonzero_rank(monkeypatch) -> None:

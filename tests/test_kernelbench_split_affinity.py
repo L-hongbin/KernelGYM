@@ -9,9 +9,11 @@ from kernelgym.schema.task import EvaluationTask
 class FakeScheduler:
     def __init__(self) -> None:
         self.submissions: list[dict[str, Any]] = []
+        self.selection_kwargs: dict[str, Any] = {}
 
-    async def select_idle_worker(self, resource: str, **_kwargs) -> dict[str, str]:
+    async def select_idle_worker(self, resource: str, **kwargs) -> dict[str, str]:
         assert resource == "gpu"
+        self.selection_kwargs = kwargs
         return {
             "worker_id": "node-b_gpu_3",
             "device": "cuda:3",
@@ -51,6 +53,9 @@ class FakeScheduler:
             "metadata": {},
         }
 
+    async def wait_unless_cancelled(self, task_id: str, _base_id: str, timeout=None) -> dict[str, Any]:
+        return await self.wait(task_id, timeout)
+
 
 def test_split_compile_execute_targets_idle_gpu_node() -> None:
     async def scenario() -> None:
@@ -85,12 +90,52 @@ def test_split_compile_execute_targets_idle_gpu_node() -> None:
     asyncio.run(scenario())
 
 
+def test_split_compile_execute_honors_requested_startup_node() -> None:
+    async def scenario() -> None:
+        task = EvaluationTask(
+            task_id="startup",
+            reference_code="class Model: pass",
+            kernel_code="class ModelNew: pass",
+            backend="cuda_agent",
+            split_compile_and_execute=True,
+            target_node_id="node-b",
+            target_hostname="host-b",
+        )
+        _ref_task, kernel_task = _create_paired_tasks(task)
+        scheduler = FakeScheduler()
+
+        await KernelBenchWorkflowController()._run_split_kernel_task(task, kernel_task, scheduler)  # noqa: SLF001
+
+        assert scheduler.selection_kwargs == {
+            "timeout": 0,
+            "poll_interval": 0.5,
+            "target_node_id": "node-b",
+            "target_hostname": "host-b",
+        }
+        assert scheduler.submissions[0]["target_node_id"] == "node-b"
+        assert scheduler.submissions[0]["target_hostname"] == "host-b"
+
+    asyncio.run(scenario())
+
+
+def test_requested_affinity_fails_closed_without_scheduler_selector() -> None:
+    async def scenario() -> None:
+        result = await KernelBenchWorkflowController()._select_split_target_gpu(  # noqa: SLF001
+            object(),
+            "startup",
+            target_hostname="host-b",
+        )
+        assert result is None
+
+    asyncio.run(scenario())
+
+
 class BusyFallbackScheduler(FakeScheduler):
     async def select_idle_worker(self, resource: str, **_kwargs) -> None:
         assert resource == "gpu"
         return None
 
-    async def select_worker_by_task_id(self, resource: str, task_id: str) -> dict[str, str]:
+    async def select_worker_by_task_id(self, resource: str, task_id: str, **_kwargs) -> dict[str, str]:
         assert resource == "gpu"
         assert task_id == "parent"
         return {

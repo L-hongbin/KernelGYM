@@ -24,6 +24,8 @@ def test_schema_exposes_compile_acceleration_fields() -> None:
     assert "task_stage" in fields
     assert "required_resource" in fields
     assert "compile_artifact" in fields
+    assert "target_node_id" in fields
+    assert "target_hostname" in fields
 
 
 def test_evaluation_request_defaults_to_auto_backend() -> None:
@@ -34,6 +36,29 @@ def test_evaluation_request_defaults_to_auto_backend() -> None:
     )
 
     assert request.backend == Backend.AUTO
+
+
+def test_evaluation_request_requires_split_mode_for_target_affinity() -> None:
+    try:
+        EvaluationRequest(
+            task_id="targeted",
+            reference_code="class Model: pass",
+            kernel_code="class ModelNew: pass",
+            target_hostname="host-a",
+        )
+    except ValueError as exc:
+        assert "split_compile_and_execute=true" in str(exc)
+    else:
+        raise AssertionError("target affinity without split mode must be rejected")
+
+    request = EvaluationRequest(
+        task_id="targeted-split",
+        reference_code="class Model: pass",
+        kernel_code="class ModelNew: pass",
+        target_hostname=" host-a ",
+        split_compile_and_execute=True,
+    )
+    assert request.target_hostname == "host-a"
 
 
 def test_result_serialization_includes_detected_device_info(monkeypatch) -> None:

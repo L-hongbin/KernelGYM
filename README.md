@@ -29,7 +29,7 @@ bash ensure_venv.sh
 bash deploy_node.sh --nnodes 1
 ```
 
-`deploy_node.sh` activates `.venv`, scrubs `LD_LIBRARY_PATH` / `PYTHONPATH` of host-Python torch trees, runs `scripts/validate_runtime.py`, then starts the API server (`:20111`), worker monitor, one GPU worker per container-visible CUDA device, and the profile's CPU compile workers. Override the CPU count with `--cpu-compile-workers N` / `--cpu-workers N`, or select a logical GPU subset with `--gpu-devices 0,1`.
+`deploy_node.sh` activates `.venv`, scrubs `LD_LIBRARY_PATH` / `PYTHONPATH` of host-Python torch trees, runs `scripts/validate_runtime.py`, then starts the API server (`:20111`), worker monitor, one GPU worker per container-visible CUDA device, and the profile's CPU compile workers. Once this node's workers are ready, deployment performs one force-refreshed correctness and CUDA-profiling warmup affined to this hostname; cold `/nfs` compilation can keep the startup command busy for several minutes. Override the CPU count with `--cpu-compile-workers N` / `--cpu-workers N`, select a logical GPU subset with `--gpu-devices 0,1`, or use `--no-startup-warmup` only for diagnostics.
 
 Add `--block-terminal` when the deploy command should stay in the foreground (for example, as the container's foreground command). After startup succeeds, Ctrl-C, SIGTERM, or a terminal hangup stops this node's KernelGym services before the command exits:
 

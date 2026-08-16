@@ -31,6 +31,16 @@ class EvaluationRequest(BaseModel):
     timeout: int = Field(default=300, ge=10, le=3600, description="Task timeout in seconds")
     priority: Priority = Field(default=Priority.NORMAL, description="Task priority")
     device_preference: Optional[str] = Field(default=None, description="Preferred GPU device")
+    target_node_id: Optional[str] = Field(
+        default=None,
+        max_length=255,
+        description="Require split compile/execute to run on this registered node id",
+    )
+    target_hostname: Optional[str] = Field(
+        default=None,
+        max_length=255,
+        description="Require split compile/execute to run on this registered hostname",
+    )
     force_refresh: bool = Field(default=False, description="Force refresh, skip cached results")
     entry_point: str = Field(default="Model", description="Entry point class name for model evaluation")
     reference_backend: Optional[str] = Field(
@@ -114,6 +124,15 @@ class EvaluationRequest(BaseModel):
             raise ValueError("Task ID must be between 1 and 100 characters")
         return v
 
+    @validator("target_node_id", "target_hostname")
+    def validate_target_identity(cls, v):
+        if v is None:
+            return v
+        value = v.strip()
+        if not value:
+            raise ValueError("Target node identity cannot be blank")
+        return value
+
     @validator("reference_code", "kernel_code")
     def validate_code(cls, v):
         if v is None:
@@ -130,6 +149,10 @@ class EvaluationRequest(BaseModel):
         reference_code = values.get("reference_code")
         if workflow == "kernelbench" and not reference_code:
             raise ValueError("reference_code is required for kernelbench workflow")
+        if (values.get("target_node_id") or values.get("target_hostname")) and not values.get(
+            "split_compile_and_execute"
+        ):
+            raise ValueError("target_node_id/target_hostname require split_compile_and_execute=true")
         return values
 
     class Config:

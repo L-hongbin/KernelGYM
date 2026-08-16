@@ -27,6 +27,8 @@ class EvaluationTask:
     assigned_worker: Optional[str] = None
     reference_backend: Optional[str] = None
     device_preference: Optional[str] = None
+    target_node_id: Optional[str] = None
+    target_hostname: Optional[str] = None
     force_refresh: bool = False
     uuid: Optional[str] = None
     use_reference_cache: bool = False
