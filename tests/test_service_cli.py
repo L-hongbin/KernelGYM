@@ -381,6 +381,40 @@ def test_default_stop_grace_exceeds_worker_drain(monkeypatch) -> None:
     assert service.build_parser().parse_args(["stop"]).graceful_seconds is None
 
 
+def test_stop_closes_api_admission_before_waiting_on_monitor(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(service, "_profile_values", lambda _profile: {"REDIS_HOST": "192.0.2.1"})
+    monkeypatch.setattr(
+        service,
+        "_kill_processes",
+        lambda pattern, description, *args, **kwargs: calls.append((pattern, description)) or True,
+    )
+    monkeypatch.setattr(service, "_collect_pids", lambda _pattern: [])
+
+    args = service.build_parser().parse_args(["stop", "--profile", "v1"])
+    assert service.cmd_stop(args) == 0
+    assert calls[:2] == [
+        ("kernelgym.server.api.server", "KernelGym API server"),
+        ("kernelgym.worker.worker_monitor", "KernelGym worker monitor"),
+    ]
+    assert [pattern for pattern, _description in calls].count("kernelgym.server.api.server") == 1
+
+
+def test_stop_aborts_before_monitor_when_api_admission_cannot_close(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(service, "_profile_values", lambda _profile: {"REDIS_HOST": "192.0.2.1"})
+
+    def stop_processes(pattern, description, *args, **kwargs):  # noqa: ARG001
+        calls.append(pattern)
+        return pattern != "kernelgym.server.api.server"
+
+    monkeypatch.setattr(service, "_kill_processes", stop_processes)
+
+    args = service.build_parser().parse_args(["stop", "--profile", "v1"])
+    assert service.cmd_stop(args) == 1
+    assert calls == ["kernelgym.server.api.server"]
+
+
 def test_authenticated_worker_stop_requires_complete_session_drain(monkeypatch) -> None:
     identity = service._ProcessIdentity(pid=1234, start_ticks="88", state="S", process_group=1234, session_id=1234)
     monkeypatch.setattr(service, "_read_process_identity", lambda pid: identity)
@@ -421,6 +455,183 @@ def test_authenticated_worker_stop_requires_complete_session_drain(monkeypatch) 
             },
         )
     ]
+
+
+def test_session_drain_retries_transient_proc_scan_error(monkeypatch) -> None:
+    scans = iter([RuntimeError("transient incomplete stat"), True])
+
+    def scan(session_id, groups):  # noqa: ARG001
+        result = next(scans)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monotonic_values = iter([0.0, 0.1, 0.2])
+    monkeypatch.setattr(service, "_session_is_drained", scan)
+    monkeypatch.setattr(service.time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(service.time, "sleep", lambda seconds: None)
+
+    assert service._wait_for_session_drain(1234, {1234}, 1.0) is True
+
+
+def test_session_drain_fails_closed_when_proc_scans_never_complete(monkeypatch) -> None:
+    monkeypatch.setattr(
+        service,
+        "_session_is_drained",
+        lambda session_id, groups: (_ for _ in ()).throw(RuntimeError("incomplete proc scan")),
+    )
+    monkeypatch.setattr(service.time, "monotonic", lambda: 0.0)
+
+    with pytest.raises(RuntimeError, match="Could not complete session 1234 drain scan"):
+        service._wait_for_session_drain(1234, {1234}, 0)
+
+
+def test_authenticated_worker_exit_during_cmdline_check_uses_session_drain_proof(monkeypatch) -> None:
+    identity = service._ProcessIdentity(pid=1234, start_ticks="88", state="S", process_group=1234, session_id=1234)
+    identities = iter([identity, None])
+    monkeypatch.setattr(service, "_read_process_identity", lambda pid: next(identities))
+    monkeypatch.setattr(service, "_cmdline_matches_worker", lambda pid, worker_id: False)
+    drains = []
+    monkeypatch.setattr(
+        service,
+        "_wait_for_session_drain",
+        lambda session_id, groups, timeout: drains.append((session_id, set(groups), timeout)) or True,
+    )
+    monkeypatch.setattr(
+        service.os,
+        "killpg",
+        lambda *args: (_ for _ in ()).throw(AssertionError("an identity mismatch must never be signalled")),
+    )
+
+    stopped, reason = service._stop_authenticated_worker_group(
+        "worker_gpu_0",
+        pid=1234,
+        expected_start_ticks="88",
+        process_group=1234,
+        graceful_seconds=5,
+    )
+
+    assert stopped is True
+    assert reason == ""
+    assert drains == [(1234, {1234}, 5)]
+
+
+def test_authenticated_worker_exit_during_cmdline_check_escalates_after_grace(monkeypatch) -> None:
+    identity = service._ProcessIdentity(pid=1234, start_ticks="88", state="S", process_group=1234, session_id=1234)
+    identities = iter([identity, None])
+    monkeypatch.setattr(service, "_read_process_identity", lambda pid: next(identities))
+    monkeypatch.setattr(service, "_cmdline_matches_worker", lambda pid, worker_id: False)
+    monkeypatch.setattr(service, "_wait_for_session_drain", lambda *_args: False)
+    cleanups = []
+    monkeypatch.setattr(
+        service,
+        "_force_kill_worker_session",
+        lambda session_id, **kwargs: cleanups.append((session_id, kwargs)) or (True, ""),
+    )
+
+    stopped, reason = service._stop_authenticated_worker_group(
+        "worker_gpu_0",
+        pid=1234,
+        expected_start_ticks="88",
+        process_group=1234,
+        graceful_seconds=5,
+    )
+
+    assert stopped is True
+    assert reason == ""
+    assert cleanups == [
+        (
+            1234,
+            {
+                "expected_leader_start_ticks": "88",
+                "observed_process_groups": {1234},
+            },
+        )
+    ]
+
+
+def test_authenticated_generation_exit_before_sigterm_escalates_after_grace(monkeypatch) -> None:
+    identity = service._ProcessIdentity(pid=1234, start_ticks="88", state="S", process_group=1234, session_id=1234)
+    changed = service._ProcessIdentity(pid=1234, start_ticks="99", state="Z", process_group=1234, session_id=1234)
+    identities = iter([identity, changed, None])
+    monkeypatch.setattr(service, "_read_process_identity", lambda pid: next(identities))
+    monkeypatch.setattr(service, "_cmdline_matches_worker", lambda pid, worker_id: True)
+    monkeypatch.setattr(service, "_wait_for_session_drain", lambda *_args: False)
+    cleanups = []
+    monkeypatch.setattr(
+        service,
+        "_force_kill_worker_session",
+        lambda session_id, **kwargs: cleanups.append((session_id, kwargs)) or (True, ""),
+    )
+
+    stopped, reason = service._stop_authenticated_worker_group(
+        "worker_gpu_0",
+        pid=1234,
+        expected_start_ticks="88",
+        process_group=1234,
+        graceful_seconds=5,
+    )
+
+    assert stopped is True
+    assert reason == ""
+    assert cleanups[0][0] == 1234
+    assert cleanups[0][1]["expected_leader_start_ticks"] == "88"
+
+
+def test_authenticated_live_cmdline_mismatch_fails_without_drain_wait(monkeypatch) -> None:
+    identity = service._ProcessIdentity(pid=1234, start_ticks="88", state="S", process_group=1234, session_id=1234)
+    monkeypatch.setattr(service, "_read_process_identity", lambda pid: identity)
+    monkeypatch.setattr(service, "_cmdline_matches_worker", lambda pid, worker_id: False)
+    monkeypatch.setattr(
+        service,
+        "_wait_for_session_drain",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("live mismatch must fail immediately")),
+    )
+
+    stopped, reason = service._stop_authenticated_worker_group(
+        "worker_gpu_0",
+        pid=1234,
+        expected_start_ticks="88",
+        process_group=1234,
+        graceful_seconds=150,
+    )
+
+    assert stopped is False
+    assert "command line no longer belongs" in reason
+
+
+def test_authenticated_worker_exit_before_final_revalidation_uses_session_cleanup(monkeypatch) -> None:
+    identity = service._ProcessIdentity(pid=1234, start_ticks="88", state="S", process_group=1234, session_id=1234)
+    identities = iter([identity, None])
+    monkeypatch.setattr(service, "_read_process_identity", lambda pid: next(identities))
+    monkeypatch.setattr(service, "_cmdline_matches_worker", lambda pid, worker_id: True)
+    monkeypatch.setattr(service, "_session_is_drained", lambda session_id, groups: False)
+    cleanups = []
+
+    def session_cleanup(session_id, *, expected_leader_start_ticks, observed_process_groups):
+        cleanups.append((session_id, expected_leader_start_ticks, set(observed_process_groups)))
+        return True, ""
+
+    monkeypatch.setattr(service, "_force_kill_worker_session", session_cleanup)
+    monkeypatch.setattr(
+        service.os,
+        "killpg",
+        lambda *args: (_ for _ in ()).throw(
+            AssertionError("a disappeared leader's bare PGID must never be signalled")
+        ),
+    )
+
+    stopped, reason = service._stop_authenticated_worker_group(
+        "worker_gpu_0",
+        pid=1234,
+        expected_start_ticks="88",
+        process_group=1234,
+        graceful_seconds=5,
+    )
+
+    assert stopped is True
+    assert reason == ""
+    assert cleanups == [(1234, "88", {1234})]
 
 
 def test_session_force_kill_freezes_newly_discovered_inner_groups_to_fixed_point(monkeypatch) -> None:
@@ -533,6 +744,40 @@ def test_discovered_service_root_escalates_its_complete_session(monkeypatch) -> 
     assert stopped is True
     assert reason == ""
     assert signals == [(4321, signal.SIGTERM)]
+    assert forced == [
+        (
+            4321,
+            {
+                "expected_leader_start_ticks": "77",
+                "observed_process_groups": {4321},
+            },
+        )
+    ]
+
+
+def test_discovered_service_root_exit_during_cmdline_check_escalates_after_grace(monkeypatch) -> None:
+    identity = service._ProcessIdentity(
+        pid=4321,
+        start_ticks="77",
+        state="S",
+        process_group=4321,
+        session_id=4321,
+    )
+    identities = iter([identity, None])
+    monkeypatch.setattr(service, "_read_process_identity", lambda pid: next(identities))
+    monkeypatch.setattr(service, "_cmdline_matches_pattern", lambda pid, pattern: False)
+    monkeypatch.setattr(service, "_wait_for_session_drain", lambda *args, **kwargs: False)
+    forced = []
+    monkeypatch.setattr(
+        service,
+        "_force_kill_worker_session",
+        lambda session_id, **kwargs: forced.append((session_id, kwargs)) or (True, ""),
+    )
+
+    stopped, reason = service._stop_discovered_process_group(4321, "worker-pattern", 3)
+
+    assert stopped is True
+    assert reason == ""
     assert forced == [
         (
             4321,

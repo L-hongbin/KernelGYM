@@ -102,24 +102,40 @@ def _clear_unreaped_worker_registry():
 
     with subprocess_pool._UNREAPED_WORKER_HANDLES_LOCK:
         subprocess_pool._UNREAPED_WORKER_HANDLES.clear()
+    with subprocess_pool._ACTIVE_WORKER_IDENTITIES_LOCK:
+        subprocess_pool._ACTIVE_WORKER_IDENTITIES.clear()
+        subprocess_pool._STARTING_WORKER_IDENTITIES.clear()
     yield
     with subprocess_pool._UNREAPED_WORKER_HANDLES_LOCK:
         subprocess_pool._UNREAPED_WORKER_HANDLES.clear()
+    with subprocess_pool._ACTIVE_WORKER_IDENTITIES_LOCK:
+        subprocess_pool._ACTIVE_WORKER_IDENTITIES.clear()
+        subprocess_pool._STARTING_WORKER_IDENTITIES.clear()
 
 
-def _worker_with_failed_ready_handshake(get_result):  # noqa: ANN001
+def _worker_with_failed_ready_handshake(get_result, monkeypatch):  # noqa: ANN001
     worker = subprocess_pool.PersistentWorker.__new__(subprocess_pool.PersistentWorker)
     worker.worker_id = "handshake_worker"
     worker.device_id = 0
     worker.pool_size_info = "(test)"
     worker.max_tasks_per_worker = 1
-    worker.task_queue = object()
+
+    class FakeTaskQueue:
+        values: list[str] = []
+
+        def put(self, value):  # noqa: ANN001
+            self.values.append(value)
+
+    worker.task_queue = FakeTaskQueue()
     worker.is_alive_flag = True
     worker.tasks_processed = 0
     worker.start_time = time.time()
     worker._shutdown_lock = threading.Lock()
     worker._shutdown_complete = False
     worker._result_channel_closed = False
+    worker._process_identity = None
+    worker._starting_process_identity = None
+    worker._expected_session_id = 90001
     worker.process = None
 
     class FakeChildResultChannel:
@@ -130,8 +146,19 @@ def _worker_with_failed_ready_handshake(get_result):  # noqa: ANN001
             self.closed = True
 
     class FakeResultQueue:
-        @staticmethod
-        def get(timeout):  # noqa: ANN001, ARG004
+        calls = 0
+
+        @classmethod
+        def get(cls, timeout):  # noqa: ANN001, ARG004
+            cls.calls += 1
+            if cls.calls == 1:
+                return {
+                    "status": "CONTAINED",
+                    "pid": 12345,
+                    "start_ticks": 678,
+                    "pgid": 12345,
+                    "sid": 90001,
+                }
             return get_result()
 
     class FakeProcess:
@@ -153,6 +180,19 @@ def _worker_with_failed_ready_handshake(get_result):  # noqa: ANN001
     worker.result_queue = FakeResultQueue()
     worker._child_result_channel = FakeChildResultChannel()
     worker.ctx = FakeContext()
+    identity = subprocess_pool._LinuxProcessIdentity(
+        pid=12345,
+        start_ticks=678,
+        ppid=os.getpid(),
+        pgid=12345,
+        sid=90001,
+        state="S",
+    )
+    monkeypatch.setattr(
+        subprocess_pool,
+        "_read_linux_process_identity",
+        lambda pid: identity if pid == identity.pid else None,
+    )
     return worker
 
 
@@ -309,7 +349,7 @@ def test_ready_handshake_arbitrary_exception_force_reaps_before_reraise(monkeypa
     def fail_get():
         raise OSError("broken result queue")
 
-    worker = _worker_with_failed_ready_handshake(fail_get)
+    worker = _worker_with_failed_ready_handshake(fail_get, monkeypatch)
     shutdown_calls: list[tuple[int, bool]] = []
 
     def shutdown(timeout: int, force: bool) -> bool:
@@ -331,7 +371,7 @@ def test_ready_handshake_timeout_is_gpu_probe_failure(monkeypatch) -> None:
     def timeout_get():
         raise subprocess_pool.queue.Empty
 
-    worker = _worker_with_failed_ready_handshake(timeout_get)
+    worker = _worker_with_failed_ready_handshake(timeout_get, monkeypatch)
     shutdown_calls: list[tuple[int, bool]] = []
 
     def shutdown(timeout: int, force: bool) -> bool:
@@ -354,7 +394,7 @@ def test_ready_handshake_unconfirmed_reap_retains_process_handle(monkeypatch) ->
     def malformed_get():
         return "not-a-ready-message"
 
-    worker = _worker_with_failed_ready_handshake(malformed_get)
+    worker = _worker_with_failed_ready_handshake(malformed_get, monkeypatch)
 
     def failed_shutdown(timeout: int, force: bool) -> bool:  # noqa: ARG001
         return False
@@ -368,6 +408,41 @@ def test_ready_handshake_unconfirmed_reap_retains_process_handle(monkeypatch) ->
     assert error.value.reap_confirmed is False
     assert error.value.cuda_probe_failure is True
     assert subprocess_pool._snapshot_unreaped_workers(0) == [worker]
+
+
+def test_worker_exits_when_parent_containment_ack_times_out(monkeypatch) -> None:
+    messages = []
+    real_pid = os.getpid()
+    real_sid = os.getsid(0)
+    identity = subprocess_pool._LinuxProcessIdentity(
+        pid=real_pid,
+        start_ticks=123,
+        ppid=os.getppid(),
+        pgid=real_pid,
+        sid=real_sid,
+        state="S",
+    )
+
+    class TaskQueue:
+        @staticmethod
+        def get(timeout):  # noqa: ANN001
+            assert timeout == subprocess_pool._PARENT_CONTAINMENT_ACK_TIMEOUT_S
+            raise subprocess_pool.queue.Empty
+
+    class ResultQueue:
+        @staticmethod
+        def put(payload):  # noqa: ANN001
+            messages.append(payload)
+
+    monkeypatch.setattr(subprocess_pool, "prepare_core_dump_dir", lambda *args, **kwargs: None)
+    monkeypatch.setattr(subprocess_pool, "_redirect_native_stderr_to_capture_file", lambda worker_id: None)
+    monkeypatch.setattr(subprocess_pool.os, "setpgid", lambda pid, pgid: None)
+    monkeypatch.setattr(subprocess_pool, "_read_linux_process_identity", lambda pid: identity)
+
+    subprocess_pool._persistent_worker_loop("ack-timeout", 0, TaskQueue(), ResultQueue(), 1)
+
+    assert [message["status"] for message in messages] == ["CONTAINED", "INIT_FAILED"]
+    assert messages[-1]["init_stage"] == "parent_containment_ack"
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux /proc process containment")
@@ -492,6 +567,449 @@ def test_shutdown_returns_false_when_process_group_proof_fails(monkeypatch) -> N
     assert process.alive is False
     assert process.closed is False
     assert subprocess_pool._snapshot_unreaped_workers(0) == [worker]
+
+
+def test_shutdown_accepts_crashed_leader_only_after_join_and_group_drain(monkeypatch) -> None:
+    identity = subprocess_pool._LinuxProcessIdentity(
+        pid=43124,
+        start_ticks=100,
+        ppid=os.getpid(),
+        pgid=43124,
+        sid=os.getsid(0),
+        state="S",
+    )
+
+    class FakeProcess:
+        pid = identity.pid
+
+        def __init__(self) -> None:
+            self.joined = False
+            self.closed = False
+
+        def join(self, timeout):  # noqa: ANN001, ARG002
+            self.joined = True
+
+        @staticmethod
+        def is_alive() -> bool:
+            return False
+
+        @staticmethod
+        def kill() -> None:
+            raise AssertionError("an exited PID generation must never be signalled")
+
+        def close(self) -> None:
+            self.closed = True
+
+    process = FakeProcess()
+    worker = subprocess_pool.PersistentWorker.__new__(subprocess_pool.PersistentWorker)
+    worker.worker_id = "crashed-before-shutdown"
+    worker.device_id = 0
+    worker.process = process
+    worker._process_identity = identity
+    worker._expected_session_id = identity.sid
+    worker.is_alive_flag = True
+    worker.tasks_processed = 0
+    worker.start_time = time.time()
+    worker._shutdown_lock = threading.Lock()
+    worker._shutdown_complete = False
+    monkeypatch.setattr(subprocess_pool, "_read_linux_process_identity", lambda _pid: None)
+    monkeypatch.setattr(
+        subprocess_pool,
+        "_kill_and_verify_worker_process_tree",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("there is no live leader generation to freeze or signal")
+        ),
+    )
+    drain_calls = []
+    monkeypatch.setattr(
+        subprocess_pool,
+        "_wait_for_process_group_drain_or_registered_reuse",
+        lambda leader, timeout: drain_calls.append((leader, timeout)) or True,
+    )
+    session_calls = []
+    monkeypatch.setattr(
+        subprocess_pool,
+        "_wait_for_worker_session_containment",
+        lambda leader, timeout: session_calls.append((leader, timeout)) or True,
+    )
+
+    assert worker.shutdown(timeout=1, force=True) is True
+    assert process.joined is True
+    assert process.closed is True
+    assert drain_calls == [(identity, 3.0)]
+    assert session_calls == [(identity, 3.0)]
+    assert subprocess_pool._snapshot_unreaped_workers(0) == []
+
+
+def test_crashed_leader_session_proof_rejects_unknown_cross_pgid_member(monkeypatch) -> None:
+    session_id = 99001
+    outer = subprocess_pool._LinuxProcessIdentity(
+        pid=os.getpid(),
+        start_ticks=1,
+        ppid=1,
+        pgid=session_id,
+        sid=session_id,
+        state="S",
+    )
+    leader = subprocess_pool._LinuxProcessIdentity(
+        pid=43125,
+        start_ticks=101,
+        ppid=outer.pid,
+        pgid=43125,
+        sid=session_id,
+        state="S",
+    )
+    sibling = subprocess_pool._LinuxProcessIdentity(
+        pid=43126,
+        start_ticks=102,
+        ppid=outer.pid,
+        pgid=43126,
+        sid=session_id,
+        state="S",
+    )
+    sibling_child = subprocess_pool._LinuxProcessIdentity(
+        pid=43127,
+        start_ticks=103,
+        ppid=sibling.pid,
+        pgid=sibling.pgid,
+        sid=session_id,
+        state="S",
+    )
+    escaped_child = subprocess_pool._LinuxProcessIdentity(
+        pid=43128,
+        start_ticks=104,
+        ppid=1,
+        pgid=43128,
+        sid=session_id,
+        state="S",
+    )
+    joined_sibling_group = subprocess_pool._LinuxProcessIdentity(
+        pid=43129,
+        start_ticks=105,
+        ppid=1,
+        pgid=sibling.pgid,
+        sid=session_id,
+        state="S",
+    )
+    snapshot = {item.pid: item for item in (outer, sibling, sibling_child)}
+    monkeypatch.setattr(subprocess_pool, "_snapshot_linux_processes", lambda: dict(snapshot))
+    monkeypatch.setattr(subprocess_pool, "_multiprocessing_resource_tracker_pid", lambda: None)
+    provisional_sibling = subprocess_pool._LinuxProcessIdentity(
+        pid=sibling.pid,
+        start_ticks=sibling.start_ticks,
+        ppid=sibling.ppid,
+        pgid=outer.pgid,
+        sid=sibling.sid,
+        state="S",
+    )
+    subprocess_pool._register_starting_worker_identity(provisional_sibling)
+    subprocess_pool._promote_active_worker_identity(provisional_sibling, sibling)
+
+    assert subprocess_pool._worker_session_is_contained_after_leader_exit(leader) is True
+
+    snapshot[escaped_child.pid] = escaped_child
+    assert subprocess_pool._worker_session_is_contained_after_leader_exit(leader) is False
+
+    snapshot.pop(escaped_child.pid)
+    snapshot[joined_sibling_group.pid] = joined_sibling_group
+    assert subprocess_pool._worker_session_is_contained_after_leader_exit(leader) is False
+
+
+def test_crashed_leader_session_proof_allows_only_exact_starting_worker(monkeypatch) -> None:
+    session_id = 99002
+    outer = subprocess_pool._LinuxProcessIdentity(
+        pid=os.getpid(), start_ticks=1, ppid=1, pgid=session_id, sid=session_id, state="S"
+    )
+    leader = subprocess_pool._LinuxProcessIdentity(
+        pid=43200, start_ticks=2, ppid=outer.pid, pgid=43200, sid=session_id, state="S"
+    )
+    starting = subprocess_pool._LinuxProcessIdentity(
+        pid=43201, start_ticks=3, ppid=outer.pid, pgid=outer.pgid, sid=session_id, state="S"
+    )
+    unknown = subprocess_pool._LinuxProcessIdentity(
+        pid=43202, start_ticks=4, ppid=outer.pid, pgid=outer.pgid, sid=session_id, state="S"
+    )
+    snapshot = {outer.pid: outer, starting.pid: starting}
+    monkeypatch.setattr(subprocess_pool, "_snapshot_linux_processes", lambda: dict(snapshot))
+    monkeypatch.setattr(subprocess_pool, "_multiprocessing_resource_tracker_pid", lambda: None)
+    subprocess_pool._register_starting_worker_identity(starting)
+
+    assert subprocess_pool._worker_session_is_contained_after_leader_exit(leader) is True
+
+    snapshot[unknown.pid] = unknown
+    assert subprocess_pool._worker_session_is_contained_after_leader_exit(leader) is False
+
+
+def test_crashed_leader_session_proof_allows_authenticated_resource_tracker(monkeypatch) -> None:
+    session_id = 99003
+    outer = subprocess_pool._LinuxProcessIdentity(
+        pid=os.getpid(), start_ticks=1, ppid=1, pgid=session_id, sid=session_id, state="S"
+    )
+    leader = subprocess_pool._LinuxProcessIdentity(
+        pid=43300, start_ticks=2, ppid=outer.pid, pgid=43300, sid=session_id, state="S"
+    )
+    tracker = subprocess_pool._LinuxProcessIdentity(
+        pid=43301, start_ticks=3, ppid=outer.pid, pgid=outer.pgid, sid=session_id, state="S"
+    )
+    monkeypatch.setattr(
+        subprocess_pool,
+        "_snapshot_linux_processes",
+        lambda: {outer.pid: outer, tracker.pid: tracker},
+    )
+    monkeypatch.setattr(subprocess_pool, "_multiprocessing_resource_tracker_pid", lambda: tracker.pid)
+
+    assert subprocess_pool._worker_session_is_contained_after_leader_exit(leader) is True
+
+
+def test_failed_crash_containment_keeps_registration_until_successful_retry(monkeypatch) -> None:
+    identity = subprocess_pool._LinuxProcessIdentity(
+        pid=43400,
+        start_ticks=5,
+        ppid=os.getpid(),
+        pgid=43400,
+        sid=os.getsid(0),
+        state="S",
+    )
+    provisional = subprocess_pool._LinuxProcessIdentity(
+        pid=identity.pid,
+        start_ticks=identity.start_ticks,
+        ppid=identity.ppid,
+        pgid=os.getpgrp(),
+        sid=identity.sid,
+        state="S",
+    )
+
+    class FakeProcess:
+        pid = identity.pid
+
+        def __init__(self) -> None:
+            self.closed = False
+
+        @staticmethod
+        def join(timeout):  # noqa: ANN001, ARG004
+            return None
+
+        @staticmethod
+        def is_alive() -> bool:
+            return False
+
+        @staticmethod
+        def kill() -> None:
+            raise AssertionError("an exited PID generation must never be signalled")
+
+        def close(self) -> None:
+            self.closed = True
+
+    process = FakeProcess()
+    worker = subprocess_pool.PersistentWorker.__new__(subprocess_pool.PersistentWorker)
+    worker.worker_id = "retry-crash-containment"
+    worker.device_id = 0
+    worker.process = process
+    worker._process_identity = identity
+    worker._starting_process_identity = provisional
+    worker._expected_session_id = identity.sid
+    worker.is_alive_flag = True
+    worker.tasks_processed = 0
+    worker.start_time = time.time()
+    worker._shutdown_lock = threading.Lock()
+    worker._shutdown_complete = False
+    subprocess_pool._register_starting_worker_identity(provisional)
+    subprocess_pool._promote_active_worker_identity(provisional, identity)
+    monkeypatch.setattr(subprocess_pool, "_read_linux_process_identity", lambda _pid: None)
+    monkeypatch.setattr(
+        subprocess_pool,
+        "_wait_for_process_group_drain_or_registered_reuse",
+        lambda *_args: True,
+    )
+    containment_results = iter([False, True])
+    monkeypatch.setattr(
+        subprocess_pool,
+        "_wait_for_worker_session_containment",
+        lambda *_args: next(containment_results),
+    )
+
+    assert worker.shutdown(timeout=1, force=True) is False
+    assert subprocess_pool._active_worker_identities(identity.sid) == [identity]
+    assert process.closed is False
+
+    assert worker.shutdown(timeout=1, force=True) is True
+    assert subprocess_pool._active_worker_identities(identity.sid) == []
+    assert process.closed is True
+
+
+def test_shutdown_rejects_reused_pid_generation_and_preserves_new_worker(monkeypatch) -> None:
+    session_id = 99004
+    starting = subprocess_pool._LinuxProcessIdentity(
+        pid=43500, start_ticks=10, ppid=os.getpid(), pgid=os.getpgrp(), sid=session_id, state="S"
+    )
+    reused = subprocess_pool._LinuxProcessIdentity(
+        pid=starting.pid,
+        start_ticks=11,
+        ppid=os.getpid(),
+        pgid=starting.pid,
+        sid=session_id,
+        state="S",
+    )
+
+    class FakeProcess:
+        pid = starting.pid
+
+        def __init__(self) -> None:
+            self.closed = False
+
+        @staticmethod
+        def join(timeout):  # noqa: ANN001, ARG004
+            return None
+
+        @staticmethod
+        def is_alive() -> bool:
+            return False
+
+        @staticmethod
+        def kill() -> None:
+            raise AssertionError("the stale Process handle must not signal a reused PID")
+
+        def close(self) -> None:
+            self.closed = True
+
+    process = FakeProcess()
+    worker = subprocess_pool.PersistentWorker.__new__(subprocess_pool.PersistentWorker)
+    worker.worker_id = "reused-startup-pid"
+    worker.device_id = 0
+    worker.process = process
+    worker._process_identity = None
+    worker._starting_process_identity = starting
+    worker._expected_session_id = session_id
+    worker.is_alive_flag = True
+    worker.tasks_processed = 0
+    worker.start_time = time.time()
+    worker._shutdown_lock = threading.Lock()
+    worker._shutdown_complete = False
+    subprocess_pool._register_starting_worker_identity(starting)
+    with subprocess_pool._ACTIVE_WORKER_IDENTITIES_LOCK:
+        subprocess_pool._ACTIVE_WORKER_IDENTITIES.setdefault(session_id, {})[reused.pid] = reused
+    monkeypatch.setattr(subprocess_pool, "_read_linux_process_identity", lambda pid: reused)
+    monkeypatch.setattr(
+        subprocess_pool,
+        "_kill_and_verify_worker_process_tree",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("a reused generation must never be adopted")),
+    )
+    audits = []
+    monkeypatch.setattr(
+        subprocess_pool,
+        "_wait_for_worker_session_containment",
+        lambda leader, timeout: audits.append((leader, timeout)) or True,
+    )
+
+    assert worker.shutdown(timeout=1, force=True) is True
+    assert worker._process_identity is None
+    assert audits == [(starting, 3.0)]
+    assert subprocess_pool._active_worker_identities(session_id) == [reused]
+    assert process.closed is True
+
+
+def test_uncontained_bootstrap_exit_recovers_after_clean_session_audit(monkeypatch) -> None:
+    starting = subprocess_pool._LinuxProcessIdentity(
+        pid=43600,
+        start_ticks=12,
+        ppid=os.getpid(),
+        pgid=os.getpgrp(),
+        sid=os.getsid(0),
+        state="S",
+    )
+
+    class FakeProcess:
+        pid = starting.pid
+
+        def __init__(self) -> None:
+            self.closed = False
+
+        @staticmethod
+        def join(timeout):  # noqa: ANN001, ARG004
+            return None
+
+        @staticmethod
+        def is_alive() -> bool:
+            return False
+
+        @staticmethod
+        def kill() -> None:
+            raise AssertionError("the exited owned child must not be signalled")
+
+        def close(self) -> None:
+            self.closed = True
+
+    process = FakeProcess()
+    worker = subprocess_pool.PersistentWorker.__new__(subprocess_pool.PersistentWorker)
+    worker.worker_id = "bootstrap-exit"
+    worker.device_id = 0
+    worker.process = process
+    worker._process_identity = None
+    worker._starting_process_identity = starting
+    worker._expected_session_id = starting.sid
+    worker.is_alive_flag = True
+    worker.tasks_processed = 0
+    worker.start_time = time.time()
+    worker._shutdown_lock = threading.Lock()
+    worker._shutdown_complete = False
+    subprocess_pool._register_starting_worker_identity(starting)
+    monkeypatch.setattr(subprocess_pool, "_read_linux_process_identity", lambda pid: starting)
+    monkeypatch.setattr(
+        subprocess_pool,
+        "_kill_and_verify_worker_process_tree",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("an unauthenticated outer PGID must not be signalled")),
+    )
+    monkeypatch.setattr(subprocess_pool, "_wait_for_worker_session_containment", lambda *_args: True)
+
+    assert worker.shutdown(timeout=1, force=True) is True
+    assert subprocess_pool._starting_worker_identities(starting.sid) == []
+    assert process.closed is True
+
+
+def test_reused_process_group_generation_is_allowed_only_when_registered(monkeypatch) -> None:
+    leader = subprocess_pool._LinuxProcessIdentity(
+        pid=43700, start_ticks=13, ppid=os.getpid(), pgid=43700, sid=99005, state="S"
+    )
+    reused = subprocess_pool._LinuxProcessIdentity(
+        pid=leader.pid,
+        start_ticks=14,
+        ppid=os.getpid(),
+        pgid=leader.pgid,
+        sid=leader.sid,
+        state="S",
+    )
+    with subprocess_pool._ACTIVE_WORKER_IDENTITIES_LOCK:
+        subprocess_pool._ACTIVE_WORKER_IDENTITIES.setdefault(leader.sid, {})[reused.pid] = reused
+    monkeypatch.setattr(subprocess_pool, "_read_linux_process_identity", lambda pid: reused)
+    monkeypatch.setattr(subprocess_pool, "_process_group_is_drained", lambda pgid: False)
+    outer = subprocess_pool._LinuxProcessIdentity(
+        pid=os.getpid(), start_ticks=1, ppid=1, pgid=leader.sid, sid=leader.sid, state="S"
+    )
+    old_group_survivor = subprocess_pool._LinuxProcessIdentity(
+        pid=43701,
+        start_ticks=15,
+        ppid=1,
+        pgid=reused.pgid,
+        sid=leader.sid,
+        state="S",
+    )
+    snapshot = {outer.pid: outer, reused.pid: reused}
+    monkeypatch.setattr(
+        subprocess_pool,
+        "_snapshot_linux_processes",
+        lambda: dict(snapshot),
+    )
+    monkeypatch.setattr(subprocess_pool, "_multiprocessing_resource_tracker_pid", lambda: None)
+
+    assert subprocess_pool._wait_for_process_group_drain_or_registered_reuse(leader, 0.01) is True
+    assert subprocess_pool._worker_session_is_contained_after_leader_exit(leader) is True
+
+    snapshot[old_group_survivor.pid] = old_group_survivor
+    assert subprocess_pool._worker_session_is_contained_after_leader_exit(leader) is False
+
+    with subprocess_pool._ACTIVE_WORKER_IDENTITIES_LOCK:
+        subprocess_pool._ACTIVE_WORKER_IDENTITIES.clear()
+    assert subprocess_pool._wait_for_process_group_drain_or_registered_reuse(leader, 0.01) is False
 
 
 def test_shutdown_closes_result_read_fd_once_after_proven_exit() -> None:

@@ -544,10 +544,20 @@ class WorkerMonitor:
         timeout: float,
     ) -> bool:
         deadline = time.monotonic() + max(0.0, timeout)
+        last_scan_error: Exception | None = None
         while True:
-            if self._session_is_drained(session_id, observed_process_groups):
-                return True
+            try:
+                if self._session_is_drained(session_id, observed_process_groups):
+                    return True
+                last_scan_error = None
+            except (OSError, RuntimeError, ValueError) as exc:
+                # A numeric /proc entry can disappear between enumeration and
+                # stat while the session is exiting.  Retry that incomplete
+                # snapshot; it proves neither containment nor its failure.
+                last_scan_error = exc
             if time.monotonic() >= deadline:
+                if last_scan_error is not None:
+                    raise RuntimeError(f"Could not complete session {session_id} drain scan") from last_scan_error
                 return False
             await asyncio.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
 
@@ -1153,6 +1163,30 @@ class WorkerMonitor:
             return False
         return identity is not None
 
+    async def _registered_process_is_within_startup_grace(self, worker_id: str) -> bool:
+        """Keep a live, newly launched worker out of the restart queue.
+
+        The service records the authenticated process generation before the
+        worker finishes importing and writes its first heartbeat.  A monitor
+        that scans during that interval must not kill the healthy generation
+        merely because the heartbeat key is not visible yet.  The normal
+        heartbeat timeout bounds this grace, so a live-but-stuck startup is
+        still recycled after the configured deadline.
+        """
+
+        process_info = self._decode_hash(await self.redis.hgetall(f"{KEY_PREFIX}:worker_process:{worker_id}"))
+        started_text = process_info.get("start_time", "")
+        if not started_text:
+            return False
+        try:
+            started_at = datetime.fromisoformat(started_text)
+            now = datetime.now(tz=started_at.tzinfo)
+        except (TypeError, ValueError):
+            return False
+        if now - started_at > timedelta(seconds=self.heartbeat_timeout):
+            return False
+        return await self._registered_process_is_live(worker_id)
+
     async def _check_workers(self):
         """Check health of all workers."""
         try:
@@ -1220,6 +1254,18 @@ class WorkerMonitor:
                     if self.persistent and worker_id not in expected_ids:
                         needs_restart = False
 
+                    if (
+                        needs_restart
+                        and restart_reason in {"Missing heartbeat", "Invalid heartbeat", "Heartbeat timeout"}
+                        and self.persistent
+                        and await self._registered_process_is_within_startup_grace(worker_id)
+                    ):
+                        logger.info(
+                            f"Worker {worker_id} reports {restart_reason!r} but its authenticated process "
+                            "is live inside startup grace; deferring restart"
+                        )
+                        needs_restart = False
+
                     if needs_restart and worker_id not in self.restart_in_progress:
                         logger.warning(f"Worker {worker_id} needs restart: {restart_reason}")
                         await self.restart_queue.put(
@@ -1279,6 +1325,9 @@ class WorkerMonitor:
                 owner = edata.get(b"hostname", b"").decode() if edata else ""
                 if await self._is_worker_quarantined(wid, device=device, hostname=owner):
                     logger.warning(f"Worker {wid} is quarantined; ignoring missing heartbeat")
+                    continue
+                if await self._registered_process_is_within_startup_grace(wid):
+                    logger.info(f"Worker {wid} is live inside startup grace; deferring missing-heartbeat restart")
                     continue
                 logger.warning(f"Worker {wid} missing heartbeat key; scheduling restart (persistent mode)")
                 await self.restart_queue.put(await self._make_restart_request(wid, device, "Missing heartbeat key"))
@@ -1780,7 +1829,22 @@ class WorkerMonitor:
                     self.spawned_identities.pop(worker_id, None)
                     leader_gone = True
             if not leader_gone:
-                identity = self._verified_process_identity(pid, worker_id, expected_start_ticks)
+                try:
+                    identity = self._verified_process_identity(pid, worker_id, expected_start_ticks)
+                except ProcessIdentityMismatch:
+                    # During exit Linux can make the leader's command line
+                    # unreadable before /proc/<pid> disappears.  The immutable
+                    # safety property is absence of the old SID, not continued
+                    # readability of the dying leader's argv.  Never signal a
+                    # mismatched/reused PID; use the remainder of the existing
+                    # exit deadline to prove the recorded SID fully drained.
+                    if await self._wait_for_session_drain(
+                        session_id,
+                        known_groups,
+                        max(0.0, deadline - time.monotonic()),
+                    ):
+                        return True
+                    raise
                 if identity is None:
                     leader_gone = True
                 elif identity.process_group != process_group:
@@ -1801,8 +1865,12 @@ class WorkerMonitor:
 
             # A dead/reaped leader is necessary but not sufficient. Inner warm
             # workers may lead independent PGIDs while retaining this SID.
-            if leader_gone and self._session_is_drained(session_id, known_groups):
-                return True
+            if leader_gone:
+                return await self._wait_for_session_drain(
+                    session_id,
+                    known_groups,
+                    max(0.0, deadline - time.monotonic()),
+                )
             await asyncio.sleep(0.25)
         return False
 
@@ -2192,7 +2260,25 @@ class WorkerMonitor:
                     return False
                 start_ticks = identity.start_ticks
 
-            identity = self._verified_process_identity(pid, worker_id, start_ticks)
+            try:
+                identity = self._verified_process_identity(pid, worker_id, start_ticks)
+            except ProcessIdentityMismatch:
+                # The process can exit between the initial /proc identity read
+                # and command-line verification.  Do not signal anything in
+                # that ambiguous state; allow natural exit within the normal
+                # cleanup grace, prove the recorded SID empty, and then remove
+                # only the exact Redis generation.
+                observed_groups = {process_group}
+                if await self._wait_for_session_drain(session_id, observed_groups, 10):
+                    containment_proven = True
+                    return await self._delete_stopped_process_map(
+                        worker_id,
+                        pid=pid,
+                        map_start_ticks=map_start_ticks,
+                        map_process_group=map_process_group,
+                        map_session_id=map_session_id,
+                    )
+                raise
             if identity is None:
                 observed_groups = {process_group}
                 if not self._session_is_drained(session_id, observed_groups):

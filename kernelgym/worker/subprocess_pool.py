@@ -55,9 +55,11 @@ FAULT_DEVICE = "device"
 # ticket drain waits above that complete lifecycle so shutdown/recovery never
 # forgets the only handle tracking a potentially live CUDA context.
 _WORKER_READY_TIMEOUT_S = 120.0
+_PARENT_CONTAINMENT_ACK_TIMEOUT_S = 30.0
 _REPLENISHMENT_DRAIN_TIMEOUT_S = 210.0
 _STALE_HARD_RECOVERY_EPOCH = -1
 _RESULT_PROTOCOL_MAGIC = "kernelgym-result-json-v1"
+_PARENT_CONTAINMENT_ACK = "kernelgym-parent-containment-ack-v1"
 _MAX_RESULT_MESSAGE_BYTES = 64 * 1024 * 1024
 
 
@@ -67,6 +69,13 @@ _MAX_RESULT_MESSAGE_BYTES = 64 * 1024 * 1024
 # has already removed the worker from its canonical lists.
 _UNREAPED_WORKER_HANDLES_LOCK = threading.Lock()
 _UNREAPED_WORKER_HANDLES: Dict[int, Dict[int, Any]] = {}
+_ACTIVE_WORKER_IDENTITIES_LOCK = threading.Lock()
+# Both registries are keyed by the outer manager SID, not by CUDA device.
+# Legacy WorkerManager mode hosts several devices in one session, while the
+# service-managed mode has one device per session.  The containment boundary
+# is the SID in both cases.
+_ACTIVE_WORKER_IDENTITIES: Dict[int, Dict[int, "_LinuxProcessIdentity"]] = {}
+_STARTING_WORKER_IDENTITIES: Dict[int, Dict[int, "_LinuxProcessIdentity"]] = {}
 
 
 @dataclass(frozen=True)
@@ -143,7 +152,11 @@ def _validate_exact_json_primitives(value: Any, *, max_depth: int = 32, max_node
 def _validate_result_message_schema(kind: str, payload: Dict[str, Any]) -> None:
     """Validate the fixed wire-message variants on both sides of the pipe."""
 
-    if kind == "ready":
+    if kind == "contained":
+        valid = payload.get("status") == "CONTAINED" and all(
+            type(payload.get(field)) is int for field in ("pid", "start_ticks", "pgid", "sid")
+        )
+    elif kind == "ready":
         valid = (
             payload.get("status") == "READY"
             and type(payload.get("init_time")) in {int, float}
@@ -324,6 +337,194 @@ def _snapshot_linux_processes() -> Dict[int, _LinuxProcessIdentity]:
         if identity is not None:
             snapshot[identity.pid] = identity
     return snapshot
+
+
+def _register_starting_worker_identity(identity: _LinuxProcessIdentity) -> None:
+    with _ACTIVE_WORKER_IDENTITIES_LOCK:
+        _STARTING_WORKER_IDENTITIES.setdefault(identity.sid, {})[identity.pid] = identity
+
+
+def _promote_active_worker_identity(
+    starting_identity: _LinuxProcessIdentity,
+    confirmed_identity: _LinuxProcessIdentity,
+) -> None:
+    """Atomically replace an exact-PID startup allowance with a PGID allowance."""
+
+    if (
+        starting_identity.pid != confirmed_identity.pid
+        or starting_identity.start_ticks != confirmed_identity.start_ticks
+        or starting_identity.sid != confirmed_identity.sid
+        or confirmed_identity.pgid != confirmed_identity.pid
+    ):
+        raise _ProcessContainmentError("worker identity changed before containment promotion")
+    with _ACTIVE_WORKER_IDENTITIES_LOCK:
+        starting = _STARTING_WORKER_IDENTITIES.get(starting_identity.sid)
+        registered = starting.get(starting_identity.pid) if starting is not None else None
+        if registered is None or registered.start_ticks != starting_identity.start_ticks:
+            raise _ProcessContainmentError("worker startup identity was not registered")
+        starting.pop(starting_identity.pid, None)
+        if not starting:
+            _STARTING_WORKER_IDENTITIES.pop(starting_identity.sid, None)
+        _ACTIVE_WORKER_IDENTITIES.setdefault(confirmed_identity.sid, {})[confirmed_identity.pid] = confirmed_identity
+
+
+def _unregister_worker_identity(identity: _LinuxProcessIdentity) -> None:
+    with _ACTIVE_WORKER_IDENTITIES_LOCK:
+        for registry in (_STARTING_WORKER_IDENTITIES, _ACTIVE_WORKER_IDENTITIES):
+            session_identities = registry.get(identity.sid)
+            if session_identities is None:
+                continue
+            registered = session_identities.get(identity.pid)
+            if registered is not None and registered.start_ticks == identity.start_ticks:
+                session_identities.pop(identity.pid, None)
+            if not session_identities:
+                registry.pop(identity.sid, None)
+
+
+def _active_worker_identities(session_id: int) -> list[_LinuxProcessIdentity]:
+    with _ACTIVE_WORKER_IDENTITIES_LOCK:
+        return list(_ACTIVE_WORKER_IDENTITIES.get(session_id, {}).values())
+
+
+def _starting_worker_identities(session_id: int) -> list[_LinuxProcessIdentity]:
+    with _ACTIVE_WORKER_IDENTITIES_LOCK:
+        return list(_STARTING_WORKER_IDENTITIES.get(session_id, {}).values())
+
+
+def _multiprocessing_resource_tracker_pid() -> Optional[int]:
+    try:
+        from multiprocessing import resource_tracker
+
+        pid = getattr(resource_tracker._resource_tracker, "_pid", None)
+    except (AttributeError, ImportError):
+        return None
+    return pid if isinstance(pid, int) and pid > 0 else None
+
+
+def _worker_session_is_contained_after_leader_exit(
+    leader: _LinuxProcessIdentity,
+) -> bool:
+    """Prove that a crashed worker left no unknown process in its outer SID.
+
+    Inner warm workers use independent PGIDs inside one GPU manager session.
+    An authenticated sibling and its observable PPid-descendant closure are
+    allowed, as are the exact outer manager and multiprocessing resource
+    tracker. PGID equality alone is never provenance: Linux can reuse a PID
+    while an orphaned group with the same numeric PGID still has members. Any
+    other session member may have escaped the crashed leader, so recovery must
+    fail closed before opening a fresh CUDA context.
+    """
+
+    snapshot = _snapshot_linux_processes()
+    outer_pid = os.getpid()
+    outer = snapshot.get(outer_pid)
+    if outer is None or outer.sid != leader.sid:
+        return False
+
+    allowed_pids = {outer_pid}
+    tracker_pid = _multiprocessing_resource_tracker_pid()
+    if tracker_pid is not None:
+        tracker = snapshot.get(tracker_pid)
+        if (
+            tracker is not None
+            and tracker.ppid == outer_pid
+            and tracker.pgid == outer.pgid
+            and tracker.sid == leader.sid
+        ):
+            allowed_pids.add(tracker_pid)
+
+    # Before the child proves its dedicated PGID it may be admitted only as an
+    # exact PID generation.  The child waits for the parent's promotion ACK
+    # before importing Torch/CUDA, so it cannot create a CUDA descendant in
+    # this provisional state.
+    allowed_starting_pids = {
+        registered.pid
+        for registered in _starting_worker_identities(leader.sid)
+        if (registered.pid != leader.pid or registered.start_ticks != leader.start_ticks)
+        and _same_process_generation(registered, snapshot.get(registered.pid))
+        and snapshot[registered.pid].sid == leader.sid
+    }
+
+    allowed_active_pids: set[int] = set()
+    for registered in _active_worker_identities(leader.sid):
+        observed = snapshot.get(registered.pid)
+        if (
+            (registered.pid != leader.pid or registered.start_ticks != leader.start_ticks)
+            and _same_process_generation(registered, observed)
+            and observed.sid == leader.sid
+            and observed.pgid == registered.pgid
+        ):
+            allowed_active_pids.add(observed.pid)
+            allowed_active_pids.update(
+                descendant.pid
+                for descendant in _descendants_from_snapshot(snapshot, observed.pid).values()
+                if descendant.sid == leader.sid
+            )
+
+    for member in snapshot.values():
+        if (
+            member.sid != leader.sid
+            or member.pid in allowed_pids
+            or member.pid in allowed_starting_pids
+            or member.pid in allowed_active_pids
+        ):
+            continue
+        return False
+    return True
+
+
+def _wait_for_worker_session_containment(
+    leader: _LinuxProcessIdentity,
+    timeout: float,
+) -> bool:
+    deadline = time.monotonic() + max(0.1, timeout)
+    while time.monotonic() < deadline:
+        try:
+            if _worker_session_is_contained_after_leader_exit(leader):
+                return True
+        except _ProcessContainmentError:
+            pass
+        time.sleep(0.02)
+    try:
+        return _worker_session_is_contained_after_leader_exit(leader)
+    except _ProcessContainmentError:
+        return False
+
+
+def _registered_worker_owns_reused_process_group(leader: _LinuxProcessIdentity) -> bool:
+    """Return whether ``leader.pgid`` now belongs to another attested generation."""
+
+    for registered in _active_worker_identities(leader.sid):
+        if registered.pid != leader.pgid or registered.start_ticks == leader.start_ticks:
+            continue
+        observed = _read_linux_process_identity(registered.pid)
+        if (
+            _same_process_generation(registered, observed)
+            and observed.pgid == registered.pid
+            and observed.sid == leader.sid
+        ):
+            return True
+    return False
+
+
+def _wait_for_process_group_drain_or_registered_reuse(
+    leader: _LinuxProcessIdentity,
+    timeout: float,
+) -> bool:
+    """Prove the old PGID absent, or prove its number belongs to a new worker."""
+
+    deadline = time.monotonic() + max(0.1, timeout)
+    while time.monotonic() < deadline:
+        try:
+            if _process_group_is_drained(leader.pgid) or _registered_worker_owns_reused_process_group(leader):
+                return True
+        except _ProcessContainmentError:
+            pass
+        time.sleep(0.02)
+    try:
+        return _process_group_is_drained(leader.pgid) or _registered_worker_owns_reused_process_group(leader)
+    except _ProcessContainmentError:
+        return False
 
 
 def _same_process_generation(
@@ -1202,6 +1403,7 @@ class PersistentWorker:
         self._shutdown_complete = False
         self._result_channel_closed = False
         self._process_identity: Optional[_LinuxProcessIdentity] = None
+        self._starting_process_identity: Optional[_LinuxProcessIdentity] = None
         self._expected_session_id = os.getsid(0)
 
         # 启动 worker 进程
@@ -1279,10 +1481,84 @@ class PersistentWorker:
         # constructor exception otherwise prevents the caller from ever
         # obtaining the only Process handle for a possibly live CUDA context.
         try:
+            process_pid = self.process.pid if self.process is not None else None
+            if not isinstance(process_pid, int):
+                raise WorkerInitializationError(
+                    "started worker has no process PID",
+                    init_stage="process_containment",
+                )
+            starting_identity = _read_linux_process_identity(process_pid)
+            if (
+                starting_identity is None
+                or starting_identity.pid != process_pid
+                or starting_identity.ppid != os.getpid()
+                or starting_identity.sid != self._expected_session_id
+            ):
+                raise WorkerInitializationError(
+                    "started worker could not be generation-authenticated inside the outer session",
+                    init_stage="process_containment",
+                )
+            self._starting_process_identity = starting_identity
+            _register_starting_worker_identity(starting_identity)
+
+            handshake_deadline = time.monotonic() + _WORKER_READY_TIMEOUT_S
+            try:
+                containment_msg = _receive_worker_message(
+                    self.result_queue,
+                    timeout=max(0.0, handshake_deadline - time.monotonic()),
+                    expected_kinds=frozenset({"contained", "init_failed"}),
+                )
+            except queue.Empty as exc:
+                raise WorkerInitializationError(
+                    f"[{self.worker_id}] Worker containment timeout (>{_WORKER_READY_TIMEOUT_S:.0f}s)",
+                    init_stage="handshake_timeout",
+                ) from exc
+
+            if not isinstance(containment_msg, dict):
+                raise WorkerInitializationError(
+                    f"Worker returned malformed containment handshake: {type(containment_msg).__name__}",
+                    init_stage="handshake_protocol",
+                )
+            if containment_msg.get("status") != "CONTAINED":
+                init_stage = str(containment_msg.get("init_stage") or "unknown")
+                init_error = str(containment_msg.get("error") or containment_msg)
+                raise WorkerInitializationError(
+                    f"Worker failed to initialize at {init_stage}: {init_error}",
+                    init_stage=init_stage,
+                )
+
+            identity = _read_linux_process_identity(process_pid)
+            reported_identity = (
+                containment_msg.get("pid"),
+                containment_msg.get("start_ticks"),
+                containment_msg.get("pgid"),
+                containment_msg.get("sid"),
+            )
+            expected_identity = (
+                process_pid,
+                identity.start_ticks if identity is not None else None,
+                process_pid,
+                self._expected_session_id,
+            )
+            if identity is None or reported_identity != expected_identity:
+                raise WorkerInitializationError(
+                    "worker process identity/PGID attestation failed: "
+                    f"reported={reported_identity}, expected={expected_identity}",
+                    init_stage="process_containment",
+                )
+            if identity.pgid != process_pid or identity.sid != self._expected_session_id:
+                raise WorkerInitializationError(
+                    "worker did not enter its dedicated PGID inside the outer worker session",
+                    init_stage="process_containment",
+                )
+            self._process_identity = identity
+            _promote_active_worker_identity(starting_identity, identity)
+            self.task_queue.put(_PARENT_CONTAINMENT_ACK)
+
             try:
                 init_msg = _receive_worker_message(
                     self.result_queue,
-                    timeout=_WORKER_READY_TIMEOUT_S,
+                    timeout=max(0.0, handshake_deadline - time.monotonic()),
                     expected_kinds=frozenset({"ready", "init_failed"}),
                 )  # 给足够时间加载 torch (increased from 60s)
             except queue.Empty as exc:
@@ -1304,40 +1580,25 @@ class PersistentWorker:
                     init_stage=init_stage,
                 )
 
-            logger.info(
-                f"[{self.worker_id}] Worker initialized successfully (init_time={init_msg.get('init_time', 0):.2f}s)"
-            )
-            process_pid = self.process.pid if self.process is not None else None
-            if not isinstance(process_pid, int):
-                raise WorkerInitializationError(
-                    "READY worker has no process PID",
-                    init_stage="process_containment",
-                )
-            identity = _read_linux_process_identity(process_pid)
-            reported_identity = (
+            ready_identity = (
                 init_msg.get("pid"),
                 init_msg.get("start_ticks"),
                 init_msg.get("pgid"),
                 init_msg.get("sid"),
             )
-            expected_identity = (
-                process_pid,
-                identity.start_ticks if identity is not None else None,
-                process_pid,
-                self._expected_session_id,
+            current_identity = _read_linux_process_identity(process_pid)
+            if (
+                current_identity is None
+                or ready_identity != expected_identity
+                or not _same_process_generation(identity, current_identity)
+            ):
+                raise WorkerInitializationError(
+                    "READY worker identity changed after containment promotion",
+                    init_stage="process_containment",
+                )
+            logger.info(
+                f"[{self.worker_id}] Worker initialized successfully (init_time={init_msg.get('init_time', 0):.2f}s)"
             )
-            if identity is None or reported_identity != expected_identity:
-                raise WorkerInitializationError(
-                    "READY worker process identity/PGID attestation failed: "
-                    f"reported={reported_identity}, expected={expected_identity}",
-                    init_stage="process_containment",
-                )
-            if identity.pgid != process_pid or identity.sid != self._expected_session_id:
-                raise WorkerInitializationError(
-                    "READY worker did not enter its dedicated PGID inside the outer worker session",
-                    init_stage="process_containment",
-                )
-            self._process_identity = identity
             self.is_alive_flag = True
         except BaseException as handshake_error:
             self.is_alive_flag = False
@@ -1536,26 +1797,60 @@ class PersistentWorker:
 
         process_stopped = self.process is None
         containment_proven = self.process is None
+        session_audit_identity: Optional[_LinuxProcessIdentity] = None
         try:
             if self.process is not None:
                 identity = self._process_identity
+                starting_identity = getattr(self, "_starting_process_identity", None)
                 if identity is None and isinstance(self.process.pid, int):
                     candidate = _read_linux_process_identity(self.process.pid)
                     if (
                         candidate is not None
                         and candidate.pgid == candidate.pid
                         and candidate.sid == self._expected_session_id
+                        and (starting_identity is None or _same_process_generation(starting_identity, candidate))
                     ):
                         identity = candidate
                         self._process_identity = candidate
+                    elif starting_identity is not None:
+                        # The owned child either has not established its PGID,
+                        # has exited, or its numeric PID now belongs to another
+                        # generation.  Never adopt or signal that generation.
+                        # After joining the owned Process below, the full SID
+                        # audit can still prove that the trusted bootstrap left
+                        # no unknown descendant behind.
+                        containment_proven = True
+                        session_audit_identity = starting_identity
+                        logger.warning(
+                            f"[{self.worker_id}] Startup leader generation cannot be adopted; "
+                            "requiring owned-process join and complete SID containment proof"
+                        )
 
                 if identity is not None:
-                    containment_proven = _kill_and_verify_worker_process_tree(
-                        identity,
-                        freeze_timeout=max(1.0, min(5.0, float(timeout))),
-                        reap_timeout=max(3.0, float(timeout)),
-                    )
-                else:
+                    current_identity = _read_linux_process_identity(identity.pid)
+                    if _same_process_generation(identity, current_identity):
+                        containment_proven = _kill_and_verify_worker_process_tree(
+                            identity,
+                            freeze_timeout=max(1.0, min(5.0, float(timeout))),
+                            reap_timeout=max(3.0, float(timeout)),
+                        )
+                    else:
+                        # A native crash can reap the leader before the parent
+                        # enters shutdown.  There is then no live PID
+                        # generation that can be frozen or safely signalled.
+                        # Treat this only as provisional containment: below we
+                        # still join the owned multiprocessing handle and
+                        # require kernel ESRCH for its dedicated PGID.  A
+                        # surviving same-PGID descendant therefore continues
+                        # to fail closed, while an already-drained crash can
+                        # proceed to the pool's fresh CUDA-context probe.
+                        containment_proven = True
+                        session_audit_identity = identity
+                        logger.warning(
+                            f"[{self.worker_id}] Worker leader generation exited before shutdown; "
+                            f"requiring owned-process join and PGID {identity.pgid} drain proof"
+                        )
+                elif session_audit_identity is None:
                     containment_proven = False
 
                 # Join the multiprocessing leader even after killpg so its
@@ -1567,8 +1862,20 @@ class PersistentWorker:
                     self.process.join(timeout=10)
                     process_stopped = not self.process.is_alive()
                 if identity is not None:
-                    containment_proven = containment_proven and _wait_for_process_group_drain(
-                        identity.pgid,
+                    if session_audit_identity is identity:
+                        group_drained = _wait_for_process_group_drain_or_registered_reuse(
+                            identity,
+                            max(3.0, float(timeout)),
+                        )
+                    else:
+                        group_drained = _wait_for_process_group_drain(
+                            identity.pgid,
+                            max(3.0, float(timeout)),
+                        )
+                    containment_proven = containment_proven and group_drained
+                if containment_proven and session_audit_identity is not None:
+                    containment_proven = _wait_for_worker_session_containment(
+                        session_audit_identity,
                         max(3.0, float(timeout)),
                     )
         except BaseException as exc:
@@ -1589,6 +1896,11 @@ class PersistentWorker:
         # after exit is proven.  Closing an alive Process loses the safe handle
         # needed to terminate and reap its CUDA context.
         if shutdown_proven:
+            registered_identity = getattr(self, "_process_identity", None) or getattr(
+                self, "_starting_process_identity", None
+            )
+            if registered_identity is not None:
+                _unregister_worker_identity(registered_identity)
             if self.process is not None:
                 try:
                     self.process.close()
@@ -3615,6 +3927,7 @@ def _persistent_worker_loop(
             fallback_put(payload)
 
     wait_for_parent_containment = threading.Event().wait
+    parent_containment_acknowledged = False
     trusted_fault_none = FAULT_NONE
     try:
         prepare_core_dump_dir(os.environ.get(CORE_DUMP_DIR_ENV), os.environ.get(CORE_DUMP_KEEP_ENV), chdir=True)
@@ -3645,6 +3958,24 @@ def _persistent_worker_loop(
             or process_identity.sid != os.getsid(0)
         ):
             raise RuntimeError("worker failed to establish its dedicated process group")
+        send_result_message(
+            "contained",
+            {
+                "status": "CONTAINED",
+                "pid": process_identity.pid,
+                "start_ticks": process_identity.start_ticks,
+                "pgid": process_identity.pgid,
+                "sid": process_identity.sid,
+            },
+        )
+        init_stage = "parent_containment_ack"
+        try:
+            containment_ack = task_queue.get(timeout=_PARENT_CONTAINMENT_ACK_TIMEOUT_S)
+        except queue.Empty as exc:
+            raise RuntimeError("parent containment acknowledgement timed out") from exc
+        if containment_ack != _PARENT_CONTAINMENT_ACK:
+            raise RuntimeError("worker received an invalid parent containment acknowledgement")
+        parent_containment_acknowledged = True
 
         # Import 依赖
         init_stage = "imports"
@@ -3857,6 +4188,11 @@ def _persistent_worker_loop(
                 "traceback": traceback.format_exc(),
             },
         )
+        if not parent_containment_acknowledged:
+            # No CUDA-capable imports or contexts exist before the ACK.  A
+            # bounded exit prevents an orphan from blocking forever on its own
+            # duplicated multiprocessing.Queue writer when the parent dies.
+            return
         # A partially initialized CUDA/import process may already own native
         # descendants.  Keep its attested leader alive so the constructor's
         # handshake failure path can freeze and reap the process tree.

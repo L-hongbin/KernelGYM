@@ -7,6 +7,8 @@ logic with a synthetic wheel layout (no GPU, no nvcc).
 """
 
 import importlib.util
+import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -94,3 +96,87 @@ def test_link_flags_graceful_when_wheels_absent(monkeypatch) -> None:
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
     # No vendored libs found -> no flags, build falls back to prior behavior.
     assert KernelBenchTvmFfiBackend._cuda_math_link_flags() == []
+
+
+def test_strict_link_flag_is_always_enabled(monkeypatch) -> None:
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+
+    # Even a minimal/non-wheel CUDA layout must reject unresolved symbols at
+    # link time instead of letting dlopen kill a CUDA-owning worker later.
+    assert KernelBenchTvmFfiBackend._link_flags() == ["-Wl,-z,defs"]
+
+
+def test_artifact_cache_key_is_fenced_by_strict_link_policy(monkeypatch) -> None:
+    inputs = {
+        "model_code": "class ModelNew: pass",
+        "cuda_sources": {"kernel.cu": 'extern "C" __global__ void kernel() {}'},
+        "entry_point": "ModelNew",
+    }
+    monkeypatch.setattr(KernelBenchTvmFfiBackend, "_link_flags", staticmethod(lambda: []))
+    permissive_key = KernelBenchTvmFfiBackend._artifact_cache_key(**inputs)
+    monkeypatch.setattr(
+        KernelBenchTvmFfiBackend,
+        "_link_flags",
+        staticmethod(lambda: ["-Wl,-z,defs"]),
+    )
+
+    assert KernelBenchTvmFfiBackend._artifact_cache_key(**inputs) != permissive_key
+
+
+def test_build_extension_passes_strict_link_policy(monkeypatch, tmp_path) -> None:
+    captured = {}
+
+    class _FakeCpp:
+        @staticmethod
+        def build(**kwargs):
+            captured.update(kwargs)
+            return tmp_path / "build" / "extension.so"
+
+    monkeypatch.setattr(
+        KernelBenchTvmFfiBackend,
+        "_import_tvm_ffi",
+        staticmethod(lambda: (object(), _FakeCpp)),
+    )
+    monkeypatch.setattr(
+        KernelBenchTvmFfiBackend,
+        "_cuda_math_link_flags",
+        staticmethod(lambda: ["/fake/libcublas.so.12", "-Wl,-rpath,/fake"]),
+    )
+
+    result = KernelBenchTvmFfiBackend._build_extension(
+        tmp_path,
+        [str(tmp_path / "binding.cpp")],
+        [str(tmp_path / "kernel.cu")],
+    )
+
+    assert result["compiled"] is True
+    assert captured["extra_ldflags"] == [
+        "/fake/libcublas.so.12",
+        "-Wl,-rpath,/fake",
+        "-Wl,-z,defs",
+    ]
+
+
+@pytest.mark.skipif(
+    os.environ.get("KERNELGYM_RUN_TVM_FFI_LINK_INTEGRATION") != "1",
+    reason="requires the target CUDA/tvm-ffi compiler image",
+)
+def test_real_tvm_ffi_extension_links_under_strict_policy(monkeypatch) -> None:
+    monkeypatch.syspath_prepend(str(Path(__file__).parents[1] / "benchmarks"))
+    from kernels.tvm_ffi_vector_add import KERNEL_CODE
+
+    backend = KernelBenchTvmFfiBackend()
+    sources, model_code = backend._parse_embedded_sources(KERNEL_CODE)
+    result = backend.compile(
+        model_code,
+        cuda_sources=sources,
+        device="cuda:0",
+        entry_point="ModelNew",
+        enable_compile_artifact_cache=False,
+    )
+    try:
+        assert result.get("compiled") is True, result.get("error")
+    finally:
+        work_dir = result.get("work_dir")
+        if work_dir:
+            shutil.rmtree(work_dir, ignore_errors=True)

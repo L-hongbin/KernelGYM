@@ -30,6 +30,7 @@ _TVM_FFI_DEFAULT_NVCC_THREADS = "4"
 _COMPILE_ARTIFACT_CACHE_ENV = "KERNELGYM_COMPILE_ARTIFACT_CACHE"
 _TVM_FFI_COMPILE_ARTIFACT_CACHE_DIR_ENV = "KERNELGYM_TVM_FFI_COMPILE_ARTIFACT_CACHE_DIR"
 _TVM_FFI_DEFAULT_ARTIFACT_CACHE_DIR = "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts"
+_TVM_FFI_STRICT_LINK_FLAG = "-Wl,-z,defs"
 
 
 class _TvmFfiExtensionModule(types.ModuleType):
@@ -185,7 +186,7 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
             "nvcc_threads": os.environ.get(_NVCC_THREADS_ENV, _TVM_FFI_DEFAULT_NVCC_THREADS),
             "extra_cflags": ["-O3"],
             "extra_cuda_cflags": ["-O3", "--use_fast_math"],
-            "extra_ldflags": KernelBenchTvmFfiBackend._cuda_math_link_flags(),
+            "extra_ldflags": KernelBenchTvmFfiBackend._link_flags(),
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -343,6 +344,24 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
         return link_inputs + [f"-Wl,-rpath,{lib_dir}" for lib_dir in rpath_dirs]
 
     @staticmethod
+    def _link_flags() -> list[str]:
+        """Return all host-linker flags for a load-safe TVM-FFI artifact.
+
+        Shared-library links normally permit unresolved symbols.  That is not
+        safe for generated TVM-FFI modules: a missing CUDA launcher is then
+        discovered only by the dynamic loader inside a CUDA-owning worker,
+        which terminates the process before the pool can freeze its process
+        tree.  ``-z defs`` moves that failure into the CPU compile stage, where
+        it is an ordinary compilation error and no CUDA context is at risk.
+
+        Keep this policy in the artifact-cache fingerprint as well as the
+        actual build flags so artifacts produced under the previous permissive
+        policy can never be reused after an upgrade.
+        """
+
+        return [*KernelBenchTvmFfiBackend._cuda_math_link_flags(), _TVM_FFI_STRICT_LINK_FLAG]
+
+    @staticmethod
     def _build_extension(work_dir: Path, cpp_files: list[str], cuda_files: list[str]) -> Dict[str, Any]:
         if not cpp_files:
             return {
@@ -365,7 +384,7 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
         nvcc_threads = os.environ.get(_NVCC_THREADS_ENV, _TVM_FFI_DEFAULT_NVCC_THREADS)
         extra_cflags = ["-O3"]
         extra_cuda_cflags = ["-O3", "--use_fast_math", "--threads", nvcc_threads]
-        extra_ldflags = KernelBenchTvmFfiBackend._cuda_math_link_flags()
+        extra_ldflags = KernelBenchTvmFfiBackend._link_flags()
         so_path = tvm_ffi_cpp.build(
             name=ext_name,
             cpp_files=cpp_files,
@@ -374,7 +393,7 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
             backend="cuda",
             extra_cflags=extra_cflags,
             extra_cuda_cflags=extra_cuda_cflags,
-            extra_ldflags=extra_ldflags or None,
+            extra_ldflags=extra_ldflags,
         )
         return {
             "compiled": True,

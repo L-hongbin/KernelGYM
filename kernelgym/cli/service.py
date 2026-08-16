@@ -759,10 +759,22 @@ def _session_is_drained(session_id: int, observed_process_groups: set[int]) -> b
 
 def _wait_for_session_drain(session_id: int, observed_process_groups: set[int], timeout: float) -> bool:
     deadline = time.monotonic() + max(0.0, timeout)
+    last_scan_error: Exception | None = None
     while True:
-        if _session_is_drained(session_id, observed_process_groups):
-            return True
+        try:
+            if _session_is_drained(session_id, observed_process_groups):
+                return True
+            last_scan_error = None
+        except (OSError, RuntimeError, ValueError) as exc:
+            # Numeric /proc entries can disappear or become temporarily
+            # unreadable while a process exits.  One incomplete snapshot is
+            # not a containment failure and is not an absence proof either:
+            # retry until a complete scan proves the SID empty or the existing
+            # shutdown deadline expires.
+            last_scan_error = exc
         if time.monotonic() >= deadline:
+            if last_scan_error is not None:
+                raise RuntimeError(f"Could not complete session {session_id} drain scan") from last_scan_error
             return False
         time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
 
@@ -939,19 +951,58 @@ def _stop_authenticated_worker_group(
         if not expected_start_ticks:
             return False, f"legacy zombie PID {pid} cannot be generation-authenticated"
     elif not _cmdline_matches_worker(pid, worker_id):
-        return False, f"PID {pid} command line no longer belongs to worker {worker_id}"
+        latest = _read_process_identity(pid)
+        if latest is not None and latest.state != "Z":
+            return False, f"PID {pid} command line no longer belongs to worker {worker_id}"
+        try:
+            if _wait_for_session_drain(worker_session, observed_process_groups, graceful_seconds):
+                return True, ""
+        except Exception as exc:
+            return False, f"session drain proof failed: {type(exc).__name__}"
+        return _force_kill_worker_session(
+            worker_session,
+            expected_leader_start_ticks=expected_start_ticks or identity.start_ticks,
+            observed_process_groups=observed_process_groups,
+        )
 
     # Legacy maps did not carry start ticks. A live matching worker can be
     # authenticated from /proc; a zombie cannot because its cmdline is empty.
     authenticated_ticks = expected_start_ticks or identity.start_ticks
     current = _read_process_identity(pid)
-    if current is not None and (
+    if current is None:
+        try:
+            if _session_is_drained(worker_session, observed_process_groups):
+                return True, ""
+        except Exception as exc:
+            return False, f"session drain proof failed: {type(exc).__name__}"
+        # The authenticated leader exited between validation and the final
+        # signal fence.  Never signal its bare numeric PGID: it may already be
+        # reusable.  Freeze and clean only groups rediscovered as members of
+        # the recorded SID, then require the normal complete drain proof.
+        return _force_kill_worker_session(
+            worker_session,
+            expected_leader_start_ticks=authenticated_ticks,
+            observed_process_groups=observed_process_groups,
+        )
+    if (
         current.start_ticks != authenticated_ticks
         or current.process_group != process_group
         or current.session_id != worker_session
         or (current.state != "Z" and not _cmdline_matches_worker(pid, worker_id))
     ):
-        return False, f"PID {pid} generation changed immediately before SIGTERM"
+        latest = _read_process_identity(pid)
+        if latest is not None and latest.state != "Z":
+            return False, f"PID {pid} generation changed immediately before SIGTERM"
+        try:
+            if _wait_for_session_drain(worker_session, observed_process_groups, graceful_seconds):
+                return True, ""
+        except Exception as exc:
+            return False, f"session drain proof failed: {type(exc).__name__}"
+        return _force_kill_worker_session(
+            worker_session,
+            expected_leader_start_ticks=authenticated_ticks,
+            observed_process_groups=observed_process_groups,
+        )
 
     try:
         os.killpg(process_group, signal.SIGTERM)
@@ -1331,7 +1382,20 @@ def _stop_discovered_process_group(pid: int, pattern: str, graceful_seconds: flo
     if identity.process_group != pid or identity.session_id != pid:
         return False, f"matched PID {pid} is not a new-session leader"
     if identity.state == "Z" or not _cmdline_matches_pattern(pid, pattern):
-        return False, f"PID {pid} no longer matches service pattern {pattern}"
+        latest = _read_process_identity(pid)
+        if latest is not None and latest.state != "Z":
+            return False, f"PID {pid} no longer matches service pattern {pattern}"
+        observed_process_groups = {identity.process_group}
+        try:
+            if _wait_for_session_drain(identity.session_id, observed_process_groups, graceful_seconds):
+                return True, ""
+        except Exception as exc:
+            return False, f"session drain proof failed: {type(exc).__name__}"
+        return _force_kill_worker_session(
+            identity.session_id,
+            expected_leader_start_ticks=identity.start_ticks,
+            observed_process_groups=observed_process_groups,
+        )
     observed_process_groups = {identity.process_group}
     current = _read_process_identity(pid)
     if current is None:
@@ -1352,7 +1416,19 @@ def _stop_discovered_process_group(pid: int, pattern: str, graceful_seconds: flo
         or current.state == "Z"
         or not _cmdline_matches_pattern(pid, pattern)
     ):
-        return False, f"PID {pid} generation changed immediately before SIGTERM"
+        latest = _read_process_identity(pid)
+        if latest is not None and latest.state != "Z":
+            return False, f"PID {pid} generation changed immediately before SIGTERM"
+        try:
+            if _wait_for_session_drain(identity.session_id, observed_process_groups, graceful_seconds):
+                return True, ""
+        except Exception as exc:
+            return False, f"session drain proof failed: {type(exc).__name__}"
+        return _force_kill_worker_session(
+            identity.session_id,
+            expected_leader_start_ticks=identity.start_ticks,
+            observed_process_groups=observed_process_groups,
+        )
     try:
         os.killpg(identity.process_group, signal.SIGTERM)
     except ProcessLookupError:
@@ -1430,6 +1506,19 @@ def cmd_stop(args: argparse.Namespace) -> int:
     redis_is_up = bool(is_local_redis and _port_is_open(redis_host, REDIS_PORT))
     client = _redis_client(values) if redis_is_up else None
 
+    # Close the public admission point before any potentially slow monitor
+    # notification or worker drain.  Otherwise a request can enter after the
+    # queue was observed empty but before the workers are stopped, leaving a
+    # half-shutdown deployment executing an orphaned task.
+    safe = _kill_processes(
+        "kernelgym.server.api.server",
+        "KernelGym API server",
+        min(grace, 15.0),
+    )
+    if not safe:
+        print("KernelGym stop is INCOMPLETE; API admission is still live, preserving all process maps.")
+        return 1
+
     # Stop the supervisor first so it cannot race this command by replacing a
     # worker while the old process group is draining.
     safe = _kill_processes(
@@ -1459,7 +1548,6 @@ def cmd_stop(args: argparse.Namespace) -> int:
         ("kernelgym.worker.single_worker", "KernelGym single workers"),
         ("kernelgym.worker.cpu_worker", "KernelGym CPU compile workers"),
         ("kernelgym.worker.gpu_worker", "KernelGym worker manager"),
-        ("kernelgym.server.api.server", "KernelGym API server"),
     ]:
         if not _kill_processes(
             pattern,
