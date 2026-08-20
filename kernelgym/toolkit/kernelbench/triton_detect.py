@@ -9,11 +9,6 @@ def _call_no_grad(run: Callable, *args, **kwargs):
         return run(*args, **kwargs)
 
 
-def _call_inference(run: Callable, *args, **kwargs):
-    """向后兼容：默认使用 no-grad 行为。"""
-    return _call_no_grad(run, *args, **kwargs)
-
-
 def _resolve_triton_jitfunction():
     """尝试获取 Triton 的 JITFunction 类型；失败时返回 None。"""
     try:
@@ -912,7 +907,7 @@ def detect_cuda_usage(
       - bool 或 (bool, List[str])
     """
     is_module = isinstance(fn_or_model, torch.nn.Module)
-    run_callable = (lambda *a, **k: _call_inference(fn_or_model, *a, **k)) if is_module else fn_or_model
+    run_callable = (lambda *a, **k: _call_no_grad(fn_or_model, *a, **k)) if is_module else fn_or_model
 
     # 预热
     for _ in range(max(0, int(warmup))):

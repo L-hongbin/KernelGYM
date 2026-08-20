@@ -1,6 +1,6 @@
 # Inference-Mode CPU Characterization — 2026-08-20
 
-Status: historical characterization evidence only. KernelGym subsequently adopted `model.eval()` plus `torch.no_grad()` and does not use inference mode in the runtime policy.
+Status: historical characterization evidence only. KernelGym subsequently adopted `model.eval()` plus `torch.no_grad()` and does not use inference mode in the runtime policy. The experiment-only test files were removed after the policy was fixed; this report preserves their result and rationale.
 
 ## Environment
 

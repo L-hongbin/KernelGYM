@@ -52,13 +52,13 @@ This file indexes stable repository docs and evidence locations.
 | `tests/utils/` | Core-dump and page-user notification utility tests. |
 | `tests/kernelbench/backends/` | CUDA-Agent and TVM-FFI backend/schema tests. |
 | `tests/kernelbench/correctness/` | Correctness, cache-poison, and true-FP32 policy tests. |
-| `tests/kernelbench/execution_modes/` | Active eval plus no-grad policy regressions and retained inference-mode compatibility characterization. |
+| `tests/kernelbench/execution_modes/` | Active eval plus no-grad correctness, timing, Triton-detection, and cache-fence regressions. |
 | `tests/kernelbench/profiling/` | CUPTI, profiler capture/trial, and ATen decoy-detection tests. |
 | `tests/kernelbench/timing/` | CUDA timing-window tests. |
 | `tests/kernelbench/workflow/` | Precision propagation and split-stage affinity tests. |
 | `scripts/manage_core_dumps.py` | Move root-level core dumps into the configured directory and keep only the newest retained files. |
 | `scripts/manage_gpu_quarantine.py` | Inspect or explicitly clear a stopped GPU worker's durable safety latch. |
-| `docs/testing/KERNELBENCH_EXECUTION_MODES.md` | Execution-mode test scope, data discovery, and category-level invocation. |
+| `docs/testing/KERNELBENCH_EXECUTION_MODES.md` | Execution-mode regression scope and category-level invocation. |
 
 ## External Source References
 

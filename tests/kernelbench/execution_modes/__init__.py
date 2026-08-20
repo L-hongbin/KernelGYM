@@ -1,1 +1,1 @@
-"""Execution-mode compatibility and policy characterization tests."""
+"""Active eval and no-grad execution-mode regression tests."""

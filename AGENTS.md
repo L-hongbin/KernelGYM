@@ -23,5 +23,6 @@ Do not maintain a separate running-status log unless explicitly asked.
 ## Execution
 
 - Ask for explicit user approval before restarting services.
+- Complete each simplify milestone only after unit tests and a read-only `cursor-grok-4.6-xhigh` review pass, then notify the user through the page-user MCP with the milestone outcome.
 - Adapt pragmatically when instructions need mid-run adjustment; report what changed and why at the end (what happened → why → what changed → current status → remaining gaps).
 - On repeated errors, stop retrying — research 3–5 fixes, pick the best, implement it.
