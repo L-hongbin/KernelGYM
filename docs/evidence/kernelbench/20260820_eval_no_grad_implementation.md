@@ -35,6 +35,8 @@ The full suite was subsequently run on `ai-16-17` with one A800 exposed through 
 CUDA_VISIBLE_DEVICES=0 PYTHONPATH=$PWD .venv/bin/python -m pytest -q -p no:cacheprovider
 ```
 
-Result: 556 passed, 4 skipped, and 1 failed. The only failure was the pre-existing CUDA-Agent reusable-source classifier test. All GPU correctness, timing, profiling, CUPTI-shim, and CUDA-Agent compile/load/run tests passed. The run briefly waited on an NFS RPC and then recovered without intervention.
+The first GPU run produced 556 passed, 4 skipped, and the pre-existing CUDA-Agent reusable-source classifier failure. The classifier was subsequently fixed to reject module-name-bound source objects, with parameterized coverage for Pybind11, Boost.Python, direct `PyInit_` entry points, and a reusable ordinary CUDA source.
+
+The final full run used the same A800 plus a disposable localhost Redis instance so all four opt-in Redis integration tests executed. Result: 567 passed, 1 skipped, and 0 failed. The remaining skip was the separately gated real TVM-FFI strict-link integration; rerunning that test with `KERNELGYM_RUN_TVM_FFI_LINK_INTEGRATION=1` passed. Across the full run and the explicit opt-in follow-up, all 568 collected tests executed successfully. The temporary Redis instance was shut down and its temporary directory removed after validation.
 
 The focused policy suite was expanded following the Grok review to directly assert inference mode disabled, standalone reference timing eval preparation, current-policy cache preload, and the production candidate GPU timing context. The final focused run combined 11 active-policy tests with 4 real-CUDA timing tests and passed all 15. A full 250-problem KernelBench corpus sweep remains separate from this unit-test validation. Deployment and service restart require separate user approval.

@@ -1,5 +1,7 @@
 """KernelBench backend schema and CUDA-Agent validation tests."""
 
+import pytest
+
 from kernelgym.common import Backend
 from kernelgym.backend.kernelbench.cuda_agent_backend import KernelBenchCudaAgentBackend
 from kernelgym.backend.kernelbench import tvm_ffi_backend
@@ -262,12 +264,21 @@ build extension.so: link generated.cuda.o generated_binding.o
     ]
 
 
-def test_cuda_agent_object_reuse_skips_module_bound_sources(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "module_binding",
+    [
+        "PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {}",
+        "PYBIND11_PLUGIN(custom_extension) {}",
+        "BOOST_PYTHON_MODULE(custom_extension) {}",
+        "PyMODINIT_FUNC PyInit_custom_extension() {}",
+    ],
+)
+def test_cuda_agent_object_reuse_skips_module_bound_sources(tmp_path, module_binding) -> None:
     source = tmp_path / "binding.cpp"
     source.write_text(
-        """
+        f"""
 #include <torch/extension.h>
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {}
+{module_binding}
 """,
         encoding="utf-8",
     )
@@ -276,6 +287,16 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {}
 
     assert reusable is False
     assert "module name" in str(reason)
+
+
+def test_cuda_agent_object_reuse_accepts_module_independent_source(tmp_path) -> None:
+    source = tmp_path / "kernel.cu"
+    source.write_bytes(b'extern "C" __global__ void identity(float* x) { x[0] = x[0]; }\n')
+
+    reusable, reason = KernelBenchCudaAgentBackend._source_is_reusable_object(source)
+
+    assert reusable is True
+    assert reason is None
 
 
 def test_cuda_agent_rewrites_ninja_link_inputs_for_cached_objects(tmp_path) -> None:
