@@ -16,6 +16,10 @@ from kernelgym.toolkit.kernelbench.exec_types import (
     get_error_name,
     set_seed,
 )
+from kernelgym.toolkit.kernelbench.execution_policy import (
+    prepare_model_for_execution,
+    record_execution_policy,
+)
 from kernelgym.toolkit.kernelbench.profiling import (
     aten_operator_profiling_context,
     extract_aten_operator_metrics,
@@ -374,6 +378,7 @@ def run_and_check_correctness(
     metadata["correctness_forward_seed_reset_enabled"] = True
     metadata["correctness_tolerance_source"] = "kernelbench_precision_or_fp32_integral"
     metadata["aten_detection_enabled"] = bool(detect_aten_fallback)
+    record_execution_policy(metadata)
     if max_wall_time_s is not None:
         metadata["correctness_max_wall_s"] = max_wall_time_s
 
@@ -496,9 +501,9 @@ def run_and_check_correctness(
 
     with _true_fp32_correctness_context(metadata), torch.no_grad():
         set_seed(seed)
-        model = original_model_instance.cuda(device=device)
+        model = prepare_model_for_execution(original_model_instance.cuda(device=device))
         set_seed(seed)
-        model_new = new_model_instance.cuda(device=device)
+        model_new = prepare_model_for_execution(new_model_instance.cuda(device=device))
 
         for trial in range(num_correct_trials):
             if trial > 0:

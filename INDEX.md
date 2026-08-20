@@ -13,6 +13,7 @@ This file indexes stable repository docs and evidence locations.
 | `docs/SOURCE_LINEAGE.md` | Source repositories and imported/excluded behavior. |
 | `docs/IMPLEMENTATION_DIFFERENCES.md` | Current implementation differences from source repositories. |
 | `docs/design-doc/COMPILE_ACCELERATION.md` | CUDA-Agent compile acceleration design. |
+| `docs/design-doc/EVAL_NO_GRAD_EXECUTION.md` | Fixed KernelBench eval-mode plus no-grad correctness/timing policy and cache fences. |
 | `docs/design-doc/GPU_FAULT_CONTAINMENT.md` | Docker-only CUDA fault containment, fresh-context probe, durable quarantine, page-user alert, and manual recovery design. |
 | `docs/design-doc/PROFILER_EMPTY_CAPTURE.md` | CUPTI TSC timestamp bug root cause and version-gated profiling-trial policy. |
 | `docs/design-doc/REWARD_HACKING_DEFENSES.md` | Current reward-hacking defense design notes. |
@@ -75,3 +76,6 @@ Tracked review-evidence files only. Untracked run logs and debug artifacts
 | --- | --- |
 | `benchmarks/review_evidence/official_27b_review_evidence.json` | Adversarial review evidence for official 27B 3-binding c3/c8 runs: pairing, sample IDs, coverage, statuses, queue deltas, residuals, and c3/c8 consistency. |
 | `benchmarks/review_evidence/official_27b_perf_step_correctness_summary.json` | Perf-step breakdown split by completed, correct-only, and incorrect-completed rows for official 27B c3/c8 runs. |
+| `docs/evidence/kernelbench/20260820_cpu_characterization.md` | PyTorch 2.11 CPU characterization, representative KernelBench A/B results, and the stateful VanillaRNN fallback failure. |
+| `docs/evidence/kernelbench/20260820_eval_no_grad_implementation.md` | Eval plus no-grad implementation scope, CPU and A800 GPU regression results, static checks, and remaining corpus-sweep gap. |
+| `docs/evidence/kernelbench/20260820_agentp_grok_review.md` | Read-only Grok 4.6 XHigh review outcome, residual test gaps, and follow-up coverage. |

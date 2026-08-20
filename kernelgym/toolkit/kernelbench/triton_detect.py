@@ -3,23 +3,15 @@ import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 
-def _call_inference_no_grad(run: Callable, *args, **kwargs):
+def _call_no_grad(run: Callable, *args, **kwargs):
     # 避免梯度与 Autocast 干扰检测
-    with torch.inference_mode():
-        return run(*args, **kwargs)
-
-
-def _call_inference_with_grad(run: Callable, *args, **kwargs):
-    # 避免梯度与 Autocast 干扰检测
-    # with torch.inference_mode() is not enough, because torch.compile will check grad
-    # avoid some tricky issues like grad check in torch.compile
-    with torch.enable_grad():
+    with torch.no_grad():
         return run(*args, **kwargs)
 
 
 def _call_inference(run: Callable, *args, **kwargs):
     """向后兼容：默认使用 no-grad 行为。"""
-    return _call_inference_no_grad(run, *args, **kwargs)
+    return _call_no_grad(run, *args, **kwargs)
 
 
 def _resolve_triton_jitfunction():
@@ -562,7 +554,7 @@ def detect_triton_usage(
     检测一次/多次前向调用中是否真正调用了 Triton kernel（通过 Hook Triton 的运行入口实现）。
 
     参数:
-      - fn_or_model: 可调用对象，或 nn.Module。若为 nn.Module，内部会用 inference_mode() 调用其 forward。
+      - fn_or_model: 可调用对象，或 nn.Module。若为 nn.Module，内部会用 no_grad() 调用其 forward。
       - *args, **kwargs: 传给可调用对象/模型 forward 的参数。
       - warmup: 预热次数（建议 >=1，用于触发 JIT/编译，避免只记录编译阶段）。
       - steps: 记录次数（建议 1-3）。
@@ -602,21 +594,16 @@ def detect_triton_usage(
         return (False, []) if return_matches else False
 
     if isinstance(fn_or_model, torch.nn.Module):
-        run_callable_no_grad = lambda *a, **k: _call_inference_no_grad(fn_or_model, *a, **k)
-        run_callable_with_grad = lambda *a, **k: _call_inference_with_grad(fn_or_model, *a, **k)
+        fn_or_model.eval()
+        run_callable_no_grad = lambda *a, **k: _call_no_grad(fn_or_model, *a, **k)
     else:
-        run_callable_no_grad = fn_or_model
-        run_callable_with_grad = fn_or_model
+        run_callable_no_grad = lambda *a, **k: _call_no_grad(fn_or_model, *a, **k)
 
     used_no_grad, matches_no_grad = _run_detection(run_callable_no_grad)
-    used_with_grad, matches_with_grad = _run_detection(run_callable_with_grad)
-
-    used = used_no_grad and used_with_grad
-    all_matches = sorted(set(matches_no_grad) | set(matches_with_grad))
 
     if return_matches:
-        return used, all_matches
-    return used
+        return used_no_grad, matches_no_grad
+    return used_no_grad
 
 
 def detect_triton_usage_for_module(
@@ -632,7 +619,6 @@ def detect_triton_usage_for_module(
     """
     便捷封装：直接传入 nn.Module 与其 forward 的输入参数。
     """
-    # model.eval()
     return detect_triton_usage(
         model,
         *inputs,
@@ -957,7 +943,6 @@ def detect_cuda_usage_for_module(
     return_matches: bool = False,
     **forward_kwargs,
 ):
-    # model.eval()
     return detect_cuda_usage(
         model,
         *inputs,

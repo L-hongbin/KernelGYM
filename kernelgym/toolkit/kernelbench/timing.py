@@ -222,12 +222,13 @@ def run_profiling_only(
 
     profiling_metrics: Dict[str, Any] = {}
     try:
-        torch.cuda.synchronize(device=device)
-        logger.info("[Profiling] Running %s iterations (profiling-only)...", num_trials)
-        with profiling_context(True) as prof:
-            for _ in range(num_trials):
-                kernel_fn(*args)
+        with torch.no_grad():
             torch.cuda.synchronize(device=device)
+            logger.info("[Profiling] Running %s iterations (profiling-only)...", num_trials)
+            with profiling_context(True) as prof:
+                for _ in range(num_trials):
+                    kernel_fn(*args)
+                torch.cuda.synchronize(device=device)
         profiling_metrics = extract_profiling_metrics(prof)
         if profiling_metrics:
             _annotate_shim_state(profiling_metrics)

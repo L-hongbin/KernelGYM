@@ -1,0 +1,35 @@
+# Eval plus No-Grad Execution
+
+KernelGym uses one fixed forward-execution policy for KernelBench correctness and timing: every reference and candidate model runs in `model.eval()` mode and every forward runs under `torch.no_grad()`.
+
+## Policy
+
+| Stage | Module mode | Gradient mode |
+| --- | --- | --- |
+| correctness reference | `eval()` | `no_grad()` |
+| correctness candidate | `eval()` | `no_grad()` |
+| candidate warmup/timing/profile | `eval()` | `no_grad()` |
+| reference warmup/timing | `eval()` | `no_grad()` |
+| profiling-only retry | caller-provided eval model | `no_grad()` |
+
+`torch.inference_mode()` is deliberately not part of the runtime policy. This keeps ordinary tensor view/version behavior and avoids inference tensors escaping through stateful models while still preventing backward-graph construction.
+
+Calling `eval()` is an intentional benchmark semantic change. Dropout is disabled, BatchNorm uses running statistics, and custom modules observe `self.training == False`. Both sides receive the same mode.
+
+## Implementation
+
+`kernelgym/toolkit/kernelbench/execution_policy.py` defines policy version `eval_no_grad_v1`, applies `eval()`, and records:
+
+- `execution_policy=eval_no_grad_v1`
+- `model_mode=eval`
+- `grad_mode=no_grad`
+
+Correctness prepares both models after moving them to the selected device. Candidate performance, Triton detection, and reference-only timing also prepare their model explicitly so correctness-skipped and standalone timing paths remain consistent. Triton detection uses only the eval plus no-grad forward path. The CUDA-event timing helper and profiling-only retry scope all forwards with `no_grad()`.
+
+## Cache Fences
+
+Reference timings generated before this policy are not comparable for training-sensitive models. Reference-runtime keys include the execution-policy version, entries store it, and preload ignores legacy rows without a matching version. Server request hashes also include the policy version so completed results from the previous execution semantics are not reused.
+
+## Validation
+
+Categorized regression tests live under `tests/kernelbench/execution_modes/`. They verify recursive eval mode, no-grad correctness forwards, candidate timing preparation, no-grad CUDA-event and profiling-only windows, cache fencing, and representative real KernelBench reference behavior. Test-scope documentation is kept in `docs/testing/KERNELBENCH_EXECUTION_MODES.md`, and recorded run evidence is kept in `docs/evidence/kernelbench/`; neither belongs in the executable test tree.

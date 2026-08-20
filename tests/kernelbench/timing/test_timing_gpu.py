@@ -139,3 +139,42 @@ def test_timing_restores_grad_mode_after_return() -> None:
 
     # Grad mode is back to normal for code running after timing.
     assert torch.is_grad_enabled() is True
+
+
+@pytest.mark.gpu
+def test_candidate_gpu_policy_is_eval_no_grad_not_inference() -> None:
+    """The production candidate timing entry applies the complete policy on CUDA."""
+    torch = _require_cuda_runtime()
+    from kernelgym.toolkit.kernelbench import pipeline
+    from kernelgym.toolkit.kernelbench.exec_types import KernelExecResult
+
+    device = torch.device("cuda:0")
+    observed = []
+
+    class ObservedModel(torch.nn.Module):
+        def forward(self, x):
+            observed.append((self.training, torch.is_grad_enabled(), torch.is_inference_mode_enabled()))
+            return x + 1
+
+    model = ObservedModel().train().to(device)
+    result = KernelExecResult(compiled=True, correctness=True, metadata={})
+    pipeline._run_performance_step(
+        kernel_exec_result=result,
+        custom_model=model,
+        get_inputs=lambda: [torch.ones(64, device=device)],
+        metadata=result.metadata,
+        num_perf_trials=2,
+        num_warmup=1,
+        perf_trim_count=0,
+        verbose=False,
+        seed_num=42,
+        device=device,
+        enable_profiling=False,
+        enable_triton_detection=False,
+        detect_decoy_kernel=False,
+        backend="cuda_agent",
+        backend_profiling_hints=None,
+    )
+
+    assert observed == [(False, False, False)] * 3
+    assert result.runtime is not None and result.runtime > 0

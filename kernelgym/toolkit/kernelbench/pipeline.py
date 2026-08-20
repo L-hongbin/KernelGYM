@@ -14,6 +14,10 @@ import torch
 from kernelgym.config import settings
 from kernelgym.toolkit.kernelbench import triton_detect as detect
 from kernelgym.toolkit.kernelbench.exec_types import KernelExecResult, get_error_name, set_seed
+from kernelgym.toolkit.kernelbench.execution_policy import (
+    prepare_model_for_execution,
+    record_execution_policy,
+)
 from kernelgym.toolkit.kernelbench.loading import (
     OriginalModelLoadError,
     graceful_eval_cleanup,
@@ -401,7 +405,7 @@ def _run_triton_detection_step(
             set_seed(seed_num)
             inputs = get_inputs()
             inputs = [x.cuda(device=device) if isinstance(x, torch.Tensor) else x for x in inputs]
-            model_new = custom_model.cuda(device=device)
+            model_new = prepare_model_for_execution(custom_model.cuda(device=device))
             torch.cuda.synchronize(device=device)
 
             used, matches = detect.detect_triton_usage_for_module(
@@ -469,7 +473,7 @@ def _run_performance_step(
             set_seed(seed_num)
             inputs = get_inputs()
             inputs = [x.cuda(device=device) if isinstance(x, torch.Tensor) else x for x in inputs]
-            model_new = custom_model.cuda(device=device)
+            model_new = prepare_model_for_execution(custom_model.cuda(device=device))
             torch.cuda.synchronize(device=device)
 
             elapsed_times, profiling_metrics, timing_info = time_execution_with_cuda_event(
@@ -670,6 +674,7 @@ def eval_kernel_against_ref(
     metadata["hardware"] = "compile-only" if compile_only else torch.cuda.get_device_name(device=device)
     metadata["device"] = str(device)
     metadata["precision"] = precision
+    record_execution_policy(metadata)
     overall_start = perf_counter()
 
     if is_triton and not compile_only:
@@ -979,6 +984,7 @@ def eval_kernel_against_ref(
             custom_model = _create_custom_model()
 
             assert hasattr(custom_model, "forward")
+            prepare_model_for_execution(custom_model)
             torch.cuda.synchronize(device=device)
         _finish_stage(
             metadata,
@@ -1134,6 +1140,7 @@ def eval_reference_only(
     metadata: Dict[str, Any] = {}
     metadata["hardware"] = torch.cuda.get_device_name(device=device)
     metadata["device"] = str(device)
+    record_execution_policy(metadata)
     overall_start = perf_counter()
 
     context: Dict[str, Any] = {}
@@ -1223,7 +1230,7 @@ def eval_reference_only(
         set_seed(seed_num)
         inputs = get_inputs()
         inputs = [x.cuda(device=device) if isinstance(x, torch.Tensor) else x for x in inputs]
-        model = original_model.cuda(device=device)
+        model = prepare_model_for_execution(original_model.cuda(device=device))
         metadata["kg_reference_backend_compile_s"] = 0.0
         if reference_backend:
             backend_name = reference_backend.lower()
