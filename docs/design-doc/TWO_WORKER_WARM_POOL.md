@@ -67,7 +67,7 @@ Concretely:
 - The background `_register` decrements `pending_replacements`; if the pool reached `pool_size` while the replacement was in flight, the newly created worker is shut down rather than appended.
 - Emergency recovery in `_get_idle_worker` starts only when `len(workers) == 0` and `pending_replacements == 0`; it reuses the same accounting and discards itself if capacity is no longer needed.
 
-Tests in `tests/test_subprocess_pool.py` pin this invariant under all the recycle interleavings that previously grew the pool.
+Tests in `tests/workers/test_subprocess_pool.py` pin this invariant under all the recycle interleavings that previously grew the pool.
 
 ## Failure Handling
 

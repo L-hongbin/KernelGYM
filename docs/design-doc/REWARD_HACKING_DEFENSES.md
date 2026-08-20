@@ -115,7 +115,7 @@ If profiling is enabled and returns no kernels, the performance step can retry p
 
 ## Regression Tests
 
-`tests/test_kernelbench_correctness_gpu.py` contains GPU-only tests for the cache-poison defense:
+`tests/kernelbench/correctness/test_correctness_gpu.py` contains GPU-only tests for the cache-poison defense:
 
 - With poison enabled, a custom model returning `torch.empty_like` after a reference with a same-shaped intermediate fails correctness.
 - With poison monkeypatched off, the same custom model can reproduce the hacking behavior and incorrectly pass by reusing stale reference intermediate memory.
@@ -124,7 +124,7 @@ If profiling is enabled and returns no kernels, the performance step can retry p
 - A compiled CUDA extension whose wrapper calls `.float()` is correct and is not rejected; the test verifies the modern `aten::to`/`aten::_to_copy` dispatcher path on GPU.
 - All candidate correctness trials are profiled, so a stateful implementation cannot defer an ATen fallback until a later trial.
 
-`tests/test_aten_decoy_detection.py` covers the explicit allowlist, CUDA-device-only coverage extraction, low-coverage suspicion, and profiler-unavailable behavior.
+`tests/kernelbench/profiling/test_aten_decoy_detection.py` covers the explicit allowlist, CUDA-device-only coverage extraction, low-coverage suspicion, and profiler-unavailable behavior.
 
 These tests skip on hosts without PyTorch CUDA.
 

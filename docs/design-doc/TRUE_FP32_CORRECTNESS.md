@@ -60,7 +60,7 @@ Metadata fields:
 Regression test:
 
 ```bash
-PYTHONPATH=$PWD python3 -m pytest -q tests/test_kernelbench_tf32_correctness_policy.py
+PYTHONPATH=$PWD python3 -m pytest -q tests/kernelbench/correctness/test_tf32_policy.py
 ```
 
 The test verifies that the context forces true-fp32 backend settings, restores the prior state, and can be disabled through `KERNELGYM_CORRECTNESS_DISABLE_TF32=0`.

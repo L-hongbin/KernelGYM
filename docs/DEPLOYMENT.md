@@ -353,5 +353,5 @@ ruff check .
 pytest
 ```
 
-On a GPU runtime with CUDA 12.9, `tests/test_cuda_agent_gpu.py` compiles, loads, and runs a minimal
+On a GPU runtime with CUDA 12.9, `tests/kernelbench/backends/test_cuda_agent_gpu.py` compiles, loads, and runs a minimal
 CUDA-Agent extension. Without GPU, torch, nvcc, or executable `/dev/shm`, that test skips.

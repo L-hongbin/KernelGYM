@@ -45,15 +45,19 @@ This file indexes stable repository docs and evidence locations.
 | `kernelgym/worker/gpu_worker.py` | Worker-side task execution and failure handling. |
 | `kernelgym/worker/subprocess_pool.py` | Persistent GPU subprocess pool, crash containment proof, fresh-context recovery, recycle, timeout, and pool-size enforcement. |
 | `kernelgym/worker/worker_monitor.py` | Generation-fenced worker supervision, bounded restart, and unsafe process-group quarantine. |
-| `tests/test_subprocess_pool.py` | Subprocess-pool recycle, capacity, stale-reference, and recycled-worker revival regression tests. |
+| `tests/deployment/` | Deployment scripts, service CLI, runtime validation, static profiles, and reward-smoke tests. |
+| `tests/server/` | API, request defaults, task-manager queues, Redis integration, and heartbeat-route tests. |
+| `tests/workers/` | CPU/GPU worker, subprocess-pool, monitor, shutdown-drain, and quarantine tests. |
+| `tests/utils/` | Core-dump and page-user notification utility tests. |
+| `tests/kernelbench/backends/` | CUDA-Agent and TVM-FFI backend/schema tests. |
+| `tests/kernelbench/correctness/` | Correctness, cache-poison, and true-FP32 policy tests. |
+| `tests/kernelbench/execution_modes/` | Active eval plus no-grad policy regressions and retained inference-mode compatibility characterization. |
+| `tests/kernelbench/profiling/` | CUPTI, profiler capture/trial, and ATen decoy-detection tests. |
+| `tests/kernelbench/timing/` | CUDA timing-window tests. |
+| `tests/kernelbench/workflow/` | Precision propagation and split-stage affinity tests. |
 | `scripts/manage_core_dumps.py` | Move root-level core dumps into the configured directory and keep only the newest retained files. |
 | `scripts/manage_gpu_quarantine.py` | Inspect or explicitly clear a stopped GPU worker's durable safety latch. |
-| `tests/test_task_manager_redis_integration.py` | Opt-in disposable-Redis integration coverage for atomic GPU claims, cancelled frozen-claim terminal recovery, refresh fencing, and queue CAS. |
-| `tests/test_gpu_quarantine_gate.py` | Durable physical-latch, scheduler-admission, deduplication, and manual-clear regression coverage. |
-| `tests/test_page_user_notifier.py` | Mock-network MCP protocol, credential safety, redaction, cancellation, and delivery-deduplication coverage. |
-| `tests/test_aten_decoy_detection.py` | Source/compat ATen allowlists, device-only CUDA timing, and conservative low-coverage decoy regression tests. |
-| `tests/test_cuda_agent_gpu.py` | Real CUDA-Agent compile/run coverage, including the `.float()` ATen compatibility path around a custom CUDA kernel. |
-| `tests/test_precision_passthrough.py` | Precision API normalization, policy, task propagation, cache hashing, pipeline, and backend precheck regression coverage. |
+| `docs/testing/KERNELBENCH_EXECUTION_MODES.md` | Execution-mode test scope, data discovery, and category-level invocation. |
 
 ## External Source References
 
