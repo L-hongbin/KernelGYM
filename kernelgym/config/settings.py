@@ -181,6 +181,15 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
     worker_monitor_interval: int = Field(default=30, env="WORKER_MONITOR_INTERVAL")
     worker_monitor_heartbeat_timeout: int = Field(default=120, env="WORKER_MONITOR_HEARTBEAT_TIMEOUT")
+    worker_monitor_startup_timeout: int = Field(
+        default=900,
+        env="WORKER_MONITOR_STARTUP_TIMEOUT",
+        description=(
+            "Maximum seconds an authenticated worker process may initialize before its first ready heartbeat. "
+            "This is deliberately longer than the steady-state heartbeat timeout because importing Torch and "
+            "building a two-process CUDA pool can be slow under concurrent cold starts."
+        ),
+    )
     worker_monitor_restart_cooldown: int = Field(default=60, env="WORKER_MONITOR_RESTART_COOLDOWN")
     worker_queue_wait_timeout_sec: int = Field(default=180, env="WORKER_QUEUE_WAIT_TIMEOUT_SEC")
     worker_queue_wait_monitor_interval: int = Field(default=20, env="WORKER_QUEUE_WAIT_MONITOR_INTERVAL")

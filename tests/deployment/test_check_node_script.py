@@ -54,6 +54,8 @@ def test_render_summary_passes_fresh_gpu_heartbeat(capsys) -> None:
             "device": "cuda:0",
             "status": "online",
             "last_heartbeat": "2026-05-27T11:59:30",
+            "health_state": "healthy",
+            "accepting_tasks": "true",
         }
     }
 
@@ -80,6 +82,8 @@ def test_render_summary_reports_queue_and_busy_counts(capsys) -> None:
             "status": "online",
             "last_heartbeat": "2026-05-27T11:59:30",
             "current_task": "gpu-task",
+            "health_state": "healthy",
+            "accepting_tasks": "true",
         },
         "worker_cpu_0": {
             "device": "cpu",
@@ -127,6 +131,8 @@ def test_render_summary_marks_busy_unknown_without_busy_signals(capsys) -> None:
             "device": "cuda:0",
             "status": "online",
             "last_heartbeat": "2026-05-27T11:59:30",
+            "health_state": "healthy",
+            "accepting_tasks": "true",
         }
     }
 
@@ -150,6 +156,8 @@ def test_merge_workers_uses_redis_current_task(capsys) -> None:
             "device": "cuda:0",
             "status": "online",
             "last_heartbeat": "2026-05-27T11:59:30",
+            "health_state": "healthy",
+            "accepting_tasks": "true",
         }
     }
     redis_workers = {
@@ -166,6 +174,226 @@ def test_merge_workers_uses_redis_current_task(capsys) -> None:
     out = capsys.readouterr().out
     assert "gpu_busy" in out
     assert "1" in out
+
+
+def test_missing_expected_gpu_worker_prevents_up_status(capsys) -> None:
+    check_node = load_check_node()
+    health = {
+        "status": "healthy",
+        "timestamp": "2026-05-27T12:00:00Z",
+        "gpu_status": {
+            "cuda:0": {"available": True},
+            "cuda:1": {"available": True},
+        },
+    }
+    workers = {
+        "worker_gpu_0": {
+            "device": "cuda:0",
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+        }
+    }
+    expected = {
+        "worker_gpu_0": {"device": "cuda:0", "hostname": "host-a"},
+        "worker_gpu_1": {"device": "cuda:1", "hostname": "host-a"},
+    }
+
+    merged = check_node._merge_expected_workers(workers, expected)
+    exit_code = check_node.render_summary(
+        "http://node:20111",
+        health,
+        merged,
+        max_heartbeat_age_s=180,
+        expected_workers=expected,
+    )
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "WARN" in out
+    assert "gpu_workers_online:" in out and "1/2" in out
+    assert "gpu_workers_fresh:" in out and "1/2" in out
+
+
+def test_empty_expected_worker_contract_prevents_up_status(capsys) -> None:
+    check_node = load_check_node()
+    health = {
+        "status": "healthy",
+        "timestamp": "2026-05-27T12:00:00Z",
+        "gpu_status": {"cuda:0": {"available": True}},
+    }
+    workers = {
+        "worker_gpu_0": {
+            "device": "cuda:0",
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+        }
+    }
+
+    exit_code = check_node.render_summary(
+        "http://node:20111",
+        health,
+        workers,
+        max_heartbeat_age_s=180,
+        expected_workers={},
+    )
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "WARN" in out
+    assert "missing_or_invalid" in out
+
+
+def test_cluster_global_expected_contract_accepts_two_complete_nodes(capsys) -> None:
+    check_node = load_check_node()
+    health = {
+        "status": "healthy",
+        "timestamp": "2026-05-27T12:00:00Z",
+        "gpu_status": {"cuda:0": {"available": True}},
+    }
+    expected = {
+        "node0_gpu_0": {"device": "cuda:0", "hostname": "host-a"},
+        "node0_cpu_0": {"device": "cpu", "hostname": "host-a"},
+        "node1_gpu_0": {"device": "cuda:0", "hostname": "host-b"},
+        "node1_cpu_0": {"device": "cpu", "hostname": "host-b"},
+    }
+    workers = {
+        worker_id: {
+            **info,
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+            **(
+                {"health_state": "healthy", "accepting_tasks": "true"}
+                if str(info["device"]).startswith("cuda:")
+                else {}
+            ),
+        }
+        for worker_id, info in expected.items()
+    }
+
+    merged = check_node._merge_expected_workers(workers, expected)
+    exit_code = check_node.render_summary(
+        "http://node:20111",
+        health,
+        merged,
+        max_heartbeat_age_s=180,
+        expected_workers=expected,
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "UP" in out
+    assert "gpu_workers_online:" in out and "2/2" in out
+    assert "expected_worker_contract:" in out and "ok" in out
+
+
+def test_missing_expected_cpu_worker_prevents_up_status(capsys) -> None:
+    check_node = load_check_node()
+    health = {
+        "status": "healthy",
+        "timestamp": "2026-05-27T12:00:00Z",
+        "gpu_status": {"cuda:0": {"available": True}},
+    }
+    expected = {
+        "worker_gpu_0": {"device": "cuda:0", "hostname": "host-a"},
+        "worker_cpu_0": {"device": "cpu", "hostname": "host-a"},
+    }
+    workers = {
+        "worker_gpu_0": {
+            **expected["worker_gpu_0"],
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+            "health_state": "healthy",
+            "accepting_tasks": "true",
+        }
+    }
+
+    merged = check_node._merge_expected_workers(workers, expected)
+    exit_code = check_node.render_summary(
+        "http://node:20111",
+        health,
+        merged,
+        max_heartbeat_age_s=180,
+        expected_workers=expected,
+    )
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "WARN" in out
+    assert "cpu_workers_online:" in out and "0/1" in out
+    assert "cpu_workers_fresh:" in out and "0/1" in out
+
+
+def test_initializing_expected_gpu_worker_prevents_up_status(capsys) -> None:
+    check_node = load_check_node()
+    health = {
+        "status": "healthy",
+        "timestamp": "2026-05-27T12:00:00Z",
+        "gpu_status": {"cuda:0": {"available": True}},
+    }
+    expected = {
+        "worker_gpu_0": {"device": "cuda:0", "hostname": "host-a"},
+        "worker_cpu_0": {"device": "cpu", "hostname": "host-a"},
+    }
+    workers = {
+        "worker_gpu_0": {
+            **expected["worker_gpu_0"],
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+            "health_state": "initializing",
+            "accepting_tasks": "false",
+        },
+        "worker_cpu_0": {
+            **expected["worker_cpu_0"],
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+        },
+    }
+
+    exit_code = check_node.render_summary(
+        "http://node:20111",
+        health,
+        workers,
+        max_heartbeat_age_s=180,
+        expected_workers=expected,
+    )
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "WARN" in out
+    assert "gpu_workers_fresh:" in out and "1/1" in out
+    assert "gpu_workers_ready:" in out and "0/1" in out
+
+
+def test_initializing_gpu_worker_without_expected_contract_prevents_up_status(capsys) -> None:
+    check_node = load_check_node()
+    health = {
+        "status": "healthy",
+        "timestamp": "2026-05-27T12:00:00Z",
+        "gpu_status": {"cuda:0": {"available": True}},
+    }
+    workers = {
+        "worker_gpu_0": {
+            "device": "cuda:0",
+            "hostname": "host-a",
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+            "health_state": "initializing",
+            "accepting_tasks": "false",
+        }
+    }
+
+    exit_code = check_node.render_summary(
+        "http://node:20111",
+        health,
+        workers,
+        max_heartbeat_age_s=180,
+    )
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "WARN" in out
+    assert "gpu_workers_fresh:" in out and "1/1" in out
+    assert "gpu_workers_ready:" in out and "0/1" in out
 
 
 def test_queue_count_prefers_explicit_redis_count() -> None:
@@ -195,6 +423,8 @@ def test_render_summary_uses_processing_fallback_for_unknown_busy(capsys) -> Non
             "device": "cuda:0",
             "status": "online",
             "last_heartbeat": "2026-05-27T11:59:30",
+            "health_state": "healthy",
+            "accepting_tasks": "true",
         },
         "worker_cpu_0": {
             "device": "cpu",

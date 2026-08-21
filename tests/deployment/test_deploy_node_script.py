@@ -147,15 +147,23 @@ def test_deploy_node_waits_for_all_registered_local_workers(monkeypatch) -> None
         ]
     )
     monkeypatch.setattr(deploy_node, "_http_get_json", lambda _url: next(snapshots))
+    monkeypatch.setattr(
+        deploy_node,
+        "_expected_workers_for_host",
+        lambda _host, _hostname: {
+            "gpu": {"hostname": "host-a", "device": "cuda:0"},
+            "cpu": {"hostname": "host-a", "device": "cpu"},
+        },
+    )
     monkeypatch.setattr(deploy_node.time, "sleep", lambda _seconds: None)
 
     deploy_node.wait_node_workers("192.168.16.21", "host-a", timeout=30)
 
 
-def test_deploy_node_ignores_stale_or_offline_worker_registrations(monkeypatch) -> None:
+def test_deploy_node_waits_for_stale_or_offline_expected_workers(monkeypatch) -> None:
     deploy_node = load_deploy_node()
     heartbeat = datetime.now().isoformat()
-    snapshot = {
+    incomplete_snapshot = {
         "gpu": {
             "hostname": "host-a",
             "device": "cuda:0",
@@ -191,7 +199,31 @@ def test_deploy_node_ignores_stale_or_offline_worker_registrations(monkeypatch) 
             "accepting_tasks": "true",
         },
     }
-    monkeypatch.setattr(deploy_node, "_http_get_json", lambda _url: snapshot)
+    ready_snapshot = {
+        worker_id: {
+            **info,
+            "status": "online",
+            "last_heartbeat": heartbeat,
+            "online": "true",
+            **(
+                {"health_state": "healthy", "accepting_tasks": "true"}
+                if str(info.get("device", "")).startswith("cuda:")
+                else {}
+            ),
+        }
+        for worker_id, info in incomplete_snapshot.items()
+    }
+    snapshots = iter([incomplete_snapshot, ready_snapshot])
+    monkeypatch.setattr(deploy_node, "_http_get_json", lambda _url: next(snapshots))
+    monkeypatch.setattr(
+        deploy_node,
+        "_expected_workers_for_host",
+        lambda _host, _hostname: {
+            worker_id: {"hostname": "host-a", "device": str(info["device"])}
+            for worker_id, info in incomplete_snapshot.items()
+        },
+    )
+    monkeypatch.setattr(deploy_node.time, "sleep", lambda _seconds: None)
 
     deploy_node.wait_node_workers("192.168.16.21", "host-a", timeout=30)
 

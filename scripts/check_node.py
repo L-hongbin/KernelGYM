@@ -213,6 +213,14 @@ def _redis_snapshot(redis_host: str, redis_port: int, redis_prefix: str) -> dict
                 info["status"] = "online"
             workers[worker_id] = info
 
+    expected_ids_out = _run_redis_cli(redis_host, redis_port, "smembers", f"{redis_prefix}:expected_workers")
+    expected_workers: dict[str, dict[str, str]] = {}
+    for worker_id in (expected_ids_out or "").splitlines():
+        info = _parse_hgetall(
+            _run_redis_cli(redis_host, redis_port, "hgetall", f"{redis_prefix}:expected_worker:{worker_id}")
+        )
+        expected_workers[worker_id] = info
+
     return {
         "queue": {
             "queue_count": gpu_queue + cpu_queue,
@@ -223,6 +231,7 @@ def _redis_snapshot(redis_host: str, redis_port: int, redis_prefix: str) -> dict
             "source": "redis",
         },
         "workers": workers,
+        "expected_workers": expected_workers,
     }
 
 
@@ -344,6 +353,43 @@ def _merge_workers(api_workers: dict[str, object], redis_workers: dict[str, obje
     return merged
 
 
+def _merge_expected_workers(workers: dict[str, object], expected_workers: dict[str, object]) -> dict[str, object]:
+    """Add missing cluster-global expected workers so denominators cannot shrink."""
+
+    merged: dict[str, object] = dict(workers)
+    for worker_id, expected_info in expected_workers.items():
+        if worker_id in merged or not isinstance(expected_info, dict):
+            continue
+        merged[worker_id] = {
+            **expected_info,
+            "status": "missing",
+            "online": "false",
+            "health_state": "missing",
+            "accepting_tasks": "false",
+        }
+    return merged
+
+
+def _expected_worker_contract_is_valid(expected_workers: dict[str, object]) -> bool:
+    """Require every expected entry to identify one host-owned CPU/GPU slot."""
+
+    if not expected_workers:
+        return False
+    gpu_count = 0
+    cpu_count = 0
+    for info in expected_workers.values():
+        if not isinstance(info, dict) or not str(info.get("hostname") or "").strip():
+            return False
+        device = str(info.get("device") or "")
+        if device.startswith("cuda:"):
+            gpu_count += 1
+        elif device == "cpu":
+            cpu_count += 1
+        else:
+            return False
+    return gpu_count > 0 and cpu_count > 0
+
+
 def _worker_heartbeat_age_s(info: object, now: datetime) -> float | None:
     if not isinstance(info, dict):
         return None
@@ -362,12 +408,22 @@ def _worker_is_fresh(info: object, now: datetime, max_heartbeat_age_s: int) -> b
     return age_s is not None and age_s <= max_heartbeat_age_s
 
 
+def _gpu_worker_is_ready(info: object, now: datetime, max_heartbeat_age_s: int) -> bool:
+    if not _worker_is_fresh(info, now, max_heartbeat_age_s) or not isinstance(info, dict):
+        return False
+    return (
+        str(info.get("health_state") or "").lower() == "healthy"
+        and str(info.get("accepting_tasks") or "").lower() == "true"
+    )
+
+
 def render_summary(
     base: str,
     health: dict,
     workers: dict,
     max_heartbeat_age_s: int,
     queue_status: dict | None = None,
+    expected_workers: dict[str, object] | None = None,
 ) -> int:
     """Print vertical key:value summary; return the process exit code."""
     status = health.get("status", "?")
@@ -383,8 +439,24 @@ def render_summary(
     cpu_workers = {worker_id: info for worker_id, info in workers.items() if _is_cpu_worker(worker_id, info)}
     online = sum(1 for w in gpu_workers.values() if isinstance(w, dict) and w.get("status") == "online")
     fresh = sum(1 for w in gpu_workers.values() if _worker_is_fresh(w, now, max_heartbeat_age_s))
+    ready = sum(1 for w in gpu_workers.values() if _gpu_worker_is_ready(w, now, max_heartbeat_age_s))
     stale = len(gpu_workers) - fresh
-    node_ok = status == "healthy" and len(gpu_workers) > 0 and stale == 0
+    cpu_online = sum(1 for w in cpu_workers.values() if isinstance(w, dict) and w.get("status") == "online")
+    cpu_fresh = sum(1 for w in cpu_workers.values() if _worker_is_fresh(w, now, max_heartbeat_age_s))
+    cpu_stale = len(cpu_workers) - cpu_fresh
+    expected_contract_ok = None if expected_workers is None else _expected_worker_contract_is_valid(expected_workers)
+    expected_cpu_ok = expected_workers is None or (len(cpu_workers) > 0 and cpu_stale == 0)
+    # Readiness is a worker property, not an expected-contract property. Keep
+    # enforcing it when Redis is unavailable and workers came from the API.
+    expected_gpu_ok = ready == len(gpu_workers)
+    node_ok = (
+        status == "healthy"
+        and len(gpu_workers) > 0
+        and stale == 0
+        and expected_contract_ok is not False
+        and expected_cpu_ok
+        and expected_gpu_ok
+    )
     top = "UP" if node_ok else "WARN"
     processing_by_resource = queue.get("processing_by_resource") or {}
     gpu_busy = _busy_count(gpu_workers)
@@ -398,7 +470,17 @@ def render_summary(
         ("gpus_available", f"{gpus_ok}/{len(gpus)}"),
         ("gpu_workers_online", f"{online}/{len(gpu_workers)}"),
         ("gpu_workers_fresh", f"{fresh}/{len(gpu_workers)}"),
+        ("gpu_workers_ready", f"{ready}/{len(gpu_workers)}"),
         ("stale_gpu_workers", stale),
+        ("cpu_workers_online", f"{cpu_online}/{len(cpu_workers)}"),
+        ("cpu_workers_fresh", f"{cpu_fresh}/{len(cpu_workers)}"),
+        ("stale_cpu_workers", cpu_stale),
+        (
+            "expected_worker_contract",
+            "not_checked"
+            if expected_contract_ok is None
+            else ("ok" if expected_contract_ok else "missing_or_invalid"),
+        ),
         ("max_heartbeat_age_s", max_heartbeat_age_s),
         ("queue_processing", queue.get("processing", 0)),
         (
@@ -527,6 +609,7 @@ def main() -> int:
     health = payload.get("health") or {}
     queue = payload.get("queue") or None
     workers = payload.get("workers") or {}
+    expected_workers = None
 
     if not args.no_redis:
         redis_status = _redis_snapshot(args.redis_host, args.redis_port, args.redis_prefix)
@@ -534,13 +617,23 @@ def main() -> int:
             redis_workers = redis_status.get("workers")
             if isinstance(redis_workers, dict):
                 workers = _merge_workers(workers, redis_workers)
+            expected_workers = redis_status.get("expected_workers")
+            if isinstance(expected_workers, dict):
+                workers = _merge_expected_workers(workers, expected_workers)
             redis_queue = redis_status.get("queue")
             if isinstance(redis_queue, dict):
                 queue = redis_queue
     if not args.no_gpu_smi:
         health = _merge_gpu_status(health, _nvidia_smi_gpu_snapshot())
 
-    exit_code = render_summary(args.base, health, workers, args.max_heartbeat_age, queue_status=queue)
+    exit_code = render_summary(
+        args.base,
+        health,
+        workers,
+        args.max_heartbeat_age,
+        queue_status=queue,
+        expected_workers=expected_workers,
+    )
     if args.verbose:
         render_verbose(health, workers, args.max_heartbeat_age)
     return exit_code

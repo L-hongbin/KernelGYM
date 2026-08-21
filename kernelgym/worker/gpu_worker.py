@@ -152,6 +152,7 @@ class GPUWorker:
         logger.info(f"Worker {self.worker_id} received signal {signum}")
         # Stop consuming new tasks ASAP and begin shutdown
         self.running = False
+        self._stopping = True
         asyncio.create_task(self.stop())
 
     async def start(self):
@@ -507,6 +508,12 @@ class GPUWorker:
                 max_tasks_per_worker=self.max_tasks_per_worker,
             )
         except GPUProbeFailedError as exc:
+            # An operator/monitor SIGTERM can interrupt the synchronous READY
+            # handshake while a pool is still starting.  That is not evidence
+            # of a bad physical GPU and must never create a durable quarantine
+            # latch.  The normal stop path still proves subprocess containment.
+            if self._stopping:
+                raise RuntimeError("worker pool initialization interrupted by shutdown") from exc
             details = f"fresh CUDA context initialization failed: {exc}"
             if precheck_error:
                 details = f"{details}; nvidia-smi precheck also failed: {precheck_error}"
