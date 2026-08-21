@@ -81,3 +81,4 @@ Tracked review-evidence files only. Untracked run logs and debug artifacts
 | `docs/evidence/kernelbench/20260820_agentp_grok_review.md` | Read-only Grok 4.6 XHigh review outcome, residual test gaps, and follow-up coverage. |
 | `docs/evidence/kernelbench/20260821_tf32_execution_policy.md` | Scoped TF32 implementation, PyTorch 2.11 state restoration check, regression results, and kimip review closure. |
 | `docs/evidence/deployment/20260821_startup_readiness_review.md` | Startup-readiness merge fixes, full-suite result, and final Grok 4.6 XHigh review outcome. |
+| `docs/evidence/tooling/20260821_agentp_connectivity.md` | Agentp streaming-failure evidence, diagnosis boundary, and switch to current-machine kimip review. |
