@@ -17,6 +17,30 @@ def _get_timing_module():
     return timing
 
 
+def _tf32_is_enabled(torch) -> bool:  # noqa: ANN001
+    from kernelgym.toolkit.kernelbench.execution_policy import _read_backend_attr
+
+    has_conv_precision, conv_precision = _read_backend_attr(
+        torch.backends,
+        ("cudnn", "conv", "fp32_precision"),
+    )
+    has_matmul_precision, matmul_precision = _read_backend_attr(
+        torch.backends,
+        ("cuda", "matmul", "fp32_precision"),
+    )
+    conv_enabled = (
+        conv_precision == "tf32"
+        if has_conv_precision
+        else _read_backend_attr(torch.backends, ("cudnn", "allow_tf32"))[1] is True
+    )
+    matmul_enabled = (
+        matmul_precision == "tf32"
+        if has_matmul_precision
+        else _read_backend_attr(torch.backends, ("cuda", "matmul", "allow_tf32"))[1] is True
+    )
+    return conv_enabled and matmul_enabled
+
+
 @pytest.mark.gpu
 def test_timing_disables_autograd_graph_for_parameterized_model() -> None:
     """The perf-timing window must run forwards with autograd disabled.
@@ -43,10 +67,11 @@ def test_timing_disables_autograd_graph_for_parameterized_model() -> None:
     # Sanity: the parameter really does request gradients.
     assert model.w.requires_grad is True
 
-    observed = {"grad_enabled": [], "out_requires_grad": []}
+    observed = {"grad_enabled": [], "out_requires_grad": [], "tf32_enabled": []}
 
     def spy(x):
         observed["grad_enabled"].append(torch.is_grad_enabled())
+        observed["tf32_enabled"].append(_tf32_is_enabled(torch))
         out = model(x)
         observed["out_requires_grad"].append(out.requires_grad)
         return out
@@ -67,11 +92,14 @@ def test_timing_disables_autograd_graph_for_parameterized_model() -> None:
     assert len(observed["grad_enabled"]) == 2 + 3
     assert len(elapsed_times) == 3
     assert timing_info["num_trials"] == 3
+    assert timing_info["timing_tf32_enabled"] is True
+    assert timing_info["timing_tf32_state_forced"]
 
     # Every forward in the measurement window ran with autograd off ...
     assert all(enabled is False for enabled in observed["grad_enabled"])
     # ... so no autograd graph was built despite the trainable parameter.
     assert all(req is False for req in observed["out_requires_grad"])
+    assert all(observed["tf32_enabled"])
 
 
 @pytest.mark.gpu

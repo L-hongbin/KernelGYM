@@ -287,6 +287,7 @@ class KernelSimpleToolkit(Toolkit):
                     verbose=False,
                     device=device,
                     enable_profiling=bool(enable_profiling),
+                    enable_tf32=False,
                 )
                 runtime_stats = get_timing_stats(elapsed_times, device=device, trim_count=task_obj.perf_trim_count)
                 metadata["runtime_stats"] = runtime_stats

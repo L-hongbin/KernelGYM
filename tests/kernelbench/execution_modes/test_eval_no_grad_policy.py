@@ -29,6 +29,7 @@ def test_execution_policy_recursively_sets_eval_and_records_metadata() -> None:
         "execution_policy": EXECUTION_POLICY_VERSION,
         "model_mode": "eval",
         "grad_mode": "no_grad",
+        "fp32_math_mode": "tf32",
     }
 
 
@@ -65,6 +66,9 @@ def test_correctness_runs_reference_and_candidate_in_eval_no_grad(monkeypatch) -
     }
     assert result.metadata["model_mode"] == "eval"
     assert result.metadata["grad_mode"] == "no_grad"
+    assert result.metadata["fp32_math_mode"] == "tf32"
+    assert result.metadata["correctness_tf32_enabled"] is True
+    assert result.metadata["correctness_tf32_state_forced"]
 
 
 def test_candidate_performance_prepares_model_in_eval(monkeypatch) -> None:
@@ -142,7 +146,7 @@ def test_timing_window_preserves_eval_and_disables_grad(monkeypatch) -> None:
             return x + 1
 
     model = prepare_model_for_execution(ObservedModel().train())
-    timing.time_execution_with_cuda_event(
+    _, _, timing_info = timing.time_execution_with_cuda_event(
         model,
         torch.ones(2),
         num_warmup=1,
@@ -153,6 +157,8 @@ def test_timing_window_preserves_eval_and_disables_grad(monkeypatch) -> None:
     )
 
     assert observed == [(False, False, False), (False, False, False), (False, False, False)]
+    assert timing_info["timing_tf32_enabled"] is True
+    assert timing_info["timing_tf32_state_forced"]
 
 
 def test_reference_only_timing_prepares_model_in_eval(monkeypatch) -> None:
@@ -221,7 +227,7 @@ def test_profiling_only_retry_disables_grad(monkeypatch) -> None:
     monkeypatch.setattr(timing, "extract_profiling_metrics", lambda prof: {})
 
     observed_grad_states = []
-    timing.run_profiling_only(
+    profiling_metrics = timing.run_profiling_only(
         lambda: observed_grad_states.append(torch.is_grad_enabled()),
         num_trials=3,
         verbose=False,
@@ -229,6 +235,8 @@ def test_profiling_only_retry_disables_grad(monkeypatch) -> None:
     )
 
     assert observed_grad_states == [False, False, False]
+    assert profiling_metrics["profiling_tf32_enabled"] is True
+    assert profiling_metrics["profiling_tf32_state_forced"]
 
 
 def test_triton_detection_primary_path_uses_eval_no_grad() -> None:

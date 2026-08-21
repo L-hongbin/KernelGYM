@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 from kernelgym.config import settings
+from kernelgym.toolkit.kernelbench.execution_policy import tf32_execution_context
 from kernelgym.toolkit.kernelbench.profiling import (
     extract_profiling_metrics,
     profiling_context,
@@ -117,6 +118,7 @@ def time_execution_with_cuda_event(
     device: torch.device = None,
     enable_profiling: bool = False,
     num_profiling_trials: Optional[int] = None,
+    enable_tf32: bool = True,
 ) -> Tuple[List[float], Dict[str, Any], Dict[str, Any]]:
     if device is None:
         if verbose:
@@ -130,6 +132,7 @@ def time_execution_with_cuda_event(
 
     profiling_metrics: Dict[str, Any] = {}
     profiling_wall_s = 0.0
+    tf32_metadata: Dict[str, Any] = {}
 
     # Disable autograd for the whole measurement window. The forward passes here
     # are pure inference; without this, models that hold nn.Parameter (which
@@ -138,7 +141,7 @@ def time_execution_with_cuda_event(
     # Use no_grad (not the stricter inference_mode) to keep the same autograd
     # semantics as the correctness checks, so a kernel that passes correctness
     # is timed under identical conditions.
-    with torch.no_grad():
+    with tf32_execution_context(tf32_metadata, stage="timing", enabled=enable_tf32), torch.no_grad():
         warmup_start = perf_counter()
         for _ in range(num_warmup):
             kernel_fn(*args)
@@ -195,6 +198,7 @@ def time_execution_with_cuda_event(
                 profiling_metrics = {"profiling_error": str(e)}
 
     timing_info = {
+        **tf32_metadata,
         "warmup_wall_s": warmup_wall_s,
         "measure_wall_s": measure_wall_s,
         "profiling_wall_s": profiling_wall_s,
@@ -221,8 +225,9 @@ def run_profiling_only(
         device = torch.cuda.current_device()
 
     profiling_metrics: Dict[str, Any] = {}
+    tf32_metadata: Dict[str, Any] = {}
     try:
-        with torch.no_grad():
+        with tf32_execution_context(tf32_metadata, stage="profiling"), torch.no_grad():
             torch.cuda.synchronize(device=device)
             logger.info("[Profiling] Running %s iterations (profiling-only)...", num_trials)
             with profiling_context(True) as prof:
@@ -237,6 +242,7 @@ def run_profiling_only(
         logger.warning("[Profiling] Profiling-only failed: %s", e)
         profiling_metrics = {"profiling_error": str(e)}
 
+    profiling_metrics.update(tf32_metadata)
     return profiling_metrics
 
 

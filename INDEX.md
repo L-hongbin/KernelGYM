@@ -18,7 +18,7 @@ This file indexes stable repository docs and evidence locations.
 | `docs/design-doc/PROFILER_EMPTY_CAPTURE.md` | CUPTI TSC timestamp bug root cause and version-gated profiling-trial policy. |
 | `docs/design-doc/REWARD_HACKING_DEFENSES.md` | Current reward-hacking defense design notes. |
 | `docs/design-doc/RUNTIME_COORDINATION_STORAGE.md` | Proposed split between live runtime coordination and long-lived result/cache storage. |
-| `docs/design-doc/TRUE_FP32_CORRECTNESS.md` | Correctness-time TF32 disable policy and true-fp32 oracle design. |
+| `docs/design-doc/TRUE_FP32_CORRECTNESS.md` | Scoped TF32 execution policy for correctness/timing and FP32 tolerance rationale. |
 | `docs/design-doc/TWO_WORKER_WARM_POOL.md` | Two-worker GPU subprocess warm-pool design, capacity invariant, and `v1` verification. |
 | `docs/server-result-cache-guard.md` | Server result cache hash guard design for safe `/evaluate` reuse. |
 
@@ -79,4 +79,5 @@ Tracked review-evidence files only. Untracked run logs and debug artifacts
 | `docs/evidence/kernelbench/20260820_cpu_characterization.md` | PyTorch 2.11 CPU characterization, representative KernelBench A/B results, and the stateful VanillaRNN fallback failure. |
 | `docs/evidence/kernelbench/20260820_eval_no_grad_implementation.md` | Eval plus no-grad implementation scope, CPU and A800 GPU regression results, static checks, and remaining corpus-sweep gap. |
 | `docs/evidence/kernelbench/20260820_agentp_grok_review.md` | Read-only Grok 4.6 XHigh review outcome, residual test gaps, and follow-up coverage. |
+| `docs/evidence/kernelbench/20260821_tf32_execution_policy.md` | Scoped TF32 implementation, PyTorch 2.11 state restoration check, regression results, and kimip review closure. |
 | `docs/evidence/deployment/20260821_startup_readiness_review.md` | Startup-readiness merge fixes, full-suite result, and final Grok 4.6 XHigh review outcome. |

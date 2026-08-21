@@ -19,6 +19,7 @@ from kernelgym.toolkit.kernelbench.exec_types import (
 from kernelgym.toolkit.kernelbench.execution_policy import (
     prepare_model_for_execution,
     record_execution_policy,
+    tf32_execution_context,
 )
 from kernelgym.toolkit.kernelbench.profiling import (
     aten_operator_profiling_context,
@@ -32,14 +33,13 @@ _CORRECTNESS_MAX_WALL_S_ENV = "KERNELGYM_CORRECTNESS_MAX_WALL_S"
 _CORRECTNESS_PASS_ON_BUDGET_ENV = "KERNELGYM_CORRECTNESS_PASS_ON_BUDGET"
 _CORRECTNESS_BUDGET_MIN_PASS_TRIALS_ENV = "KERNELGYM_CORRECTNESS_BUDGET_MIN_PASS_TRIALS"
 _CORRECTNESS_GPU_INPUTS_ENV = "KERNELGYM_CORRECTNESS_GPU_INPUTS"
-_CORRECTNESS_DISABLE_TF32_ENV = "KERNELGYM_CORRECTNESS_DISABLE_TF32"
 T = TypeVar("T")
 
 
 def get_tolerance_for_dtype(dtype: torch.dtype) -> float:
     """Match KernelBench fp32 tolerance for integral outputs."""
     tolerances = {
-        torch.float32: 1e-4,
+        torch.float32: 1e-3,
         torch.float16: 1e-2,
         torch.bfloat16: 1e-2,
         torch.bool: 0.0,
@@ -86,103 +86,6 @@ def _env_positive_float(name: str) -> float | None:
 def _env_positive_int(name: str) -> int | None:
     parsed = _env_parsed(name, int)
     return parsed if parsed is not None and parsed > 0 else None
-
-
-def _read_backend_attr(root: Any, path: tuple[str, ...]) -> tuple[bool, Any]:
-    obj = root
-    for name in path[:-1]:
-        try:
-            obj = getattr(obj, name)
-        except Exception:
-            return False, None
-        if obj is None:
-            return False, None
-    try:
-        return True, getattr(obj, path[-1])
-    except Exception:
-        return False, None
-
-
-def _write_backend_attr(root: Any, path: tuple[str, ...], value: Any) -> bool:
-    obj = root
-    for name in path[:-1]:
-        try:
-            obj = getattr(obj, name)
-        except Exception:
-            return False
-        if obj is None:
-            return False
-    try:
-        setattr(obj, path[-1], value)
-        return True
-    except Exception:
-        return False
-
-
-@contextmanager
-def _true_fp32_correctness_context(metadata: dict):
-    """Force CUDA float32 ops to true fp32 during correctness, then restore."""
-    enabled = _env_flag(_CORRECTNESS_DISABLE_TF32_ENV, default=True)
-    metadata["correctness_tf32_disabled"] = bool(enabled)
-    if not enabled:
-        yield
-        return
-
-    # PyTorch 2.9+ prefers per-op fp32_precision settings. Avoid mixing those
-    # with legacy allow_tf32 flags when they are available; newer PyTorch can
-    # raise if the old and new APIs imply different cuDNN policies.
-    has_cudnn_conv_precision, _ = _read_backend_attr(torch.backends, ("cudnn", "conv", "fp32_precision"))
-    has_matmul_precision, _ = _read_backend_attr(torch.backends, ("cuda", "matmul", "fp32_precision"))
-
-    attr_targets = []
-    if has_cudnn_conv_precision:
-        attr_targets.append(("cudnn.conv.fp32_precision", ("cudnn", "conv", "fp32_precision"), "ieee"))
-    else:
-        attr_targets.append(("cudnn.allow_tf32", ("cudnn", "allow_tf32"), False))
-    if has_matmul_precision:
-        attr_targets.append(("cuda.matmul.fp32_precision", ("cuda", "matmul", "fp32_precision"), "ieee"))
-    else:
-        attr_targets.append(("cuda.matmul.allow_tf32", ("cuda", "matmul", "allow_tf32"), False))
-
-    saved_attrs: list[tuple[tuple[str, ...], Any]] = []
-    before: dict[str, str] = {}
-    applied: dict[str, str] = {}
-    for label, path, value in attr_targets:
-        exists, old_value = _read_backend_attr(torch.backends, path)
-        if not exists:
-            continue
-        before[label] = str(old_value)
-        if _write_backend_attr(torch.backends, path, value):
-            saved_attrs.append((path, old_value))
-            applied[label] = str(value)
-
-    old_matmul_precision = None
-    if (
-        not has_matmul_precision
-        and hasattr(torch, "get_float32_matmul_precision")
-        and hasattr(torch, "set_float32_matmul_precision")
-    ):
-        try:
-            old_matmul_precision = torch.get_float32_matmul_precision()
-            torch.set_float32_matmul_precision("highest")
-            before["float32_matmul_precision"] = str(old_matmul_precision)
-            applied["float32_matmul_precision"] = "highest"
-        except Exception:
-            old_matmul_precision = None
-
-    metadata["correctness_tf32_state_before"] = before
-    metadata["correctness_tf32_state_forced"] = applied
-
-    try:
-        yield
-    finally:
-        if old_matmul_precision is not None:
-            try:
-                torch.set_float32_matmul_precision(old_matmul_precision)
-            except Exception:
-                pass
-        for path, old_value in reversed(saved_attrs):
-            _write_backend_attr(torch.backends, path, old_value)
 
 
 @contextmanager
@@ -277,8 +180,8 @@ def _compare_tensors_inplace(
     output: torch.Tensor,
     output_new: torch.Tensor,
     *,
-    atol: float = 1e-4,
-    rtol: float = 1e-4,
+    atol: float = 1e-3,
+    rtol: float = 1e-3,
 ) -> tuple[bool, float, float]:
     """Destructively compare two tensors without allocating a full diff tensor."""
     if output.numel() == 0:
@@ -499,7 +402,7 @@ def run_and_check_correctness(
         _record_trial_metadata()
         return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
 
-    with _true_fp32_correctness_context(metadata), torch.no_grad():
+    with tf32_execution_context(metadata, stage="correctness"), torch.no_grad():
         set_seed(seed)
         model = prepare_model_for_execution(original_model_instance.cuda(device=device))
         set_seed(seed)
