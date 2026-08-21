@@ -145,9 +145,9 @@ return 1
 
 def _hostname() -> str:
     # Workers publish socket.gethostname() in their Redis/API registrations.
-    # Prefer the same source so an explicitly overridden HOSTNAME cannot make
-    # the durable expected-worker contract impossible to match.
-    return socket.gethostname() or os.environ.get("HOSTNAME") or "local"
+    # Do not use the inherited HOSTNAME environment variable as an ownership
+    # identity: a stale or poisoned value could name a different cluster node.
+    return socket.gethostname() or "local"
 
 
 def _profile_values(profile_name: str) -> dict[str, str]:
@@ -1269,14 +1269,6 @@ def _clear_expected_workers_for_host(client: Any, hostname: str, *, graceful_sec
     """Drain and remove this host's registrations without erasing live generations."""
 
     prefix = REDIS_KEY_PREFIX
-    # Before socket.gethostname() became the canonical registration identity,
-    # service.py preferred the HOSTNAME environment variable. Retire records
-    # written by either version so an upgrade cannot leave a generation map
-    # that blocks this host from rejoining with the same worker ids.
-    local_hostnames = {hostname}
-    legacy_hostname = os.environ.get("HOSTNAME")
-    if legacy_hostname:
-        local_hostnames.add(legacy_hostname)
     success = True
     try:
         worker_ids = list(client.smembers(f"{prefix}:expected_workers"))
@@ -1288,7 +1280,7 @@ def _clear_expected_workers_for_host(client: Any, hostname: str, *, graceful_sec
         try:
             owner = client.hget(f"{prefix}:expected_worker:{worker_id}", "hostname") or ""
             owner = _decode_redis_text(owner) if owner else ""
-            if not owner or owner in local_hostnames:
+            if not owner or owner == hostname:
                 success = (
                     _drain_registered_worker(
                         client,

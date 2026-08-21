@@ -413,25 +413,23 @@ def test_settings_hardcode_api_and_redis_runtime_knobs(monkeypatch) -> None:
     assert settings.celery_broker_url == "redis://localhost:20110/0"
 
 
-def test_clear_expected_workers_for_host_preserves_other_hosts(monkeypatch) -> None:
+def test_clear_expected_workers_for_host_ignores_poisoned_hostname_env(monkeypatch) -> None:
     """A primary restart must only clear its own host's expected-worker
     registrations; wiping the shared set would strip worker nodes of
-    supervision. Unowned (legacy) ids are cleared so no monitor double-claims."""
+    supervision. HOSTNAME is untrusted process input and cannot add an owner."""
 
     class FakeClient:
         def __init__(self):
             self.sets = {
                 "kernelgym:expected_workers": {
-                    "worker_gpu_0",
-                    "old-alias_gpu_0",
-                    "node-1_gpu_0",
+                    "host-a_gpu_0",
+                    "host-b_gpu_0",
                     "legacy_cpu_0",
                 }
             }
             self.hashes = {
-                "kernelgym:expected_worker:worker_gpu_0": {"hostname": "host-a"},
-                "kernelgym:expected_worker:old-alias_gpu_0": {"hostname": "legacy-host-alias"},
-                "kernelgym:expected_worker:node-1_gpu_0": {"hostname": "host-b"},
+                "kernelgym:expected_worker:host-a_gpu_0": {"hostname": "host-a"},
+                "kernelgym:expected_worker:host-b_gpu_0": {"hostname": "host-b"},
             }
 
         def smembers(self, key):
@@ -450,13 +448,13 @@ def test_clear_expected_workers_for_host_preserves_other_hosts(monkeypatch) -> N
             for key in keys:
                 self.hashes.pop(key, None)
 
-    monkeypatch.setenv("HOSTNAME", "legacy-host-alias")
+    # Simulate host B inheriting host A's identity from its environment.
+    monkeypatch.setenv("HOSTNAME", "host-a")
     client = FakeClient()
-    assert service._clear_expected_workers_for_host(client, "host-a") is True
-    assert client.sets["kernelgym:expected_workers"] == {"node-1_gpu_0"}
-    assert "kernelgym:expected_worker:node-1_gpu_0" in client.hashes
-    assert "kernelgym:expected_worker:worker_gpu_0" not in client.hashes
-    assert "kernelgym:expected_worker:old-alias_gpu_0" not in client.hashes
+    assert service._clear_expected_workers_for_host(client, "host-b") is True
+    assert client.sets["kernelgym:expected_workers"] == {"host-a_gpu_0"}
+    assert "kernelgym:expected_worker:host-a_gpu_0" in client.hashes
+    assert "kernelgym:expected_worker:host-b_gpu_0" not in client.hashes
 
 
 def test_default_stop_grace_exceeds_worker_drain(monkeypatch) -> None:

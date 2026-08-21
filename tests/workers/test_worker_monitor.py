@@ -209,24 +209,21 @@ def test_load_local_expected_ids_filters_by_hostname(monkeypatch) -> None:
 
     class HostFakeRedis(FakeRedis):
         async def smembers(self, key):
-            return {b"local_gpu_0", b"old-alias_gpu_0", b"remote_gpu_0", b"legacy_cpu_0"}
+            return {b"host-a_gpu_0", b"host-b_gpu_0", b"legacy_cpu_0"}
 
         async def hgetall(self, key):
             data = {
-                "kernelgym:expected_worker:local_gpu_0": {b"hostname": b"host-a", b"device": b"cuda:0"},
-                "kernelgym:expected_worker:old-alias_gpu_0": {
-                    b"hostname": b"legacy-host-alias",
-                    b"device": b"cuda:0",
-                },
-                "kernelgym:expected_worker:remote_gpu_0": {b"hostname": b"host-b", b"device": b"cuda:0"},
+                "kernelgym:expected_worker:host-a_gpu_0": {b"hostname": b"host-a", b"device": b"cuda:0"},
+                "kernelgym:expected_worker:host-b_gpu_0": {b"hostname": b"host-b", b"device": b"cuda:0"},
             }
             return data.get(key, {})
 
-    monkeypatch.setenv("HOSTNAME", "legacy-host-alias")
+    # Simulate host B inheriting host A's identity from its environment.
+    monkeypatch.setenv("HOSTNAME", "host-a")
     monitor = worker_monitor.WorkerMonitor(HostFakeRedis(), persistent=True)
-    monitor.hostname = "host-a"
+    monitor.hostname = "host-b"
     local_ids = asyncio.run(monitor._load_local_expected_ids())
-    assert local_ids == {"local_gpu_0", "old-alias_gpu_0", "legacy_cpu_0"}
+    assert local_ids == {"host-b_gpu_0", "legacy_cpu_0"}
 
 
 def test_worker_monitor_refuses_to_restart_quarantined_gpu(monkeypatch) -> None:

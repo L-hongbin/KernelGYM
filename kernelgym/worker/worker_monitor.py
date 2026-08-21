@@ -208,10 +208,10 @@ class WorkerMonitor:
         # Restarts spawn processes on THIS host, so a monitor must only ever
         # enforce workers that belong to this host. In a multi-node cluster the
         # expected_workers set is shared via the primary's Redis.
-        # Match the hostname source used when service.py registers expected
-        # workers. An inherited HOSTNAME alias must not make local workers look
-        # remote to the monitor.
-        self.hostname: str = socket.gethostname() or os.environ.get("HOSTNAME") or "local"
+        # Match the kernel-provided hostname used when service.py registers
+        # expected workers. HOSTNAME is inherited process input and is not a
+        # trustworthy node-ownership identity.
+        self.hostname: str = socket.gethostname() or "local"
 
         # Configuration
         self.heartbeat_timeout = max(5, settings.worker_monitor_heartbeat_timeout)
@@ -278,15 +278,11 @@ class WorkerMonitor:
         """
         raw = await self.redis.smembers(f"{KEY_PREFIX}:expected_workers")
         all_ids = {wid.decode() if isinstance(wid, bytes) else wid for wid in raw} if raw else set()
-        local_hostnames = {self.hostname}
-        legacy_hostname = os.environ.get("HOSTNAME")
-        if legacy_hostname:
-            local_hostnames.add(legacy_hostname)
         local_ids: Set[str] = set()
         for wid in all_ids:
             edata = await self.redis.hgetall(f"{KEY_PREFIX}:expected_worker:{wid}")
             owner = edata.get(b"hostname", b"").decode() if edata else ""
-            if not owner or owner in local_hostnames:
+            if not owner or owner == self.hostname:
                 local_ids.add(wid)
         return local_ids
 
