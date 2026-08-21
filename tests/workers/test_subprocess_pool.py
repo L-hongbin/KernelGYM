@@ -367,7 +367,7 @@ def test_ready_handshake_arbitrary_exception_force_reaps_before_reraise(monkeypa
     assert subprocess_pool._snapshot_unreaped_workers(0) == []
 
 
-def test_ready_handshake_timeout_is_gpu_probe_failure(monkeypatch) -> None:
+def test_ready_handshake_timeout_is_infrastructure_failure(monkeypatch) -> None:
     def timeout_get():
         raise subprocess_pool.queue.Empty
 
@@ -385,9 +385,24 @@ def test_ready_handshake_timeout_is_gpu_probe_failure(monkeypatch) -> None:
         worker._start_worker()
 
     assert error.value.init_stage == "handshake_timeout"
-    assert error.value.cuda_probe_failure is True
+    assert error.value.cuda_probe_failure is False
     assert error.value.reap_confirmed is True
     assert shutdown_calls == [(5, True)]
+
+
+def test_initial_pool_handshake_timeout_does_not_become_gpu_probe_failure(monkeypatch) -> None:
+    pool = _pool_without_processes(pool_size=1)
+
+    def timeout_during_init(*_args, **_kwargs):
+        raise subprocess_pool.WorkerInitializationError(
+            "worker READY handshake timed out",
+            init_stage="handshake_timeout",
+        )
+
+    monkeypatch.setattr(subprocess_pool, "PersistentWorker", timeout_during_init)
+
+    with pytest.raises(subprocess_pool.WorkerPoolInfrastructureError, match="handshake timed out"):
+        pool._init_workers()
 
 
 def test_ready_handshake_unconfirmed_reap_retains_process_handle(monkeypatch) -> None:

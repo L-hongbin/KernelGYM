@@ -796,7 +796,6 @@ class WorkerInitializationError(RuntimeError):
             "cuda_sync",
             "cuda_sync_capture",
             "process_containment",
-            "handshake_timeout",
         }
     )
 

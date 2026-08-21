@@ -1,9 +1,12 @@
 import importlib.util
+import io
+import json
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 CHECK_NODE = ROOT / "scripts" / "check_node.py"
+CHECK_NODE_SH = ROOT / "check_node.sh"
 
 
 def load_check_node():
@@ -241,6 +244,111 @@ def test_empty_expected_worker_contract_prevents_up_status(capsys) -> None:
     out = capsys.readouterr().out
     assert "WARN" in out
     assert "missing_or_invalid" in out
+
+
+def test_gpu_only_expected_worker_contract_can_be_up(capsys) -> None:
+    check_node = load_check_node()
+    health = {
+        "status": "healthy",
+        "timestamp": "2026-05-27T12:00:00Z",
+        "gpu_status": {"cuda:0": {"available": True}},
+    }
+    expected = {
+        "worker_gpu_0": {"device": "cuda:0", "hostname": "host-a"},
+    }
+    workers = {
+        "worker_gpu_0": {
+            **expected["worker_gpu_0"],
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+            "health_state": "healthy",
+            "accepting_tasks": "true",
+        }
+    }
+
+    exit_code = check_node.render_summary(
+        "http://node:20111",
+        health,
+        workers,
+        max_heartbeat_age_s=180,
+        expected_workers=expected,
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "UP" in out
+    assert "expected_worker_contract:" in out and "ok" in out
+    assert "cpu_workers_online:" in out and "0/0" in out
+
+
+def test_redis_snapshot_failure_is_fail_closed(monkeypatch, capsys) -> None:
+    check_node = load_check_node()
+    payload = {
+        "health": {
+            "status": "healthy",
+            "timestamp": "2026-05-27T12:00:00Z",
+            "gpu_status": {"cuda:0": {"available": True}},
+        },
+        "workers": {
+            "worker_gpu_0": {
+                "device": "cuda:0",
+                "status": "online",
+                "last_heartbeat": "2026-05-27T11:59:30",
+                "health_state": "healthy",
+                "accepting_tasks": "true",
+            }
+        },
+    }
+    monkeypatch.setattr(check_node.sys, "argv", ["check_node.py", "--base", "http://node:20111", "--no-gpu-smi"])
+    monkeypatch.setattr(check_node.sys, "stdin", io.StringIO(json.dumps(payload)))
+    monkeypatch.setattr(check_node, "_redis_snapshot", lambda *_args, **_kwargs: None)
+
+    assert check_node.main() == 1
+    out = capsys.readouterr().out
+    assert "WARN" in out
+    assert "expected_worker_contract:" in out and "missing_or_invalid" in out
+
+
+def test_no_redis_explicitly_skips_expected_worker_contract(monkeypatch, capsys) -> None:
+    check_node = load_check_node()
+    payload = {
+        "health": {
+            "status": "healthy",
+            "timestamp": "2026-05-27T12:00:00Z",
+            "gpu_status": {"cuda:0": {"available": True}},
+        },
+        "workers": {
+            "worker_gpu_0": {
+                "device": "cuda:0",
+                "status": "online",
+                "last_heartbeat": "2026-05-27T11:59:30",
+                "health_state": "healthy",
+                "accepting_tasks": "true",
+            }
+        },
+    }
+    monkeypatch.setattr(
+        check_node.sys,
+        "argv",
+        ["check_node.py", "--base", "http://node:20111", "--no-gpu-smi", "--no-redis"],
+    )
+    monkeypatch.setattr(check_node.sys, "stdin", io.StringIO(json.dumps(payload)))
+
+    def unexpected_redis_read(*_args, **_kwargs):
+        raise AssertionError("--no-redis must not read Redis")
+
+    monkeypatch.setattr(check_node, "_redis_snapshot", unexpected_redis_read)
+
+    assert check_node.main() == 0
+    out = capsys.readouterr().out
+    assert "UP" in out
+    assert "expected_worker_contract:" in out and "not_checked" in out
+
+
+def test_check_node_shell_preserves_curl_error_text() -> None:
+    source = CHECK_NODE_SH.read_text()
+
+    assert "CURL=(curl -sSf -m 5 --noproxy '*')" in source
 
 
 def test_cluster_global_expected_contract_accepts_two_complete_nodes(capsys) -> None:

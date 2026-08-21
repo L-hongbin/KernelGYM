@@ -244,7 +244,7 @@ def test_failed_nvidia_smi_then_failed_fresh_cuda_probe_quarantines_and_pages_pa
 
     class FailedProbePool:
         def __init__(self, **kwargs):  # noqa: ANN003, ARG002
-            raise gpu_worker.GPUProbeFailedError("handshake_timeout")
+            raise gpu_worker.GPUProbeFailedError("cuda_sync failed")
 
     async def capture_quarantine(**kwargs):  # noqa: ANN003
         quarantines.append(kwargs)

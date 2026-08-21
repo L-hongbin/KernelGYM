@@ -376,7 +376,6 @@ def _expected_worker_contract_is_valid(expected_workers: dict[str, object]) -> b
     if not expected_workers:
         return False
     gpu_count = 0
-    cpu_count = 0
     for info in expected_workers.values():
         if not isinstance(info, dict) or not str(info.get("hostname") or "").strip():
             return False
@@ -384,10 +383,10 @@ def _expected_worker_contract_is_valid(expected_workers: dict[str, object]) -> b
         if device.startswith("cuda:"):
             gpu_count += 1
         elif device == "cpu":
-            cpu_count += 1
+            continue
         else:
             return False
-    return gpu_count > 0 and cpu_count > 0
+    return gpu_count > 0
 
 
 def _worker_heartbeat_age_s(info: object, now: datetime) -> float | None:
@@ -445,7 +444,7 @@ def render_summary(
     cpu_fresh = sum(1 for w in cpu_workers.values() if _worker_is_fresh(w, now, max_heartbeat_age_s))
     cpu_stale = len(cpu_workers) - cpu_fresh
     expected_contract_ok = None if expected_workers is None else _expected_worker_contract_is_valid(expected_workers)
-    expected_cpu_ok = expected_workers is None or (len(cpu_workers) > 0 and cpu_stale == 0)
+    expected_cpu_ok = expected_workers is None or cpu_stale == 0
     # Readiness is a worker property, not an expected-contract property. Keep
     # enforcing it when Redis is unavailable and workers came from the API.
     expected_gpu_ok = ready == len(gpu_workers)
@@ -609,7 +608,9 @@ def main() -> int:
     health = payload.get("health") or {}
     queue = payload.get("queue") or None
     workers = payload.get("workers") or {}
-    expected_workers = None
+    # When Redis contract checks are enabled, fail closed until a valid
+    # snapshot is read. Only explicit --no-redis permits an unchecked report.
+    expected_workers: dict[str, object] | None = None if args.no_redis else {}
 
     if not args.no_redis:
         redis_status = _redis_snapshot(args.redis_host, args.redis_port, args.redis_prefix)
@@ -617,8 +618,9 @@ def main() -> int:
             redis_workers = redis_status.get("workers")
             if isinstance(redis_workers, dict):
                 workers = _merge_workers(workers, redis_workers)
-            expected_workers = redis_status.get("expected_workers")
-            if isinstance(expected_workers, dict):
+            redis_expected_workers = redis_status.get("expected_workers")
+            if isinstance(redis_expected_workers, dict):
+                expected_workers = redis_expected_workers
                 workers = _merge_expected_workers(workers, expected_workers)
             redis_queue = redis_status.get("queue")
             if isinstance(redis_queue, dict):

@@ -79,3 +79,4 @@ Tracked review-evidence files only. Untracked run logs and debug artifacts
 | `docs/evidence/kernelbench/20260820_cpu_characterization.md` | PyTorch 2.11 CPU characterization, representative KernelBench A/B results, and the stateful VanillaRNN fallback failure. |
 | `docs/evidence/kernelbench/20260820_eval_no_grad_implementation.md` | Eval plus no-grad implementation scope, CPU and A800 GPU regression results, static checks, and remaining corpus-sweep gap. |
 | `docs/evidence/kernelbench/20260820_agentp_grok_review.md` | Read-only Grok 4.6 XHigh review outcome, residual test gaps, and follow-up coverage. |
+| `docs/evidence/deployment/20260821_startup_readiness_review.md` | Startup-readiness merge fixes, full-suite result, and final Grok 4.6 XHigh review outcome. |

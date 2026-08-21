@@ -82,7 +82,7 @@ fi
 
 BASE="http://${API_HOST}:${API_PORT}"
 # --noproxy '*' guards against http_proxy routing LAN probes through a proxy.
-CURL=(curl -sf -m 5 --noproxy '*')
+CURL=(curl -sSf -m 5 --noproxy '*')
 
 # ---------------------------------------------------------------------------
 # Hit /health first. If the API is unreachable, fail fast with a vertical
