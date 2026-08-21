@@ -33,4 +33,4 @@ Reference timings generated before this policy are not comparable because module
 
 ## Validation
 
-Categorized regression tests live under `tests/kernelbench/execution_modes/`. They verify recursive eval mode, no-grad correctness forwards, candidate and standalone-reference timing preparation, no-grad CUDA-event and profiling-only windows, Triton detection, and cache fencing. Test-scope documentation is kept in `docs/testing/KERNELBENCH_EXECUTION_MODES.md`, and the superseded inference-mode characterization is retained only as recorded evidence in `docs/evidence/kernelbench/`.
+Categorized regression tests live under `tests/kernelbench/execution_modes/`. They verify recursive eval mode, no-grad correctness forwards, candidate and standalone-reference timing preparation, no-grad CUDA-event and profiling-only windows, Triton detection, and cache fencing. Test-scope documentation is kept in `docs/testing/KERNELBENCH_EXECUTION_MODES.md`, and the superseded inference-mode characterization is retained only as local, gitignored evidence in `docs/evidence/kernelbench/`.

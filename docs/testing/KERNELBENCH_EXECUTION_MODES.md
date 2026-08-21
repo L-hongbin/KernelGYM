@@ -4,7 +4,7 @@ The execution-policy tests live in `tests/kernelbench/execution_modes/`. The ado
 
 `test_eval_no_grad_policy.py` covers the active policy, pipeline preparation, profiling retry, and cache fences. The superseded inference-mode characterization remains available as historical evidence rather than executable regression code.
 
-Recorded run evidence lives under `docs/evidence/kernelbench/`, outside the unit-test tree.
+Recorded run evidence lives locally under the gitignored `docs/evidence/kernelbench/`, outside the unit-test tree.
 
 Run only this category with:
 

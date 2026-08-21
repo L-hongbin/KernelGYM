@@ -69,16 +69,9 @@ This file indexes stable repository docs and evidence locations.
 
 ## Evidence Locations
 
-Tracked review-evidence files only. Untracked run logs and debug artifacts
-(gitignored `logs/` and `artifacts/`) are indexed in `RUNTIME.md`.
+Tracked repository evidence artifacts only. Local-only `docs/evidence/`, run logs, and debug artifacts are gitignored and indexed in `RUNTIME.md`.
 
 | Path | Purpose |
 | --- | --- |
 | `benchmarks/review_evidence/official_27b_review_evidence.json` | Adversarial review evidence for official 27B 3-binding c3/c8 runs: pairing, sample IDs, coverage, statuses, queue deltas, residuals, and c3/c8 consistency. |
 | `benchmarks/review_evidence/official_27b_perf_step_correctness_summary.json` | Perf-step breakdown split by completed, correct-only, and incorrect-completed rows for official 27B c3/c8 runs. |
-| `docs/evidence/kernelbench/20260820_cpu_characterization.md` | PyTorch 2.11 CPU characterization, representative KernelBench A/B results, and the stateful VanillaRNN fallback failure. |
-| `docs/evidence/kernelbench/20260820_eval_no_grad_implementation.md` | Eval plus no-grad implementation scope, CPU and A800 GPU regression results, static checks, and remaining corpus-sweep gap. |
-| `docs/evidence/kernelbench/20260820_agentp_grok_review.md` | Read-only Grok 4.6 XHigh review outcome, residual test gaps, and follow-up coverage. |
-| `docs/evidence/kernelbench/20260821_tf32_execution_policy.md` | Scoped TF32 implementation, PyTorch 2.11 state restoration check, regression results, and kimip review closure. |
-| `docs/evidence/deployment/20260821_startup_readiness_review.md` | Startup-readiness merge fixes, full-suite result, and final Grok 4.6 XHigh review outcome. |
-| `docs/evidence/tooling/20260821_agentp_connectivity.md` | Agentp streaming-failure evidence, diagnosis boundary, and switch to current-machine kimip review. |
