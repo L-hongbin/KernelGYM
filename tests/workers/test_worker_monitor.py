@@ -853,7 +853,11 @@ def test_persistent_monitor_defers_live_worker_during_initial_heartbeat_race(mon
         b"proc_start_ticks": b"100",
         b"process_group": b"1691",
         b"session_id": b"1691",
-        b"start_time": datetime.now().isoformat().encode(),
+        b"start_time": (
+            datetime.now() - timedelta(seconds=worker_monitor.settings.worker_monitor_heartbeat_timeout + 1)
+        )
+        .isoformat()
+        .encode(),
         b"device": b"cuda:1",
     }
     monitor = worker_monitor.WorkerMonitor(redis, persistent=True)
@@ -898,9 +902,7 @@ def test_persistent_monitor_restarts_worker_after_initial_heartbeat_grace(monkey
         b"proc_start_ticks": b"100",
         b"process_group": b"1691",
         b"session_id": b"1691",
-        b"start_time": (
-            datetime.now() - timedelta(seconds=worker_monitor.settings.worker_monitor_heartbeat_timeout + 1)
-        )
+        b"start_time": (datetime.now() - timedelta(seconds=worker_monitor.settings.worker_monitor_startup_timeout + 1))
         .isoformat()
         .encode(),
         b"device": b"cuda:1",
@@ -925,6 +927,7 @@ def test_persistent_monitor_restarts_worker_after_initial_heartbeat_grace(monkey
     request = monitor.restart_queue.get_nowait()
     assert request["worker_id"] == worker_id
     assert request["reason"] == "Missing heartbeat key"
+    assert request["replacement_required"] is False
 
 
 def test_persistent_monitor_defers_stale_heartbeat_from_previous_generation(monkeypatch) -> None:

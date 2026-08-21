@@ -1764,7 +1764,7 @@ def cmd_start_local(args: argparse.Namespace) -> int:
         )
         print(f"{worker_id} PID: {pid}")
         _register_expected_worker(client, worker_id, "cpu", _hostname(), values.get("NODE_ID", ""), pid)
-    print(f"KernelGym started. Logs: {log_dir}")
+    print(f"KernelGym processes launched; readiness checks are still pending. Logs: {log_dir}")
     return 0
 
 

@@ -212,12 +212,15 @@ class WorkerMonitor:
 
         # Configuration
         self.heartbeat_timeout = max(5, settings.worker_monitor_heartbeat_timeout)
+        self.startup_timeout = max(self.heartbeat_timeout, settings.worker_monitor_startup_timeout)
         self.monitor_interval = max(5, settings.worker_monitor_interval)
         self.max_restart_attempts = 3
         self.restart_cooldown = max(5, settings.worker_monitor_restart_cooldown)
         logger.info(
-            "Worker monitor configured with heartbeat_timeout=%ss, monitor_interval=%ss, restart_cooldown=%ss",
+            "Worker monitor configured with heartbeat_timeout=%ss, startup_timeout=%ss, "
+            "monitor_interval=%ss, restart_cooldown=%ss",
             self.heartbeat_timeout,
+            self.startup_timeout,
             self.monitor_interval,
             self.restart_cooldown,
         )
@@ -930,7 +933,6 @@ class WorkerMonitor:
             "replacement_required": reason
             in {
                 "Process dead",
-                "Missing heartbeat key",
                 "Missing process info & heartbeat",
             },
         }
@@ -1183,7 +1185,7 @@ class WorkerMonitor:
             now = datetime.now(tz=started_at.tzinfo)
         except (TypeError, ValueError):
             return False
-        if now - started_at > timedelta(seconds=self.heartbeat_timeout):
+        if now - started_at > timedelta(seconds=self.startup_timeout):
             return False
         return await self._registered_process_is_live(worker_id)
 

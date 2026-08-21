@@ -18,6 +18,9 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+import redis
+
+from kernelgym.deployment_profiles import REDIS_KEY_PREFIX, REDIS_PORT
 
 API_PORT = 20111
 DEFAULT_STARTUP_WARMUP_TIMEOUT = 1800
@@ -196,6 +199,38 @@ def _worker_registration_is_current(worker: dict[str, object]) -> bool:
     return (now - heartbeat).total_seconds() <= NODE_WORKER_HEARTBEAT_MAX_AGE
 
 
+def _decode_redis_hash(data: dict[object, object]) -> dict[str, str]:
+    return {
+        (key.decode(errors="replace") if isinstance(key, bytes) else str(key)): (
+            value.decode(errors="replace") if isinstance(value, bytes) else str(value)
+        )
+        for key, value in data.items()
+    }
+
+
+def _expected_workers_for_host(redis_host: str, target_hostname: str) -> dict[str, dict[str, str]]:
+    """Read the durable local-worker contract written by the service launcher."""
+
+    client = redis.Redis(
+        host=redis_host,
+        port=REDIS_PORT,
+        socket_connect_timeout=5,
+        socket_timeout=5,
+    )
+    expected: dict[str, dict[str, str]] = {}
+    try:
+        for raw_worker_id in client.smembers(f"{REDIS_KEY_PREFIX}:expected_workers"):
+            worker_id = (
+                raw_worker_id.decode(errors="replace") if isinstance(raw_worker_id, bytes) else str(raw_worker_id)
+            )
+            info = _decode_redis_hash(client.hgetall(f"{REDIS_KEY_PREFIX}:expected_worker:{worker_id}"))
+            if info.get("hostname") == target_hostname:
+                expected[worker_id] = info
+    finally:
+        client.close()
+    return expected
+
+
 def wait_node_workers(api_host: str, target_hostname: str, timeout: int = NODE_WORKER_READY_TIMEOUT) -> None:
     """Wait until every current GPU/CPU worker registration on this host is usable."""
     url = f"http://{api_host}:{API_PORT}/workers/status"
@@ -204,15 +239,26 @@ def wait_node_workers(api_host: str, target_hostname: str, timeout: int = NODE_W
     last_error: Exception | None = None
     while time.monotonic() < deadline:
         try:
+            expected = _expected_workers_for_host(api_host, target_hostname)
+            expected_gpu_ids = {
+                worker_id for worker_id, value in expected.items() if value.get("device", "").startswith("cuda:")
+            }
+            expected_cpu_ids = {worker_id for worker_id, value in expected.items() if value.get("device") == "cpu"}
             status = _http_get_json(url)
-            matching = [value for value in status.values() if value.get("hostname") == target_hostname]
-            current = [value for value in matching if _worker_registration_is_current(value)]
-            stale_count = len(matching) - len(current)
-            gpu_workers = [value for value in current if str(value.get("device") or "").startswith("cuda:")]
-            cpu_workers = [value for value in current if value.get("device") == "cpu"]
+            matching = {
+                worker_id: value
+                for worker_id, value in status.items()
+                if value.get("hostname") == target_hostname and worker_id in expected
+            }
+            current = {
+                worker_id: value for worker_id, value in matching.items() if _worker_registration_is_current(value)
+            }
+            stale_count = len(expected) - len(current)
+            gpu_workers = {worker_id: current[worker_id] for worker_id in expected_gpu_ids & current.keys()}
+            cpu_workers = {worker_id: current[worker_id] for worker_id in expected_cpu_ids & current.keys()}
             gpu_ready = [
                 value
-                for value in gpu_workers
+                for value in gpu_workers.values()
                 # degraded_check is a transient post-CUDA-fault state. It may
                 # be scheduler-admissible for one pre-fault spare, but a node
                 # is not deployment-ready until fresh-context validation has
@@ -221,16 +267,18 @@ def wait_node_workers(api_host: str, target_hostname: str, timeout: int = NODE_W
                 and value.get("health_state") == "healthy"
                 and _redis_bool(value.get("accepting_tasks"))
             ]
-            cpu_ready = [value for value in cpu_workers if _redis_bool(value.get("online"))]
+            cpu_ready = [value for value in cpu_workers.values() if _redis_bool(value.get("online"))]
             last_state = (
-                f"gpu={len(gpu_ready)}/{len(gpu_workers)} ready, cpu={len(cpu_ready)}/{len(cpu_workers)} online, "
+                f"gpu={len(gpu_ready)}/{len(expected_gpu_ids)} ready, "
+                f"cpu={len(cpu_ready)}/{len(expected_cpu_ids)} online, "
                 f"stale_or_offline={stale_count}"
             )
             if (
-                gpu_workers
-                and cpu_workers
-                and len(gpu_ready) == len(gpu_workers)
-                and len(cpu_ready) == len(cpu_workers)
+                expected_gpu_ids
+                and expected_cpu_ids
+                and len(gpu_ready) == len(expected_gpu_ids)
+                and len(cpu_ready) == len(expected_cpu_ids)
+                and stale_count == 0
             ):
                 print(f"Node workers ready: hostname={target_hostname} {last_state}")
                 return

@@ -51,6 +51,7 @@ class RewardProfile:
             "REDIS_KEY_PREFIX": REDIS_KEY_PREFIX,
             "WORKER_POOL_SIZE": "2",
             "MAX_TASKS_PER_WORKER": "1",
+            "WORKER_MONITOR_STARTUP_TIMEOUT": "900",
             "CPU_COMPILE_WORKERS": "24",
             "SPLIT_COMPILE_AND_EXECUTE": "true",
             "DEFAULT_TIMEOUT": "180",

@@ -4,6 +4,7 @@ and must still fail it once the drain window expires."""
 
 import asyncio
 import importlib.util
+import signal
 from pathlib import Path
 
 import pytest
@@ -259,6 +260,34 @@ def test_failed_nvidia_smi_then_failed_fresh_cuda_probe_quarantines_and_pages_pa
     assert quarantines[0]["physical_scope"] is True
     assert quarantines[0]["fault_class"] == "initialization_failure"
     assert "nvidia-smi precheck also failed" in quarantines[0]["reason"]
+
+
+def test_shutdown_interrupted_startup_probe_does_not_quarantine_gpu(monkeypatch) -> None:
+    worker, _failed = _make_worker(monkeypatch, drain_sec=0)
+    quarantines = []
+
+    class InterruptedProbePool:
+        def __init__(self, **kwargs):  # noqa: ANN003, ARG002
+            worker._signal_handler(signal.SIGTERM, None)
+            raise gpu_worker.GPUProbeFailedError("handshake_timeout")
+
+    async def capture_quarantine(**kwargs):  # noqa: ANN003
+        quarantines.append(kwargs)
+
+    async def completed_stop():
+        return None
+
+    worker.running = True
+    monkeypatch.setattr(gpu_worker, "SubprocessWorkerPool", InterruptedProbePool)
+    monkeypatch.setattr(worker, "_quarantine_gpu", capture_quarantine)
+    monkeypatch.setattr(worker, "stop", completed_stop)
+
+    with pytest.raises(RuntimeError, match="interrupted by shutdown"):
+        asyncio.run(worker._initialize_worker_pool())
+
+    assert quarantines == []
+    assert worker.running is False
+    assert worker._stopping is True
 
 
 def test_failed_nvidia_smi_does_not_quarantine_when_fresh_cuda_probe_passes(monkeypatch) -> None:
