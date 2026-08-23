@@ -11,13 +11,18 @@ import redis.asyncio as redis
 from kernelgym.config import settings
 
 from kernelgym.config import setup_logging
-from kernelgym.worker.gpu_worker import GPUWorker
 
 logger = logging.getLogger("kernelgym.single_worker")
 
 
 async def main():
     """Main entry point for single GPU worker."""
+    # Keep this import inside the real entry point. multiprocessing ``spawn``
+    # imports this module as ``__mp_main__`` before running an inner pool
+    # target; importing GPUWorker (and Torch) at module scope delayed the
+    # child's pre-CUDA containment handshake during multi-GPU recycle waves.
+    from kernelgym.worker.gpu_worker import GPUWorker
+
     parser = argparse.ArgumentParser(description="Start a single GPU worker")
     parser.add_argument("--worker-id", required=True, help="Worker ID")
     parser.add_argument("--device", required=True, help="GPU device (e.g., cuda:0)")

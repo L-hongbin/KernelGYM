@@ -51,7 +51,13 @@ class RewardProfile:
             "REDIS_KEY_PREFIX": REDIS_KEY_PREFIX,
             "WORKER_POOL_SIZE": "2",
             "MAX_TASKS_PER_WORKER": "1",
-            "WORKER_MONITOR_STARTUP_TIMEOUT": "900",
+            "KERNELGYM_WORKER_SPAWN_CONCURRENCY": "2",
+            "KERNELGYM_WORKER_SPAWN_SLOT_TIMEOUT": "600",
+            "KERNELGYM_WORKER_CONTAINMENT_TIMEOUT": "180",
+            "KERNELGYM_WORKER_READY_TIMEOUT": "90",
+            # Two serial pool workers can each consume 600 + 180 + 90 seconds.
+            # Keep additional room for outer-process Torch import/registration.
+            "WORKER_MONITOR_STARTUP_TIMEOUT": "2100",
             "CPU_COMPILE_WORKERS": "24",
             "SPLIT_COMPILE_AND_EXECUTE": "true",
             "DEFAULT_TIMEOUT": "180",

@@ -182,7 +182,7 @@ class Settings(BaseSettings):
     worker_monitor_interval: int = Field(default=30, env="WORKER_MONITOR_INTERVAL")
     worker_monitor_heartbeat_timeout: int = Field(default=120, env="WORKER_MONITOR_HEARTBEAT_TIMEOUT")
     worker_monitor_startup_timeout: int = Field(
-        default=900,
+        default=2100,
         env="WORKER_MONITOR_STARTUP_TIMEOUT",
         description=(
             "Maximum seconds an authenticated worker process may initialize before its first ready heartbeat. "

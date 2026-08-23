@@ -1563,6 +1563,8 @@ class GPUWorker:
                 and health_state in {"healthy", "degraded_check"}
             )
             health_reason = self.quarantine_reason or str(pool_health.get("health_reason") or "")
+            health_fault_class = str(pool_health.get("health_fault_class") or "")
+            health_scope = str(pool_health.get("health_scope") or "")
 
             if online:
                 await self.redis.hset(
@@ -1578,6 +1580,8 @@ class GPUWorker:
                         "health_state": health_state,
                         "accepting_tasks": str(accepting_tasks).lower(),
                         "health_reason": health_reason,
+                        "health_fault_class": health_fault_class,
+                        "health_scope": health_scope,
                     },
                 )
                 # Set expiration for heartbeat (120s). Monitor handles persistence for expected workers.
@@ -1596,6 +1600,8 @@ class GPUWorker:
                         "health_state": health_state,
                         "accepting_tasks": "false",
                         "health_reason": health_reason,
+                        "health_fault_class": health_fault_class,
+                        "health_scope": health_scope,
                     },
                 )
                 # Ensure offline records expire to avoid long-term residue

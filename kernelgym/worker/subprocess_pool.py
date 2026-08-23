@@ -17,6 +17,8 @@ import json
 import math
 import os
 import re
+import fcntl
+import stat
 import sys
 import time
 import logging
@@ -27,6 +29,7 @@ import asyncio
 import threading
 import uuid
 import signal
+from contextlib import contextmanager
 from typing import Dict, Any, Callable, Optional, List
 from dataclasses import dataclass
 
@@ -42,6 +45,7 @@ logger = logging.getLogger("kernelgym.subprocess_pool")
 POOL_HEALTHY = "healthy"
 POOL_DEGRADED_CHECK = "degraded_check"
 POOL_SUSPECT = "suspect"
+POOL_BOOTSTRAP_FAILED = "bootstrap_failed"
 POOL_QUARANTINED = "quarantined"
 
 FAULT_NONE = "none"
@@ -49,14 +53,36 @@ FAULT_CONTEXT = "context"
 FAULT_DEVICE = "device"
 
 
-# A worker constructor may block for the full READY handshake (120s), then
-# spend up to roughly 30s in queue/join/TERM/KILL escalation.  Event-loop
-# callback delivery and scheduler jitter need bounded headroom as well.  Keep
-# ticket drain waits above that complete lifecycle so shutdown/recovery never
-# forgets the only handle tracking a potentially live CUDA context.
-_WORKER_READY_TIMEOUT_S = 120.0
+def _bounded_env_float(name: str, default: float, *, minimum: float) -> float:
+    try:
+        return max(minimum, float(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _bounded_env_int(name: str, default: int, *, minimum: int) -> int:
+    try:
+        return max(minimum, int(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return default
+
+
+# Multiprocessing ``spawn`` imports the outer process's main module before the
+# target function can attest its PGID.  Under a synchronized eight-GPU recycle
+# wave that import/bootstrap phase exceeded the former shared 120-second
+# CONTAINED+READY deadline.  Bound node-local constructor concurrency and give
+# containment and post-containment CUDA initialization independent clocks.
+_WORKER_SPAWN_CONCURRENCY = _bounded_env_int("KERNELGYM_WORKER_SPAWN_CONCURRENCY", 2, minimum=1)
+_WORKER_SPAWN_SLOT_TIMEOUT_S = _bounded_env_float("KERNELGYM_WORKER_SPAWN_SLOT_TIMEOUT", 600.0, minimum=30.0)
+_WORKER_CONTAINMENT_TIMEOUT_S = _bounded_env_float("KERNELGYM_WORKER_CONTAINMENT_TIMEOUT", 180.0, minimum=10.0)
+_WORKER_READY_AFTER_CONTAINMENT_TIMEOUT_S = _bounded_env_float("KERNELGYM_WORKER_READY_TIMEOUT", 90.0, minimum=10.0)
+_WORKER_SPAWN_SLOT_YIELD_S = 0.05
 _PARENT_CONTAINMENT_ACK_TIMEOUT_S = 30.0
-_REPLENISHMENT_DRAIN_TIMEOUT_S = 210.0
+_REPLENISHMENT_DRAIN_TIMEOUT_S = (
+    _WORKER_SPAWN_SLOT_TIMEOUT_S + _WORKER_CONTAINMENT_TIMEOUT_S + _WORKER_READY_AFTER_CONTAINMENT_TIMEOUT_S + 30.0
+)
+_MAX_REPLACEMENT_INFRA_FAILURES = 3
+_REPLACEMENT_RETRY_BASE_DELAY_S = 5.0
 _STALE_HARD_RECOVERY_EPOCH = -1
 _RESULT_PROTOCOL_MAGIC = "kernelgym-result-json-v1"
 _PARENT_CONTAINMENT_ACK = "kernelgym-parent-containment-ack-v1"
@@ -96,6 +122,10 @@ class _ProcessContainmentError(RuntimeError):
 
 class WorkerIPCProtocolError(RuntimeError):
     """The CUDA subprocess violated the bounded JSON result protocol."""
+
+
+class WorkerResultChannelClosed(WorkerIPCProtocolError):
+    """The child result pipe reached EOF before its expected message."""
 
 
 def _validate_exact_json_primitives(value: Any, *, max_depth: int = 32, max_nodes: int = 200_000) -> None:
@@ -245,7 +275,7 @@ class _ParentJSONResultChannel:
         try:
             encoded = self._connection.recv_bytes(self._max_message_bytes)
         except EOFError as exc:
-            raise queue.Empty from exc
+            raise WorkerResultChannelClosed("child result channel closed before the expected message") from exc
         except OSError as exc:
             raise WorkerIPCProtocolError(f"could not receive bounded child result: {exc}") from exc
         try:
@@ -795,7 +825,7 @@ class WorkerInitializationError(RuntimeError):
             "cuda_alloc",
             "cuda_sync",
             "cuda_sync_capture",
-            "process_containment",
+            "cuda_identity",
         }
     )
 
@@ -818,6 +848,121 @@ class GPUProbeFailedError(RuntimeError):
 
 class WorkerPoolInfrastructureError(RuntimeError):
     """Pool bootstrap failed outside the CUDA health probe."""
+
+
+def _worker_spawn_lock_dir() -> str:
+    configured = os.environ.get("KERNELGYM_WORKER_SPAWN_LOCK_DIR", "").strip()
+    if configured:
+        if not os.path.isabs(configured):
+            raise WorkerInitializationError(
+                "KERNELGYM_WORKER_SPAWN_LOCK_DIR must be absolute",
+                init_stage="spawn_throttle",
+            )
+        return configured
+    return f"/dev/shm/kernelgym-worker-spawn-{os.getuid()}"
+
+
+def _prepare_worker_spawn_lock_dir(path: str) -> None:
+    try:
+        os.makedirs(path, mode=0o700, exist_ok=True)
+        directory = os.lstat(path)
+    except OSError as exc:
+        raise WorkerInitializationError(
+            f"could not prepare worker spawn lock directory {path}: {exc}",
+            init_stage="spawn_throttle",
+        ) from exc
+    if not stat.S_ISDIR(directory.st_mode) or stat.S_ISLNK(directory.st_mode):
+        raise WorkerInitializationError(
+            f"worker spawn lock path is not a real directory: {path}",
+            init_stage="spawn_throttle",
+        )
+    if directory.st_uid != os.getuid() or stat.S_IMODE(directory.st_mode) & 0o077:
+        raise WorkerInitializationError(
+            f"worker spawn lock directory ownership/mode is unsafe: {path}",
+            init_stage="spawn_throttle",
+        )
+
+
+@contextmanager
+def _host_worker_spawn_slot(worker_id: str):
+    """Limit expensive spawn/import/CUDA handshakes across local GPU workers.
+
+    Each slot is a persistent inode in a private directory.  The descriptor is
+    CLOEXEC so a spawned CUDA child cannot retain the parent's flock for its
+    lifetime.  Lock files are deliberately never unlinked: replacing the inode
+    would let another process bypass an existing lock.
+    """
+
+    lock_dir = _worker_spawn_lock_dir()
+    _prepare_worker_spawn_lock_dir(lock_dir)
+    deadline = time.monotonic() + _WORKER_SPAWN_SLOT_TIMEOUT_S
+    slot_count = _WORKER_SPAWN_CONCURRENCY
+    first_slot = (os.getpid() + threading.get_native_id()) % slot_count
+    selected_fd: Optional[int] = None
+    selected_slot = -1
+    started_waiting = time.monotonic()
+
+    while selected_fd is None:
+        for offset in range(slot_count):
+            slot = (first_slot + offset) % slot_count
+            path = os.path.join(lock_dir, f"slot-{slot}.lock")
+            flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+            fd: Optional[int] = None
+            try:
+                fd = os.open(path, flags, 0o600)
+                os.set_inheritable(fd, False)
+                lock_stat = os.fstat(fd)
+                if (
+                    not stat.S_ISREG(lock_stat.st_mode)
+                    or lock_stat.st_nlink < 1
+                    or lock_stat.st_uid != os.getuid()
+                    or stat.S_IMODE(lock_stat.st_mode) & 0o077
+                ):
+                    raise OSError(f"unsafe spawn slot inode: {path}")
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                if fd is not None:
+                    os.close(fd)
+                continue
+            except OSError as exc:
+                if fd is not None:
+                    os.close(fd)
+                raise WorkerInitializationError(
+                    f"could not authenticate worker spawn slot {path}: {exc}",
+                    init_stage="spawn_throttle",
+                ) from exc
+            selected_fd = fd
+            selected_slot = slot
+            break
+
+        if selected_fd is not None:
+            break
+        if time.monotonic() >= deadline:
+            raise WorkerInitializationError(
+                f"[{worker_id}] timed out after {_WORKER_SPAWN_SLOT_TIMEOUT_S:.0f}s "
+                f"waiting for one of {slot_count} host worker spawn slots",
+                init_stage="spawn_throttle",
+            )
+        time.sleep(0.1)
+
+    wait_s = time.monotonic() - started_waiting
+    logger.info(
+        "[%s] Acquired host worker spawn slot %s/%s after %.2fs",
+        worker_id,
+        selected_slot + 1,
+        slot_count,
+        wait_s,
+    )
+    try:
+        yield wait_s
+    finally:
+        try:
+            fcntl.flock(selected_fd, fcntl.LOCK_UN)
+        finally:
+            os.close(selected_fd)
+        # Let another waiting outer worker win before this process constructs
+        # its next pool member.
+        time.sleep(_WORKER_SPAWN_SLOT_YIELD_S)
 
 
 _CUDA_CONTEXT_FAULT_MARKERS = (
@@ -1404,13 +1549,33 @@ class PersistentWorker:
         self._process_identity: Optional[_LinuxProcessIdentity] = None
         self._starting_process_identity: Optional[_LinuxProcessIdentity] = None
         self._expected_session_id = os.getsid(0)
+        self.spawn_slot_wait_s = 0.0
+        self.containment_elapsed_s = 0.0
+        self.ready_after_containment_s = 0.0
+        self.child_init_s = 0.0
 
-        # 启动 worker 进程
-        self._start_worker()
+        # Hold one cross-process node-local slot through spawn, containment,
+        # dependency import, and CUDA READY.  Waiting for the slot is not part
+        # of either handshake timeout.
+        try:
+            with _host_worker_spawn_slot(self.worker_id) as spawn_slot_wait_s:
+                self._start_worker(spawn_slot_wait_s=spawn_slot_wait_s)
+        except BaseException:
+            if self.process is None:
+                if self._child_result_channel is not None:
+                    self._child_result_channel.close()
+                    self._child_result_channel = None
+                self._close_result_channel()
+                self.task_queue.close()
+            raise
 
-    def _start_worker(self):
+    def _start_worker(self, *, spawn_slot_wait_s: float = 0.0):
         """启动 worker 进程"""
-        logger.info(f"[{self.worker_id}] Starting persistent worker for GPU {self.device_id} {self.pool_size_info}")
+        self.spawn_slot_wait_s = spawn_slot_wait_s
+        logger.info(
+            f"[{self.worker_id}] Starting persistent worker for GPU {self.device_id} {self.pool_size_info} "
+            f"(spawn_slot_wait={spawn_slot_wait_s:.2f}s)"
+        )
         try:
             prepare_core_dump_dir(os.environ.get(CORE_DUMP_DIR_ENV), os.environ.get(CORE_DUMP_KEEP_ENV))
         except Exception as exc:
@@ -1500,18 +1665,26 @@ class PersistentWorker:
             self._starting_process_identity = starting_identity
             _register_starting_worker_identity(starting_identity)
 
-            handshake_deadline = time.monotonic() + _WORKER_READY_TIMEOUT_S
+            containment_started = time.monotonic()
+            containment_deadline = containment_started + _WORKER_CONTAINMENT_TIMEOUT_S
             try:
                 containment_msg = _receive_worker_message(
                     self.result_queue,
-                    timeout=max(0.0, handshake_deadline - time.monotonic()),
+                    timeout=max(0.0, containment_deadline - time.monotonic()),
                     expected_kinds=frozenset({"contained", "init_failed"}),
                 )
             except queue.Empty as exc:
                 raise WorkerInitializationError(
-                    f"[{self.worker_id}] Worker containment timeout (>{_WORKER_READY_TIMEOUT_S:.0f}s)",
+                    f"[{self.worker_id}] Worker containment timeout (>{_WORKER_CONTAINMENT_TIMEOUT_S:.0f}s)",
                     init_stage="handshake_timeout",
                 ) from exc
+            except WorkerResultChannelClosed as exc:
+                raise WorkerInitializationError(
+                    f"[{self.worker_id}] Worker result channel closed before CONTAINED",
+                    init_stage="handshake_eof",
+                ) from exc
+            containment_elapsed_s = time.monotonic() - containment_started
+            self.containment_elapsed_s = containment_elapsed_s
 
             if not isinstance(containment_msg, dict):
                 raise WorkerInitializationError(
@@ -1554,17 +1727,27 @@ class PersistentWorker:
             _promote_active_worker_identity(starting_identity, identity)
             self.task_queue.put(_PARENT_CONTAINMENT_ACK)
 
+            ready_started = time.monotonic()
+            ready_deadline = ready_started + _WORKER_READY_AFTER_CONTAINMENT_TIMEOUT_S
             try:
                 init_msg = _receive_worker_message(
                     self.result_queue,
-                    timeout=max(0.0, handshake_deadline - time.monotonic()),
+                    timeout=max(0.0, ready_deadline - time.monotonic()),
                     expected_kinds=frozenset({"ready", "init_failed"}),
-                )  # 给足够时间加载 torch (increased from 60s)
+                )
             except queue.Empty as exc:
                 raise WorkerInitializationError(
-                    f"[{self.worker_id}] Worker initialization timeout (>{_WORKER_READY_TIMEOUT_S:.0f}s)",
+                    f"[{self.worker_id}] Worker initialization timeout after CONTAINED "
+                    f"(>{_WORKER_READY_AFTER_CONTAINMENT_TIMEOUT_S:.0f}s)",
                     init_stage="handshake_timeout",
                 ) from exc
+            except WorkerResultChannelClosed as exc:
+                raise WorkerInitializationError(
+                    f"[{self.worker_id}] Worker result channel closed before READY",
+                    init_stage="handshake_eof",
+                ) from exc
+            ready_elapsed_s = time.monotonic() - ready_started
+            self.ready_after_containment_s = ready_elapsed_s
 
             if not isinstance(init_msg, dict):
                 raise WorkerInitializationError(
@@ -1593,10 +1776,13 @@ class PersistentWorker:
             ):
                 raise WorkerInitializationError(
                     "READY worker identity changed after containment promotion",
-                    init_stage="process_containment",
+                    init_stage="cuda_identity",
                 )
+            self.child_init_s = float(init_msg.get("init_time", 0))
             logger.info(
-                f"[{self.worker_id}] Worker initialized successfully (init_time={init_msg.get('init_time', 0):.2f}s)"
+                f"[{self.worker_id}] Worker initialized successfully "
+                f"(containment={containment_elapsed_s:.2f}s, ready_after_containment={ready_elapsed_s:.2f}s, "
+                f"child_init={self.child_init_s:.2f}s)"
             )
             self.is_alive_flag = True
         except BaseException as handshake_error:
@@ -1662,6 +1848,32 @@ class PersistentWorker:
         poll = poll_interval if poll_interval and poll_interval > 0 else 0.5
         deadline = time.monotonic() + timeout
         result = None
+
+        def _crash_result(reason: str) -> Dict[str, Any]:
+            exitcode = self.process.exitcode if self.process is not None else None
+            stderr_tail = _read_stderr_tail(self.worker_id)
+            logger.error(
+                f"[{self.worker_id}] Worker subprocess became unavailable (exitcode={exitcode}) "
+                f"during task {task_id} before returning a result ({reason}); reporting as a crash"
+                + (f"; subprocess stderr tail:\n{stderr_tail}" if stderr_tail else "")
+            )
+            self.is_alive_flag = False
+            return {
+                "success": False,
+                "error_type": "WorkerProcessCrashed",
+                "error_message": (
+                    f"Worker {self.worker_id} subprocess became unavailable (exitcode={exitcode}) "
+                    f"during task {task_id} before returning a result ({reason}); likely a native "
+                    "crash in the evaluated kernel or an early process exit"
+                    + (f". Subprocess stderr tail:\n{stderr_tail}" if stderr_tail else "")
+                ),
+                "stderr_tail": stderr_tail,
+                "worker_exiting": True,
+                "crashed": True,
+                "fault_severity": FAULT_DEVICE,
+                "device_suspect": True,
+            }
+
         while True:
             if cancel_event is not None and cancel_event.is_set():
                 logger.warning(
@@ -1701,33 +1913,17 @@ class PersistentWorker:
                             expected_kinds=frozenset({"task_result"}),
                         )
                         break
-                    except queue.Empty:
+                    except (queue.Empty, WorkerResultChannelClosed):
                         pass
-                    exitcode = self.process.exitcode
-                    stderr_tail = _read_stderr_tail(self.worker_id)
-                    logger.error(
-                        f"[{self.worker_id}] Worker subprocess died (exitcode={exitcode}) "
-                        f"during task {task_id} before returning a result; reporting as a "
-                        f"crash rather than a timeout"
-                        + (f"; subprocess stderr tail:\n{stderr_tail}" if stderr_tail else "")
-                    )
-                    result = {
-                        "success": False,
-                        "error_type": "WorkerProcessCrashed",
-                        "error_message": (
-                            f"Worker {self.worker_id} subprocess exited (exitcode={exitcode}) "
-                            f"during task {task_id} before returning a result; likely a native "
-                            f"crash in the evaluated kernel (e.g. undefined symbol or segfault)"
-                            + (f". Subprocess stderr tail:\n{stderr_tail}" if stderr_tail else "")
-                        ),
-                        "stderr_tail": stderr_tail,
-                        "worker_exiting": True,
-                        "crashed": True,
-                        "fault_severity": FAULT_DEVICE,
-                        "device_suspect": True,
-                    }
+                    result = _crash_result("process exited and the result pipe drained")
                     break
                 continue
+            except WorkerResultChannelClosed:
+                # EOF is definitive: this child can never produce the expected
+                # result.  Classify it through the existing crash/containment
+                # path instead of treating it as a timeout or IPC device fault.
+                result = _crash_result("result channel reached EOF")
+                break
 
         # 检查 worker 是否报告 CUDA error 并准备退出
         if result.get("worker_exiting") is True:
@@ -1994,10 +2190,10 @@ class SubprocessWorkerPool:
         self.hard_recovery_epoch = 0
         self.speculative_dispatches_remaining = 0
         self.consecutive_replacement_failures = 0
-        # A fresh-context initialization failure is itself a strong device
-        # health signal.  Fail closed on the first failure instead of creating
-        # an unbounded replacement storm against a damaged driver.
-        self.max_replacement_failures = 1
+        # CUDA probe failures and unconfirmed reap still fail closed on the
+        # first occurrence.  Confirmed-reap process/bootstrap failures get a
+        # small bounded retry budget before the outer worker is recycled.
+        self.max_replacement_failures = _MAX_REPLACEMENT_INFRA_FAILURES
 
         # 统计
         self.total_tasks_processed = 0
@@ -2788,6 +2984,7 @@ class SubprocessWorkerPool:
 
             async def _mark_failed() -> None:
                 workers_to_shutdown: List[PersistentWorker] = []
+                retry_delay_s: Optional[float] = None
                 if old_worker is not None and not detached_worker_reaped.is_set():
                     try:
                         detached_stopped = await asyncio.to_thread(old_worker.shutdown, 10, True)
@@ -2805,14 +3002,10 @@ class SubprocessWorkerPool:
                 async with self.lock:
                     if self._closing or generation != self.pool_generation:
                         return
-                    self.pending_replacements = max(0, self.pending_replacements - 1)
                     self.consecutive_replacement_failures += 1
-                    must_quarantine = (
-                        validates_context_fault
-                        or physical_scope
-                        or self.consecutive_replacement_failures >= self.max_replacement_failures
-                    )
+                    must_quarantine = validates_context_fault or physical_scope
                     if must_quarantine:
+                        self.pending_replacements = max(0, self.pending_replacements - 1)
                         failure_kind = "post-fault validation" if validates_context_fault else "worker replacement"
                         # The background thread has already synchronously
                         # reaped ``old_worker`` before attempting the failed
@@ -2839,8 +3032,43 @@ class SubprocessWorkerPool:
                         logger.error(
                             f"[GPU {self.device_id}] QUARANTINED after {failure_kind} failure: {replacement_error}"
                         )
+                    elif self.consecutive_replacement_failures >= self.max_replacement_failures:
+                        # The failed constructor was reaped and no CUDA/device
+                        # fault was observed.  Close admission and ask the outer
+                        # monitor to recycle this worker process; do not create a
+                        # durable GPU/worker quarantine for recoverable bootstrap
+                        # congestion.
+                        self.pending_replacements = max(0, self.pending_replacements - 1)
+                        self.pool_generation += 1
+                        self.pending_replacements = 0
+                        self._set_health_locked(
+                            POOL_BOOTSTRAP_FAILED,
+                            reason=(
+                                f"worker replacement infrastructure failed "
+                                f"{self.consecutive_replacement_failures} consecutive times: {replacement_error}"
+                            ),
+                            task_id=self.health_task_id,
+                            fault_class="worker_bootstrap_failure",
+                            scope="worker",
+                        )
+                        logger.error(
+                            f"[GPU {self.device_id}] Worker bootstrap exhausted after "
+                            f"{self.consecutive_replacement_failures} confirmed-reap failures; "
+                            "outer worker restart required"
+                        )
                     else:
-                        self._ensure_capacity_locked(loop)
+                        # Keep this failed constructor's capacity reservation
+                        # through the delay so another pool path cannot create a
+                        # parallel retry storm.
+                        retry_delay_s = min(
+                            30.0,
+                            _REPLACEMENT_RETRY_BASE_DELAY_S * (2 ** max(0, self.consecutive_replacement_failures - 1)),
+                        )
+                        logger.warning(
+                            f"[GPU {self.device_id}] Confirmed-reap worker bootstrap failure "
+                            f"{self.consecutive_replacement_failures}/{self.max_replacement_failures}; "
+                            f"retrying capacity in {retry_delay_s:.1f}s: {replacement_error}"
+                        )
                 if workers_to_shutdown:
                     shutdown_results = await asyncio.gather(
                         *(asyncio.to_thread(item.shutdown, 10, True) for item in workers_to_shutdown),
@@ -2853,6 +3081,16 @@ class SubprocessWorkerPool:
                             task_id=self.health_task_id,
                             extra_worker=item,
                         )
+                if retry_delay_s is not None:
+                    await asyncio.sleep(retry_delay_s)
+                    async with self.lock:
+                        # A generation transition resets/reassigns capacity
+                        # accounting.  A stale delayed retry must not consume a
+                        # reservation belonging to the new epoch.
+                        if self._closing or generation != self.pool_generation:
+                            return
+                        self.pending_replacements = max(0, self.pending_replacements - 1)
+                        self._ensure_capacity_locked(loop)
 
             try:
                 _schedule_with_ticket(_mark_failed())
@@ -3490,7 +3728,7 @@ class SubprocessWorkerPool:
             async with self.lock:
                 if self._closing:
                     raise GPUQuarantinedError(f"[GPU {self.device_id}] Worker pool is shutting down")
-                if self.health_state in {POOL_SUSPECT, POOL_QUARANTINED}:
+                if self.health_state in {POOL_SUSPECT, POOL_BOOTSTRAP_FAILED, POOL_QUARANTINED}:
                     raise GPUQuarantinedError(
                         f"[GPU {self.device_id}] Task admission blocked: "
                         f"state={self.health_state}, reason={self.health_reason}"
@@ -3799,7 +4037,7 @@ class SubprocessWorkerPool:
         logger.info(f"[GPU {self.device_id}] Shutting down worker pool...")
 
         async with self.lock:
-            force_shutdown = self.health_state in {POOL_SUSPECT, POOL_QUARANTINED}
+            force_shutdown = self.health_state in {POOL_SUSPECT, POOL_BOOTSTRAP_FAILED, POOL_QUARANTINED}
             busy_worker_ids = {id(worker) for worker in self.busy_workers}
             self._closing = True
             self.pool_generation += 1

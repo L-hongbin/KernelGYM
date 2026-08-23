@@ -214,7 +214,7 @@ bash deploy_node.sh --join 192.168.16.40 --cpu-workers 8
 
 ### 5. Verify from the primary
 
-Run the checks inside the primary container. `check_node.sh -v` should show local and remote GPU workers with fresh heartbeats, plus CPU workers from each node.
+Run the checks inside the primary container. `check_node.sh -v` shows local and remote GPU workers with fresh heartbeats, health/admission state, quarantine scope, and CPU workers from each node. Any Redis worker/device quarantine produces `WARN`, increments `gpu_workers_quarantined`, and adds a detail table with scope, fault class, and reason. If the quarantine scan is incomplete, `quarantine_scan` reports `incomplete`, the count is `unknown`, and the overall status fails closed to `WARN`.
 
 ```bash
 bash check_node.sh -v
@@ -226,6 +226,8 @@ Expected high-level signals:
 ```text
 api_status:          healthy
 gpu_workers_fresh:   <all>/<all>
+gpu_workers_ready:   <all>/<all>
+gpu_workers_quarantined: 0
 stale_gpu_workers:   0
 task_status: completed
 compiled: True

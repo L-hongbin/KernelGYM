@@ -23,6 +23,7 @@ Child results no longer cross a `multiprocessing.Queue` pickle boundary. The chi
 | Healthy task | Open | Reuse/recycle under normal pool policy | None |
 | First context-local CUDA fault | `DEGRADED_CHECK` | Synchronously prove the culprit PGID reaped before returning the task; retain at most one pre-fault spare | Construct exactly one fresh validation context |
 | Second fault during validation, timeout, cancellation, severe device marker, or topology uncertainty | `SUSPECT` | Force terminate and reap every tracked context; wait for all constructor/reaper tickets | Construct exactly one fresh probe after old contexts are proven gone |
+| Three confirmed-reap pre-CUDA/bootstrap replacement failures | `BOOTSTRAP_FAILED` | Keep any proven live spare owned; close outer admission | No durable latch; monitor recycles the outer worker under its bounded restart budget |
 | Fresh probe succeeds | `HEALTHY` | Rebuild capacity from the new generation | Admission reopens |
 | Reap cannot be proven or fresh probe fails | `QUARANTINED` | No retry loop and no automatic reset | Manual clear and worker restart required |
 
@@ -40,7 +41,7 @@ A replacement worker recovers claims from an earlier worker instance before it d
 
 The queue-wait monitor uses a non-destructive bounded `LRANGE` snapshot and a Lua compare-and-set for the actual worker queue key. If a stale copy remains in worker A's queue after the task was assigned to worker B, it removes only A's stale list entry and never steals or unassigns B's task.
 
-Quarantine is stored in both non-expiring Redis hashes and atomic JSON safety latches under `logs/safety_latches/`. The durable copy survives this deployment's Redis `NOSAVE` restart behavior and is authoritative for physical-device recovery and notification success. A physical latch applies to replacement worker aliases on the same hostname/device pair. Scope-less, incomplete, or Redis-only legacy latches are normalized fail-closed and materialized under the same device lock before notification; if durable materialization fails, the positive latch still blocks admission and takes an explicitly unlatched best-effort notification path. Clearing a physical latch removes all matching durable and Redis-only aliases without allowing a concurrent normalization read to recreate them.
+Quarantine is stored in both non-expiring Redis hashes and atomic JSON safety latches under `logs/safety_latches/`. The durable copy survives this deployment's Redis `NOSAVE` restart behavior and is authoritative for physical-device recovery and notification success. A physical latch applies to replacement worker aliases on the same hostname/device pair. Scope-less, incomplete, or Redis-only legacy latches are normalized fail-closed and materialized under the same device lock before notification; if durable materialization fails, the positive latch still blocks admission and takes an explicitly unlatched best-effort notification path. Clearing a physical latch removes all matching durable and Redis-only aliases without allowing a concurrent normalization read to recreate them. Confirmed-reap constructor congestion never writes this latch directly: it first becomes the transient `bootstrap_failed` worker state, and only repeated outer-worker restart exhaustion can escalate to a durable `worker_process` exclusion.
 
 ## Process and shutdown containment
 

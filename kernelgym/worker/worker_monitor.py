@@ -1107,6 +1107,33 @@ class WorkerMonitor:
             logger.error(f"Could not clear stale shutdown flag for replacement {worker_id}: {exc}")
         return False
 
+    async def _bootstrap_failure_is_current(
+        self,
+        worker_id: str,
+        worker_info: Dict[str, str],
+    ) -> bool:
+        """Bind a recoverable bootstrap failure to its publishing process."""
+
+        if not (
+            worker_info.get("health_state") == "bootstrap_failed"
+            and worker_info.get("health_fault_class") == "worker_bootstrap_failure"
+            and worker_info.get("health_scope") == "worker"
+        ):
+            return False
+        process_info = self._decode_hash(await self.redis.hgetall(f"{KEY_PREFIX}:worker_process:{worker_id}"))
+        heartbeat_text = worker_info.get("last_heartbeat", "")
+        process_start_text = process_info.get("start_time", "")
+        if not heartbeat_text or not process_start_text:
+            return False
+        try:
+            heartbeat_at = datetime.fromisoformat(heartbeat_text)
+            process_started_at = datetime.fromisoformat(process_start_text)
+            if heartbeat_at.tzinfo != process_started_at.tzinfo:
+                return False
+        except (TypeError, ValueError):
+            return False
+        return process_started_at <= heartbeat_at
+
     async def _worker_admission_is_currently_open(self, worker_id: str, device: str) -> bool:
         """Return whether a worker has demonstrably recovered since it was queued.
 
@@ -1213,6 +1240,12 @@ class WorkerMonitor:
                         continue
                     worker_info = self._decode_hash(worker_data)
                     device = worker_info.get("device", "") or f"cuda:{worker_id.split('_')[-1]}"
+                    restartable_bootstrap_failure = device.startswith(
+                        "cuda:"
+                    ) and await self._bootstrap_failure_is_current(
+                        worker_id,
+                        worker_info,
+                    )
 
                     if await self._is_worker_quarantined(
                         worker_id,
@@ -1242,6 +1275,13 @@ class WorkerMonitor:
                     if await self._cuda_shutdown_flag_is_current(worker_id, worker_info):
                         needs_restart = True
                         restart_reason = "CUDA error shutdown"
+                    elif restartable_bootstrap_failure:
+                        # This state is emitted only after a previously READY
+                        # pool exhausts bounded background replacement retries.
+                        # It is not initial construction, so startup grace must
+                        # not leave a live non-admitting worker parked.
+                        needs_restart = True
+                        restart_reason = "Worker bootstrap failed"
                     elif not needs_restart and not heartbeat_fresh:
                         needs_restart = True
                         restart_reason = "Heartbeat timeout"
@@ -1255,13 +1295,23 @@ class WorkerMonitor:
                             needs_restart = True
                             restart_reason = "Worker offline"
                         self.monitored_workers.setdefault(worker_id, {})["offline_since"] = offline_since
+                    else:
+                        self.monitored_workers.setdefault(worker_id, {}).pop("offline_since", None)
 
                     if self.persistent and worker_id not in expected_ids:
                         needs_restart = False
 
                     if (
                         needs_restart
-                        and restart_reason in {"Missing heartbeat", "Invalid heartbeat", "Heartbeat timeout"}
+                        and (
+                            restart_reason
+                            in {
+                                "Missing heartbeat",
+                                "Invalid heartbeat",
+                                "Heartbeat timeout",
+                            }
+                            or (restart_reason == "Worker offline" and device.startswith("cuda:"))
+                        )
                         and self.persistent
                         and await self._registered_process_is_within_startup_grace(worker_id)
                     ):
@@ -1510,7 +1560,6 @@ class WorkerMonitor:
                     # any best-effort bookkeeping.  A Redis failure below must
                     # never requeue old work that could kill this new process.
                     restart_info = None
-                    self.restart_in_progress.discard(worker_id)
                     try:
                         await self.redis.hdel(
                             f"{KEY_PREFIX}:worker:{worker_id}",
@@ -1522,11 +1571,24 @@ class WorkerMonitor:
                             f"Restarted {worker_id}, but could not clear old shutdown flags; "
                             f"the successful restart will not be replayed: {exc}"
                         )
-                    # Give worker time to initialize (API registration + GPU init can take 30-60s)
-                    # This prevents the monitor from immediately detecting the worker as "missing"
-                    # before it has a chance to send its first real heartbeat
-                    logger.info(f"Waiting 45s for worker {worker_id} to complete initialization...")
-                    await asyncio.sleep(45)
+                    # Retain queue ownership only through a short post-spawn
+                    # observation window. The authenticated startup-grace
+                    # predicate protects longer pool construction; this flag
+                    # must always be released so a dead/stuck replacement can
+                    # consume the next bounded monitor restart attempt.
+                    logger.info(f"Watching worker {worker_id} admission for up to 45s...")
+                    hold_deadline = asyncio.get_running_loop().time() + 45.0
+                    try:
+                        while self.running and asyncio.get_running_loop().time() < hold_deadline:
+                            if await self._is_worker_quarantined(worker_id, device=device):
+                                break
+                            if await self._worker_admission_is_currently_open(worker_id, device):
+                                await self._clear_gpu_restart_attempts(worker_id, device)
+                                logger.info(f"Worker {worker_id} opened admission during post-spawn watch")
+                                break
+                            await asyncio.sleep(1.0)
+                    finally:
+                        self.restart_in_progress.discard(worker_id)
                     continue
                 else:
                     logger.error(f"Failed to restart worker {worker_id}")

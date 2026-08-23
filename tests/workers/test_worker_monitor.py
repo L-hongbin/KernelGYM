@@ -1039,6 +1039,167 @@ def test_startup_grace_does_not_defer_operator_offline_restart(monkeypatch) -> N
     assert request["reason"] == "Worker offline"
 
 
+def test_startup_grace_defers_offline_gpu_during_pool_construction(monkeypatch) -> None:
+    worker_monitor = load_worker_monitor()
+
+    class HeartbeatRedis(FakeRedis):
+        async def smembers(self, key):  # noqa: ARG002
+            return {b"worker_gpu_1"}
+
+        async def scan_iter(self, pattern, count=500):  # noqa: ARG002
+            yield f"{worker_monitor.KEY_PREFIX}:worker:worker_gpu_1".encode()
+
+    redis = HeartbeatRedis()
+    worker_id = "worker_gpu_1"
+    redis.hashes[f"{worker_monitor.KEY_PREFIX}:expected_worker:{worker_id}"] = {
+        b"device": b"cuda:1",
+        b"hostname": b"host-a",
+    }
+    redis.hashes[f"{worker_monitor.KEY_PREFIX}:worker_process:{worker_id}"] = {
+        b"pid": b"8024",
+        b"proc_start_ticks": b"200",
+        b"process_group": b"8024",
+        b"session_id": b"8024",
+        b"start_time": datetime.now().isoformat().encode(),
+        b"device": b"cuda:1",
+    }
+    redis.hashes[f"{worker_monitor.KEY_PREFIX}:worker:{worker_id}"] = {
+        b"device": b"cuda:1",
+        b"online": b"false",
+        b"status": b"offline",
+        b"last_heartbeat": datetime.now().isoformat().encode(),
+    }
+    monitor = worker_monitor.WorkerMonitor(redis, persistent=True)
+    monitor.hostname = "host-a"
+    monitor.monitored_workers[worker_id] = {"offline_since": datetime.now() - timedelta(seconds=61)}
+
+    async def not_quarantined(*args, **kwargs):  # noqa: ARG001
+        return False
+
+    monkeypatch.setattr(monitor, "_is_worker_quarantined", not_quarantined)
+    monkeypatch.setattr(
+        monitor,
+        "_read_process_identity",
+        lambda pid: worker_monitor.ProcessIdentity(pid, "200", "S", pid, pid),
+    )
+    monkeypatch.setattr(monitor, "_cmdline_matches_worker", lambda pid, wid: wid == worker_id)
+
+    asyncio.run(monitor._check_workers())
+
+    assert monitor.restart_in_progress == set()
+    assert monitor.restart_queue.empty()
+
+
+def test_confirmed_worker_bootstrap_failure_restarts_inside_startup_grace(monkeypatch) -> None:
+    worker_monitor = load_worker_monitor()
+
+    class HeartbeatRedis(FakeRedis):
+        async def smembers(self, key):  # noqa: ARG002
+            return {b"worker_gpu_1"}
+
+        async def scan_iter(self, pattern, count=500):  # noqa: ARG002
+            yield f"{worker_monitor.KEY_PREFIX}:worker:worker_gpu_1".encode()
+
+    redis = HeartbeatRedis()
+    worker_id = "worker_gpu_1"
+    redis.hashes[f"{worker_monitor.KEY_PREFIX}:expected_worker:{worker_id}"] = {
+        b"device": b"cuda:1",
+        b"hostname": b"host-a",
+    }
+    redis.hashes[f"{worker_monitor.KEY_PREFIX}:worker_process:{worker_id}"] = {
+        b"pid": b"8024",
+        b"proc_start_ticks": b"200",
+        b"process_group": b"8024",
+        b"session_id": b"8024",
+        b"start_time": datetime.now().isoformat().encode(),
+        b"device": b"cuda:1",
+    }
+    redis.hashes[f"{worker_monitor.KEY_PREFIX}:worker:{worker_id}"] = {
+        b"device": b"cuda:1",
+        b"online": b"true",
+        b"status": b"online",
+        b"last_heartbeat": datetime.now().isoformat().encode(),
+        b"health_state": b"bootstrap_failed",
+        b"health_fault_class": b"worker_bootstrap_failure",
+        b"health_scope": b"worker",
+        b"accepting_tasks": b"false",
+    }
+    monitor = worker_monitor.WorkerMonitor(redis, persistent=True)
+    monitor.hostname = "host-a"
+
+    async def not_quarantined(*args, **kwargs):  # noqa: ARG001
+        return False
+
+    monkeypatch.setattr(monitor, "_is_worker_quarantined", not_quarantined)
+    monkeypatch.setattr(
+        monitor,
+        "_read_process_identity",
+        lambda pid: worker_monitor.ProcessIdentity(pid, "200", "S", pid, pid),
+    )
+    monkeypatch.setattr(monitor, "_cmdline_matches_worker", lambda pid, wid: wid == worker_id)
+
+    asyncio.run(monitor._check_workers())
+
+    assert monitor.restart_in_progress == {worker_id}
+    request = monitor.restart_queue.get_nowait()
+    assert request["reason"] == "Worker bootstrap failed"
+
+
+def test_stale_bootstrap_failure_does_not_restart_new_process_generation(monkeypatch) -> None:
+    worker_monitor = load_worker_monitor()
+
+    class HeartbeatRedis(FakeRedis):
+        async def smembers(self, key):  # noqa: ARG002
+            return {b"worker_gpu_1"}
+
+        async def scan_iter(self, pattern, count=500):  # noqa: ARG002
+            yield f"{worker_monitor.KEY_PREFIX}:worker:worker_gpu_1".encode()
+
+    redis = HeartbeatRedis()
+    worker_id = "worker_gpu_1"
+    process_started_at = datetime.now()
+    redis.hashes[f"{worker_monitor.KEY_PREFIX}:expected_worker:{worker_id}"] = {
+        b"device": b"cuda:1",
+        b"hostname": b"host-a",
+    }
+    redis.hashes[f"{worker_monitor.KEY_PREFIX}:worker_process:{worker_id}"] = {
+        b"pid": b"8024",
+        b"proc_start_ticks": b"new-generation",
+        b"process_group": b"8024",
+        b"session_id": b"8024",
+        b"start_time": process_started_at.isoformat().encode(),
+        b"device": b"cuda:1",
+    }
+    redis.hashes[f"{worker_monitor.KEY_PREFIX}:worker:{worker_id}"] = {
+        b"device": b"cuda:1",
+        b"online": b"true",
+        b"status": b"online",
+        b"last_heartbeat": (process_started_at - timedelta(seconds=60)).isoformat().encode(),
+        b"health_state": b"bootstrap_failed",
+        b"health_fault_class": b"worker_bootstrap_failure",
+        b"health_scope": b"worker",
+        b"accepting_tasks": b"false",
+    }
+    monitor = worker_monitor.WorkerMonitor(redis, persistent=True)
+    monitor.hostname = "host-a"
+
+    async def not_quarantined(*args, **kwargs):  # noqa: ARG001
+        return False
+
+    monkeypatch.setattr(monitor, "_is_worker_quarantined", not_quarantined)
+    monkeypatch.setattr(
+        monitor,
+        "_read_process_identity",
+        lambda pid: worker_monitor.ProcessIdentity(pid, "new-generation", "S", pid, pid),
+    )
+    monkeypatch.setattr(monitor, "_cmdline_matches_worker", lambda pid, wid: wid == worker_id)
+
+    asyncio.run(monitor._check_workers())
+
+    assert monitor.restart_in_progress == set()
+    assert monitor.restart_queue.empty()
+
+
 def test_kill_accepts_exit_between_identity_and_cmdline_checks_after_session_drain(monkeypatch) -> None:
     worker_monitor = load_worker_monitor()
     redis = FakeRedis()

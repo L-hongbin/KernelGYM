@@ -217,6 +217,18 @@ def test_missing_expected_gpu_worker_prevents_up_status(capsys) -> None:
     assert "gpu_workers_fresh:" in out and "1/2" in out
 
 
+def test_expected_topology_fills_live_worker_metadata_for_quarantine_join() -> None:
+    check_node = load_check_node()
+    workers = {"worker_gpu_0": {"status": "online", "hostname": ""}}
+    expected = {"worker_gpu_0": {"device": "cuda:0", "hostname": "host-a", "node_id": "v1"}}
+
+    merged = check_node._merge_expected_workers(workers, expected)
+
+    assert merged["worker_gpu_0"]["device"] == "cuda:0"
+    assert merged["worker_gpu_0"]["hostname"] == "host-a"
+    assert merged["worker_gpu_0"]["node_id"] == "v1"
+
+
 def test_empty_expected_worker_contract_prevents_up_status(capsys) -> None:
     check_node = load_check_node()
     health = {
@@ -343,6 +355,110 @@ def test_no_redis_explicitly_skips_expected_worker_contract(monkeypatch, capsys)
     out = capsys.readouterr().out
     assert "UP" in out
     assert "expected_worker_contract:" in out and "not_checked" in out
+    assert "gpu_workers_quarantined:" in out and "unknown" in out
+
+
+def test_quarantine_overlay_is_host_scoped_and_physical_wins() -> None:
+    check_node = load_check_node()
+    workers = {
+        "node21_gpu_0": {"device": "cuda:0", "hostname": "ai-16-21"},
+        "node22_gpu_0": {"device": "cuda:0", "hostname": "ai-16-22"},
+    }
+    records = [
+        {
+            "state": "quarantined",
+            "scope": "worker_process",
+            "worker_id": "node22_gpu_0",
+            "hostname": "ai-16-22",
+            "device": "cuda:0",
+            "fault_class": "worker_bootstrap_failure",
+            "reason": "worker reason",
+        },
+        {
+            "state": "quarantined",
+            "scope": "physical_gpu",
+            "worker_id": "old_alias_gpu_0",
+            "hostname": "ai-16-22",
+            "device": "cuda:0",
+            "fault_class": "cuda_probe_failure",
+            "reason": "physical reason",
+        },
+    ]
+
+    merged = check_node._merge_quarantines(workers, records)
+
+    assert "quarantine_state" not in merged["node21_gpu_0"]
+    assert merged["node22_gpu_0"]["quarantine_scope"] == "physical_gpu"
+    assert merged["node22_gpu_0"]["quarantine_reason"] == "physical reason"
+
+
+def test_render_summary_reports_quarantine_and_forces_warn(capsys) -> None:
+    check_node = load_check_node()
+    health = {
+        "status": "healthy",
+        "timestamp": "2026-05-27T12:00:00Z",
+        "gpu_status": {"cuda:0": {"available": True}},
+    }
+    workers = {
+        "worker_gpu_0": {
+            "device": "cuda:0",
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+            "health_state": "healthy",
+            "accepting_tasks": "true",
+            "quarantine_state": "quarantined",
+            "quarantine_scope": "worker_process",
+        }
+    }
+
+    exit_code = check_node.render_summary(
+        "http://node:20111",
+        health,
+        workers,
+        max_heartbeat_age_s=180,
+        quarantine_checked=True,
+    )
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "WARN" in out
+    assert "gpu_workers_quarantined:" in out
+    assert "1" in out
+
+
+def test_incomplete_quarantine_scan_forces_warn(capsys) -> None:
+    check_node = load_check_node()
+    health = {
+        "status": "healthy",
+        "timestamp": "2026-05-27T12:00:00Z",
+        "gpu_status": {"cuda:0": {"available": True}},
+    }
+    workers = {
+        "worker_gpu_0": {
+            "device": "cuda:0",
+            "hostname": "host-a",
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+            "health_state": "healthy",
+            "accepting_tasks": "true",
+        }
+    }
+    expected = {"worker_gpu_0": {"device": "cuda:0", "hostname": "host-a"}}
+
+    exit_code = check_node.render_summary(
+        "http://node:20111",
+        health,
+        workers,
+        max_heartbeat_age_s=180,
+        expected_workers=expected,
+        quarantine_checked=False,
+    )
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "WARN" in out
+    assert "gpu_workers_quarantined:" in out and "unknown" in out
+    assert "quarantine_scan:" in out and "incomplete" in out
 
 
 def test_check_node_shell_preserves_curl_error_text() -> None:
@@ -656,6 +772,38 @@ def test_render_verbose_omits_fresh_column(capsys) -> None:
     assert "/workers/status" not in out
     assert "cpu_workers_busy:" not in out
     assert "worker_id" not in out
+
+
+def test_render_verbose_surfaces_quarantine_scope_and_reason(capsys) -> None:
+    check_node = load_check_node()
+    health = {
+        "timestamp": "2026-05-27T12:00:00Z",
+        "gpu_status": {"cuda:0": {"name": "NVIDIA A800", "memory_used": "0.0GB", "available": True}},
+    }
+    workers = {
+        "worker_gpu_0": {
+            "device": "cuda:0",
+            "hostname": "ai-16-21",
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+            "health_state": "quarantined",
+            "accepting_tasks": "false",
+            "quarantine_state": "quarantined",
+            "quarantine_scope": "worker_process",
+            "quarantine_fault_class": "worker_bootstrap_failure",
+            "quarantine_reason": "confirmed-reap bootstrap failed",
+        }
+    }
+
+    check_node.render_verbose(health, workers, max_heartbeat_age_s=180)
+
+    out = capsys.readouterr().out
+    assert "health" in out
+    assert "admit" in out
+    assert "quarantine" in out
+    assert "worker_process" in out
+    assert "worker_bootstrap_failure" in out
+    assert "confirmed-reap bootstrap failed" in out
 
 
 def test_render_verbose_keeps_multi_node_workers_with_same_cuda_device(capsys) -> None:

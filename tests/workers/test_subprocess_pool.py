@@ -87,7 +87,7 @@ def _pool_without_processes(*, pool_size: int = 1) -> SubprocessWorkerPool:
     pool.hard_recovery_epoch = 0
     pool.speculative_dispatches_remaining = 0
     pool.consecutive_replacement_failures = 0
-    pool.max_replacement_failures = 1
+    pool.max_replacement_failures = subprocess_pool._MAX_REPLACEMENT_INFRA_FAILURES
     pool.total_tasks_processed = 0
     pool.total_workers_restarted = 0
     pool.pool_start_time = time.time()
@@ -296,6 +296,21 @@ def test_parent_json_result_channel_converts_poll_oserror_to_protocol_error() ->
         parent.get(timeout=0.1, expected_kinds=frozenset({"task_result"}))
 
 
+def test_parent_json_result_channel_reports_eof_distinct_from_timeout() -> None:
+    class ClosedConnection:
+        @staticmethod
+        def poll(_timeout):  # noqa: ANN001
+            return True
+
+        @staticmethod
+        def recv_bytes(_maxlength):  # noqa: ANN001
+            raise EOFError
+
+    parent = subprocess_pool._ParentJSONResultChannel(ClosedConnection())
+    with pytest.raises(subprocess_pool.WorkerResultChannelClosed, match="closed"):
+        parent.get(timeout=0.1, expected_kinds=frozenset({"task_result"}))
+
+
 def test_parent_json_result_channel_rejects_wrong_phase_kind() -> None:
     ready_payload = {
         "status": "READY",
@@ -388,6 +403,86 @@ def test_ready_handshake_timeout_is_infrastructure_failure(monkeypatch) -> None:
     assert error.value.cuda_probe_failure is False
     assert error.value.reap_confirmed is True
     assert shutdown_calls == [(5, True)]
+
+
+def test_ready_handshake_eof_is_not_reported_as_timeout(monkeypatch) -> None:
+    def closed_get():
+        raise subprocess_pool.WorkerResultChannelClosed("closed")
+
+    worker = _worker_with_failed_ready_handshake(closed_get, monkeypatch)
+    worker.shutdown = lambda timeout, force: (timeout, force) == (5, True)
+    monkeypatch.setattr(subprocess_pool, "prepare_core_dump_dir", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(subprocess_pool.WorkerInitializationError) as error:
+        worker._start_worker()
+
+    assert error.value.init_stage == "handshake_eof"
+    assert error.value.cuda_probe_failure is False
+    assert "timeout" not in str(error.value).lower()
+
+
+def test_confirmed_process_containment_failure_is_not_a_cuda_probe() -> None:
+    error = subprocess_pool.WorkerInitializationError(
+        "PGID attestation failed",
+        init_stage="process_containment",
+        reap_confirmed=True,
+    )
+
+    assert error.cuda_probe_failure is False
+
+
+def test_host_spawn_slot_is_exclusive_across_exec(tmp_path, monkeypatch) -> None:
+    lock_dir = tmp_path / "spawn-locks"
+    monkeypatch.setenv("KERNELGYM_WORKER_SPAWN_LOCK_DIR", str(lock_dir))
+    monkeypatch.setattr(subprocess_pool, "_WORKER_SPAWN_CONCURRENCY", 1)
+    monkeypatch.setattr(subprocess_pool, "_WORKER_SPAWN_SLOT_TIMEOUT_S", 10.0)
+    child_code = """
+import sys
+from kernelgym.worker.subprocess_pool import _host_worker_spawn_slot
+print("ready", flush=True)
+with _host_worker_spawn_slot("child"):
+    print("acquired", flush=True)
+print("done", flush=True)
+"""
+    env = os.environ.copy()
+    env["KERNELGYM_WORKER_SPAWN_LOCK_DIR"] = str(lock_dir)
+    env["KERNELGYM_WORKER_SPAWN_CONCURRENCY"] = "1"
+    env["KERNELGYM_WORKER_SPAWN_SLOT_TIMEOUT"] = "10"
+
+    with subprocess_pool._host_worker_spawn_slot("parent"):
+        child = subprocess.Popen(
+            [sys.executable, "-c", child_code],
+            cwd=SUBPROCESS_POOL_PATH.parents[2],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert child.stdout is not None
+        assert child.stdout.readline().strip() == "ready"
+        time.sleep(0.2)
+        assert child.poll() is None
+
+    stdout, stderr = child.communicate(timeout=10)
+    assert child.returncode == 0, stderr
+    assert stdout.splitlines() == ["acquired", "done"]
+
+
+def test_spawn_import_of_single_worker_does_not_eagerly_load_torch() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; import kernelgym.worker.single_worker; print('torch' in sys.modules)",
+        ],
+        cwd=SUBPROCESS_POOL_PATH.parents[2],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert completed.stdout.strip() == "False"
 
 
 def test_initial_pool_handshake_timeout_does_not_become_gpu_probe_failure(monkeypatch) -> None:
@@ -1403,13 +1498,15 @@ def test_pool_size_2_degraded_recycle_schedules_top_up(monkeypatch) -> None:
     asyncio.run(scenario())
 
 
-def test_pool_size_2_failed_replacement_quarantines_without_retry_storm(monkeypatch) -> None:
-    """A fresh-context init failure fails closed without recursive top-up."""
+def test_pool_size_2_confirmed_bootstrap_failures_request_outer_restart_without_quarantine(monkeypatch) -> None:
+    """Bounded pre-CUDA infrastructure retries preserve a live spare and avoid a latch."""
 
     async def scenario() -> None:
         pool = _pool_without_processes(pool_size=2)
+        spare = FakeWorker("spare", alive=True)
         recycling = FakeWorker("recycling", alive=False)
-        pool.workers = [recycling]
+        pool.workers = [spare, recycling]
+        pool.idle_workers = [spare]
         pool.busy_workers = [recycling]
 
         def fake_persistent_worker(*_args, **_kwargs):  # noqa: ANN002, ANN003
@@ -1425,20 +1522,114 @@ def test_pool_size_2_failed_replacement_quarantines_without_retry_storm(monkeypa
         monkeypatch.setattr(subprocess_pool, "PersistentWorker", fake_persistent_worker)
         monkeypatch.setattr(subprocess_pool.threading, "Thread", fake_thread)
         monkeypatch.setattr(subprocess_pool.asyncio, "to_thread", _inline_to_thread)
+        monkeypatch.setattr(subprocess_pool, "_REPLACEMENT_RETRY_BASE_DELAY_S", 0.0)
 
         await pool._restart_worker(recycling)  # type: ignore[arg-type]
         assert pool.pending_replacements == 1
         assert len(threads) == 1
 
+        for attempt in range(pool.max_replacement_failures):
+            assert len(threads) == attempt + 1
+            threads[attempt].target()
+            await _drain_loop()
+
+        assert pool.workers == [spare]
+        assert pool.idle_workers == [spare]
+        assert pool.pending_replacements == 0
+        assert len(threads) == pool.max_replacement_failures
+        assert pool.health_state == subprocess_pool.POOL_BOOTSTRAP_FAILED
+        assert pool.health_scope == "worker"
+        assert pool.health_fault_class == "worker_bootstrap_failure"
+        assert pool.accepting_tasks is False
+        assert spare.shutdown_called is False
+
+    asyncio.run(scenario())
+
+
+def test_stale_bootstrap_retry_preserves_new_generation_capacity(monkeypatch) -> None:
+    async def scenario() -> None:
+        pool = _pool_without_processes(pool_size=1)
+
+        def failed_constructor(*_args, **_kwargs):  # noqa: ANN002, ANN003
+            raise RuntimeError("spawn failed")
+
+        threads: list[_NoOpThread] = []
+
+        def fake_thread(*args, **kwargs):  # noqa: ANN002, ANN003
+            thread = _NoOpThread(*args, **kwargs)
+            threads.append(thread)
+            return thread
+
+        monkeypatch.setattr(subprocess_pool, "PersistentWorker", failed_constructor)
+        monkeypatch.setattr(subprocess_pool.threading, "Thread", fake_thread)
+        monkeypatch.setattr(subprocess_pool, "_REPLACEMENT_RETRY_BASE_DELAY_S", 0.05)
+
+        pool.pending_replacements = 1
+        generation = pool.pool_generation
+        pool._start_replenishment_thread(
+            old_worker=None,
+            old_process=None,
+            old_pid=None,
+            worker_id="stale-retry",
+            loop=asyncio.get_running_loop(),
+            reason="test",
+            generation=generation,
+        )
+        threads[0].target()
+        for _ in range(20):
+            if pool.consecutive_replacement_failures == 1:
+                break
+            await asyncio.sleep(0.005)
+        assert pool.consecutive_replacement_failures == 1
+
+        async with pool.lock:
+            pool.pool_generation += 1
+            pool.pending_replacements = 1
+        await asyncio.sleep(0.1)
+
+        assert pool.pending_replacements == 1
+        assert len(threads) == 1
+
+    asyncio.run(scenario())
+
+
+def test_background_cuda_probe_failure_still_quarantines_on_first_attempt(monkeypatch) -> None:
+    async def scenario() -> None:
+        pool = _pool_without_processes(pool_size=1)
+
+        def failed_cuda_probe(*_args, **_kwargs):  # noqa: ANN002, ANN003
+            raise subprocess_pool.WorkerInitializationError(
+                "cuInit failed",
+                init_stage="cuda_init",
+                reap_confirmed=True,
+            )
+
+        threads: list[_NoOpThread] = []
+
+        def fake_thread(*args, **kwargs):  # noqa: ANN002, ANN003
+            thread = _NoOpThread(*args, **kwargs)
+            threads.append(thread)
+            return thread
+
+        monkeypatch.setattr(subprocess_pool, "PersistentWorker", failed_cuda_probe)
+        monkeypatch.setattr(subprocess_pool.threading, "Thread", fake_thread)
+
+        pool.pending_replacements = 1
+        pool._start_replenishment_thread(
+            old_worker=None,
+            old_process=None,
+            old_pid=None,
+            worker_id="cuda-probe",
+            loop=asyncio.get_running_loop(),
+            reason="test",
+        )
         threads[0].target()
         await _drain_loop()
 
-        assert pool.workers == []
-        assert pool.idle_workers == []
-        assert pool.pending_replacements == 0
-        assert len(threads) == 1
         assert pool.health_state == subprocess_pool.POOL_QUARANTINED
-        assert pool.accepting_tasks is False
+        assert pool.health_scope == "gpu"
+        assert pool.health_fault_class == "cuda_probe_failure"
+        assert len(threads) == 1
 
     asyncio.run(scenario())
 

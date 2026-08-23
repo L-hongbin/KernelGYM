@@ -24,6 +24,11 @@ def test_functional_reward_profile_matches_runtime_constants() -> None:
     assert values["METRICS_PORT"] == str(profiles.METRICS_PORT)
     assert values["GPU_DEVICES"] == "auto"
     assert values["CPU_COMPILE_WORKERS"] == "24"
+    assert values["KERNELGYM_WORKER_SPAWN_CONCURRENCY"] == "2"
+    assert values["KERNELGYM_WORKER_SPAWN_SLOT_TIMEOUT"] == "600"
+    assert values["KERNELGYM_WORKER_CONTAINMENT_TIMEOUT"] == "180"
+    assert values["KERNELGYM_WORKER_READY_TIMEOUT"] == "90"
+    assert values["WORKER_MONITOR_STARTUP_TIMEOUT"] == "2100"
     assert values["DEFAULT_BACKEND"] == "auto"
     assert values["SPLIT_COMPILE_AND_EXECUTE"] == "true"
     assert values["KERNELGYM_CORRECTNESS_GPU_INPUTS"] == "true"
