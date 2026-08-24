@@ -18,6 +18,7 @@ This file indexes stable repository docs and evidence locations.
 | `docs/design-doc/PROFILER_EMPTY_CAPTURE.md` | CUPTI TSC timestamp bug root cause and version-gated profiling-trial policy. |
 | `docs/design-doc/REWARD_HACKING_DEFENSES.md` | Current reward-hacking defense design notes. |
 | `docs/design-doc/RUNTIME_COORDINATION_STORAGE.md` | Proposed split between live runtime coordination and long-lived result/cache storage. |
+| `docs/design-doc/SYSTEM_WORKFLOW.md` | Chinese overview of the architecture, staged evaluation, cache semantics, result merging, and fault paths. |
 | `docs/design-doc/TRUE_FP32_CORRECTNESS.md` | Scoped TF32 execution policy for correctness/timing and FP32 tolerance rationale. |
 | `docs/design-doc/TWO_WORKER_WARM_POOL.md` | Two-worker GPU subprocess warm-pool design, capacity invariant, and `v1` verification. |
 | `docs/server-result-cache-guard.md` | Server result cache hash guard design for safe `/evaluate` reuse. |

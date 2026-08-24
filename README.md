@@ -131,6 +131,7 @@ Formatting is done by `ruff format`, not Black. Linting is done by `ruff check`.
 
 ### Design
 
+- [docs/design-doc/SYSTEM_WORKFLOW.md](docs/design-doc/SYSTEM_WORKFLOW.md) — 中文整体流程：系统分层、评测阶段、缓存复用、结果合并与故障处理。
 - [docs/design-doc/COMPILE_ACCELERATION.md](docs/design-doc/COMPILE_ACCELERATION.md) — Manual-ninja compile path, per-object cache, compile artifact cache, split compile/execute.
 - [docs/design-doc/TWO_WORKER_WARM_POOL.md](docs/design-doc/TWO_WORKER_WARM_POOL.md) — GPU subprocess pool architecture (`WORKER_POOL_SIZE=2`, `MAX_TASKS_PER_WORKER=1`) and recycle invariants.
 - [docs/design-doc/REWARD_HACKING_DEFENSES.md](docs/design-doc/REWARD_HACKING_DEFENSES.md) — Decoy-kernel detection and reward-hacking defenses.
