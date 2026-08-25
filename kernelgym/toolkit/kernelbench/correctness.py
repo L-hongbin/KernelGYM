@@ -281,6 +281,9 @@ def run_and_check_correctness(
     metadata["correctness_forward_seed_reset_enabled"] = True
     metadata["correctness_tolerance_source"] = "kernelbench_precision_or_fp32_integral"
     metadata["aten_detection_enabled"] = bool(detect_aten_fallback)
+    metadata["correctness_candidate_forward_completed"] = False
+    metadata["correctness_candidate_forward_completed_trials"] = []
+    metadata["correctness_output_mismatch"] = False
     record_execution_policy(metadata)
     if max_wall_time_s is not None:
         metadata["correctness_max_wall_s"] = max_wall_time_s
@@ -295,6 +298,16 @@ def run_and_check_correctness(
         metadata["correctness_input_generation_trial_s"] = input_generation_durations
         metadata["correctness_input_transfer_trial_s"] = input_transfer_durations
         metadata["correctness_reference_alias_clone_trial_s"] = reference_alias_clone_durations
+
+    def _result(*, correctness: bool) -> KernelExecResult:
+        """Build a result without dropping hard decoy evidence on failure exits."""
+
+        return KernelExecResult(
+            compiled=True,
+            correctness=correctness,
+            decoy_kernel=bool(metadata.get("policy_violation")),
+            metadata=metadata,
+        )
 
     def _record_aten_trial_metrics(aten_metrics: dict[str, Any], trial: int) -> None:
         trial_record = {"trial": trial, **aten_metrics}
@@ -366,12 +379,7 @@ def run_and_check_correctness(
                 metadata["correctness_issue"] = (
                     f"Correctness time budget reached after {pass_count} passing trials; accepted early"
                 )
-                return KernelExecResult(
-                    compiled=True,
-                    correctness=True,
-                    decoy_kernel=bool(metadata.get("policy_violation")),
-                    metadata=metadata,
-                )
+                return _result(correctness=True)
             metadata["correctness_time_budget_overrun_to_min_pass"] = True
             return None
 
@@ -379,7 +387,7 @@ def run_and_check_correctness(
         metadata["correctness_issue"] = (
             f"Correctness time budget exceeded after {trials_run} / {num_correct_trials} trials"
         )
-        return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
+        return _result(correctness=False)
 
     torch.manual_seed(seed)
     correctness_trial_seeds = [int(torch.randint(0, 2**32 - 1, (1,)).item()) for _ in range(num_correct_trials)]
@@ -400,7 +408,7 @@ def run_and_check_correctness(
         metadata["runtime_error_name"] = get_error_name(exception)
         metadata["correctness_failed_trial"] = trial
         _record_trial_metadata()
-        return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
+        return _result(correctness=False)
 
     with tf32_execution_context(metadata, stage="correctness"), torch.no_grad():
         set_seed(seed)
@@ -468,6 +476,8 @@ def run_and_check_correctness(
                 with aten_operator_profiling_context(profile_aten_operators) as aten_prof:
                     output_new = model_new(*inputs)
                     torch.cuda.synchronize(device=device)
+                metadata["correctness_candidate_forward_completed"] = True
+                metadata["correctness_candidate_forward_completed_trials"].append(trial)
                 if profile_aten_operators:
                     aten_metrics = extract_aten_operator_metrics(aten_prof)
                     _record_aten_trial_metrics(aten_metrics, trial)
@@ -476,6 +486,7 @@ def run_and_check_correctness(
                 del inputs
 
                 if output.shape != output_new.shape:
+                    metadata["correctness_output_mismatch"] = True
                     compare_trial_durations.append(0.0)
                     trial_durations.append(perf_counter() - trial_start)
                     metadata = register_and_format_exception(
@@ -493,7 +504,7 @@ def run_and_check_correctness(
                             output.shape,
                             output_new.shape,
                         )
-                    return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
+                    return _result(correctness=False)
 
                 _set_substage("compare", trial=trial)
                 compare_start = perf_counter()
@@ -510,6 +521,7 @@ def run_and_check_correctness(
                 trial_durations.append(perf_counter() - trial_start)
 
                 if not outputs_close:
+                    metadata["correctness_output_mismatch"] = True
                     metadata.setdefault("max_difference", []).append(f"{max_diff:.6f}")
                     metadata.setdefault("avg_difference", []).append(f"{avg_diff:.6f}")
                     metadata["correctness_issue"] = "Output mismatch"
@@ -520,7 +532,7 @@ def run_and_check_correctness(
                     if stop_on_first_failure:
                         metadata["correctness_early_stopped"] = True
                         _record_trial_metadata()
-                        return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
+                        return _result(correctness=False)
                 else:
                     pass_count += 1
                     if verbose:
@@ -542,10 +554,5 @@ def run_and_check_correctness(
     _record_trial_metadata()
 
     if pass_count == num_correct_trials:
-        return KernelExecResult(
-            compiled=True,
-            correctness=True,
-            decoy_kernel=bool(metadata.get("policy_violation")),
-            metadata=metadata,
-        )
-    return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
+        return _result(correctness=True)
+    return _result(correctness=False)

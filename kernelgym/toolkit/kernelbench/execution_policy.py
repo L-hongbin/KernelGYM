@@ -8,7 +8,7 @@ from typing import Any
 import torch
 
 
-EXECUTION_POLICY_VERSION = "eval_no_grad_tf32_v2"
+EXECUTION_POLICY_VERSION = "eval_no_grad_tf32_decoy_v3"
 MODEL_MODE = "eval"
 GRAD_MODE = "no_grad"
 FP32_MATH_MODE = "tf32"

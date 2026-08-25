@@ -180,6 +180,43 @@ def test_correctness_marks_forbidden_aten_compute_as_decoy() -> None:
 
 
 @pytest.mark.gpu
+def test_incorrect_output_preserves_forbidden_aten_decoy_verdict() -> None:
+    torch = _require_cuda_runtime()
+    correctness = _get_correctness_module()
+
+    class Reference(torch.nn.Module):
+        def forward(self, x, y):
+            return torch.mm(x, y) + 1
+
+    class IncorrectAtenFallback(torch.nn.Module):
+        def forward(self, x, y):
+            return torch.mm(x, y)
+
+    device = torch.device("cuda:0")
+    result = correctness.run_and_check_correctness(
+        Reference(),
+        IncorrectAtenFallback(),
+        lambda: [
+            torch.randn((64, 64), device=device),
+            torch.randn((64, 64), device=device),
+        ],
+        metadata={},
+        num_correct_trials=1,
+        seed=1234,
+        device=device,
+        detect_aten_fallback=True,
+    )
+
+    assert result.correctness is False
+    assert result.decoy_kernel is True
+    assert result.metadata["policy_violation_reason"] == "DISALLOWED_ATEN_COMPUTE"
+    assert "aten::mm" in result.metadata["forbidden_aten_op_names"]
+    assert result.metadata["correctness_candidate_forward_completed"] is True
+    assert result.metadata["correctness_candidate_forward_completed_trials"] == [0]
+    assert result.metadata["correctness_output_mismatch"] is True
+
+
+@pytest.mark.gpu
 def test_correctness_allows_allowlisted_aten_view() -> None:
     torch = _require_cuda_runtime()
     correctness = _get_correctness_module()

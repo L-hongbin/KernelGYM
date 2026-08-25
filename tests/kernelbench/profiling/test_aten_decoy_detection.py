@@ -137,3 +137,260 @@ def test_empty_coverage_capture_is_unavailable_not_decoy() -> None:
     assert result.decoy_kernel is False
     assert metadata["coverage_measurement_valid"] is False
     assert metadata["coverage_unavailable"] is True
+
+
+class _ProbeModel:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def cuda(self, device=None):
+        return self
+
+    def eval(self):
+        return self
+
+    def __call__(self, *_args):
+        self.calls += 1
+        return None
+
+
+def _incorrect_probe_result(**metadata_overrides) -> tuple[KernelExecResult, dict]:
+    metadata = {
+        "correctness_candidate_forward_completed": True,
+        "correctness_output_mismatch": True,
+        **metadata_overrides,
+    }
+    return KernelExecResult(compiled=True, correctness=False, metadata=metadata), metadata
+
+
+def test_incorrect_cuda_probe_marks_missing_expected_kernel_as_decoy(monkeypatch) -> None:
+    result, metadata = _incorrect_probe_result()
+    model = _ProbeModel()
+    monkeypatch.setattr(pipeline.torch.cuda, "synchronize", lambda **_kwargs: None)
+    monkeypatch.setattr(pipeline, "set_seed", lambda _seed: None)
+
+    def fake_profile(kernel_fn, *args, num_trials, verbose, device):
+        assert num_trials == 1
+        assert verbose is False
+        kernel_fn(*args)
+        return {
+            "kernels": [{"name": "unrelated_kernel", "cuda_time_us": 2.0, "cpu_time_us": 0.0}],
+            "kernel_count": 1,
+            "total_cuda_time_us": 2.0,
+        }
+
+    monkeypatch.setattr(pipeline, "run_profiling_only", fake_profile)
+
+    detected = pipeline._run_incorrect_backend_usage_probe(
+        kernel_exec_result=result,
+        custom_model=model,
+        get_inputs=lambda: [object()],
+        metadata=metadata,
+        seed_num=42,
+        device="cuda:0",
+        backend="cuda_agent",
+        backend_profiling_hints={"custom_kernel_names": ["candidate_kernel"]},
+        detect_decoy_kernel=True,
+    )
+
+    assert detected is True
+    assert model.calls == 1
+    assert result.decoy_kernel is True
+    assert metadata["policy_violation_reason"] == "BACKEND_CUSTOM_KERNEL_NOT_OBSERVED"
+    assert metadata["incorrect_backend_usage_probe"]["num_forwards"] == 1
+    assert metadata["incorrect_backend_usage_probe"]["valid"] is True
+
+
+def test_incorrect_tvm_ffi_probe_accepts_observed_expected_kernel(monkeypatch) -> None:
+    result, metadata = _incorrect_probe_result()
+    model = _ProbeModel()
+    monkeypatch.setattr(pipeline.torch.cuda, "synchronize", lambda **_kwargs: None)
+    monkeypatch.setattr(pipeline, "set_seed", lambda _seed: None)
+
+    def fake_profile(kernel_fn, *args, num_trials, verbose, device):
+        assert num_trials == 1
+        kernel_fn(*args)
+        return {
+            "kernels": [{"name": "void candidate_kernel(float*)", "cuda_time_us": 2.0, "cpu_time_us": 0.0}],
+            "kernel_count": 1,
+            "total_cuda_time_us": 2.0,
+        }
+
+    monkeypatch.setattr(pipeline, "run_profiling_only", fake_profile)
+
+    detected = pipeline._run_incorrect_backend_usage_probe(
+        kernel_exec_result=result,
+        custom_model=model,
+        get_inputs=lambda: [object()],
+        metadata=metadata,
+        seed_num=42,
+        device="cuda:0",
+        backend="tvm_ffi",
+        backend_profiling_hints={"custom_kernel_names": ["candidate_kernel"]},
+        detect_decoy_kernel=True,
+    )
+
+    assert detected is False
+    assert model.calls == 1
+    assert result.decoy_kernel is False
+    assert metadata["incorrect_backend_usage_probe"]["custom_kernel_observed"] is True
+
+
+@pytest.mark.parametrize(
+    ("metadata_overrides", "expected_skip_reason"),
+    [
+        ({"runtime_error": "CUDA illegal memory access"}, "RUNTIME_ERROR"),
+        ({"correctness_candidate_forward_completed": False}, "CANDIDATE_FORWARD_NOT_COMPLETED"),
+        ({"correctness_output_mismatch": False}, "NO_OUTPUT_MISMATCH"),
+    ],
+)
+def test_incorrect_backend_probe_does_not_rerun_unsafe_or_non_mismatch_failures(
+    monkeypatch, metadata_overrides, expected_skip_reason
+) -> None:
+    result, metadata = _incorrect_probe_result(**metadata_overrides)
+    monkeypatch.setattr(
+        pipeline,
+        "run_profiling_only",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("probe must not run")),
+    )
+
+    detected = pipeline._run_incorrect_backend_usage_probe(
+        kernel_exec_result=result,
+        custom_model=_ProbeModel(),
+        get_inputs=lambda: [object()],
+        metadata=metadata,
+        seed_num=42,
+        device="cuda:0",
+        backend="cuda_agent",
+        backend_profiling_hints={"custom_kernel_names": ["candidate_kernel"]},
+        detect_decoy_kernel=True,
+    )
+
+    assert detected is False
+    assert result.decoy_kernel is False
+    assert metadata["incorrect_backend_usage_probe"]["attempted"] is False
+    assert metadata["incorrect_backend_usage_probe"]["skip_reason"] == expected_skip_reason
+
+
+def test_incorrect_backend_probe_respects_disabled_decoy_detection(monkeypatch) -> None:
+    result, metadata = _incorrect_probe_result()
+    monkeypatch.setattr(
+        pipeline,
+        "run_profiling_only",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("probe must not run")),
+    )
+
+    detected = pipeline._run_incorrect_backend_usage_probe(
+        kernel_exec_result=result,
+        custom_model=_ProbeModel(),
+        get_inputs=lambda: [object()],
+        metadata=metadata,
+        seed_num=42,
+        device="cuda:0",
+        backend="cuda_agent",
+        backend_profiling_hints={"custom_kernel_names": ["candidate_kernel"]},
+        detect_decoy_kernel=False,
+    )
+
+    assert detected is False
+    assert result.decoy_kernel is False
+    assert metadata["incorrect_backend_usage_probe"]["skip_reason"] == "DECOY_DETECTION_DISABLED"
+
+
+def test_incorrect_backend_probe_empty_capture_fails_open(monkeypatch) -> None:
+    result, metadata = _incorrect_probe_result()
+    model = _ProbeModel()
+    monkeypatch.setattr(pipeline.torch.cuda, "synchronize", lambda **_kwargs: None)
+    monkeypatch.setattr(pipeline, "set_seed", lambda _seed: None)
+
+    def fake_empty_profile(kernel_fn, *args, num_trials, verbose, device):
+        assert num_trials == 1
+        kernel_fn(*args)
+        return {"kernels": [], "kernel_count": 0, "total_cuda_time_us": 0.0}
+
+    monkeypatch.setattr(pipeline, "run_profiling_only", fake_empty_profile)
+
+    detected = pipeline._run_incorrect_backend_usage_probe(
+        kernel_exec_result=result,
+        custom_model=model,
+        get_inputs=lambda: [object()],
+        metadata=metadata,
+        seed_num=42,
+        device="cuda:0",
+        backend="tvm_ffi",
+        backend_profiling_hints={"custom_kernel_names": ["candidate_kernel"]},
+        detect_decoy_kernel=True,
+    )
+
+    assert detected is False
+    assert model.calls == 1
+    assert result.decoy_kernel is False
+    assert metadata["incorrect_backend_usage_probe"]["valid"] is False
+    assert metadata["incorrect_backend_usage_probe"]["skip_reason"] == "EMPTY_PROFILER_CAPTURE"
+
+
+def test_incorrect_backend_probe_invalid_coverage_fails_open(monkeypatch) -> None:
+    result, metadata = _incorrect_probe_result()
+    model = _ProbeModel()
+    monkeypatch.setattr(pipeline.torch.cuda, "synchronize", lambda **_kwargs: None)
+    monkeypatch.setattr(pipeline, "set_seed", lambda _seed: None)
+
+    def fake_profile(kernel_fn, *args, num_trials, verbose, device):
+        assert num_trials == 1
+        kernel_fn(*args)
+        return {
+            "kernels": [{"name": "unrelated_kernel", "cuda_time_us": 1.0}],
+            "kernel_count": 1,
+            "total_cuda_time_us": 1.0,
+        }
+
+    monkeypatch.setattr(pipeline, "run_profiling_only", fake_profile)
+    monkeypatch.setattr(
+        pipeline,
+        "compute_named_kernel_coverage",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("malformed coverage")),
+    )
+
+    detected = pipeline._run_incorrect_backend_usage_probe(
+        kernel_exec_result=result,
+        custom_model=model,
+        get_inputs=lambda: [object()],
+        metadata=metadata,
+        seed_num=42,
+        device="cuda:0",
+        backend="cuda_agent",
+        backend_profiling_hints={"custom_kernel_names": ["candidate_kernel"]},
+        detect_decoy_kernel=True,
+    )
+
+    assert detected is False
+    assert model.calls == 1
+    assert result.decoy_kernel is False
+    assert metadata["incorrect_backend_usage_probe"]["valid"] is False
+    assert metadata["incorrect_backend_usage_probe"]["error"] == "malformed coverage"
+
+
+def test_incorrect_backend_probe_without_expected_names_does_not_rerun(monkeypatch) -> None:
+    result, metadata = _incorrect_probe_result()
+    monkeypatch.setattr(
+        pipeline,
+        "run_profiling_only",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("probe must not run")),
+    )
+
+    detected = pipeline._run_incorrect_backend_usage_probe(
+        kernel_exec_result=result,
+        custom_model=_ProbeModel(),
+        get_inputs=lambda: [object()],
+        metadata=metadata,
+        seed_num=42,
+        device="cuda:0",
+        backend="cuda_agent",
+        backend_profiling_hints={"custom_kernel_names": []},
+        detect_decoy_kernel=True,
+    )
+
+    assert detected is False
+    assert result.decoy_kernel is False
+    assert metadata["incorrect_backend_usage_probe"]["attempted"] is False
+    assert metadata["incorrect_backend_usage_probe"]["skip_reason"] == "NO_EXPECTED_CUSTOM_KERNEL_NAMES"

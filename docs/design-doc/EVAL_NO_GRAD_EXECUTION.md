@@ -18,9 +18,9 @@ Calling `eval()` is an intentional benchmark semantic change. Dropout is disable
 
 ## Implementation
 
-`kernelgym/toolkit/kernelbench/execution_policy.py` defines policy version `eval_no_grad_tf32_v2`, applies `eval()`, scopes TF32 state, and records:
+`kernelgym/toolkit/kernelbench/execution_policy.py` defines policy version `eval_no_grad_tf32_decoy_v3`, applies `eval()`, scopes TF32 state, and records:
 
-- `execution_policy=eval_no_grad_tf32_v2`
+- `execution_policy=eval_no_grad_tf32_decoy_v3`
 - `model_mode=eval`
 - `grad_mode=no_grad`
 - `fp32_math_mode=tf32`
