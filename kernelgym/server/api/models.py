@@ -20,6 +20,10 @@ class EvaluationRequest(BaseModel):
     toolkit: str = Field(default="kernelbench", description="Toolkit adapter name")
     backend_adapter: str = Field(default="kernelbench", description="Backend adapter name")
     backend: Backend = Field(default=Backend.AUTO, description="Backend type")
+    compiler_options: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Backend-specific JIT/compiler options",
+    )
     precision: str = Field(
         default="fp32",
         description="Reference task precision: fp32, fp16, or bf16",

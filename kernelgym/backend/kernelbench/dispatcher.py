@@ -10,6 +10,7 @@ from .cuda_agent_backend import KernelBenchCudaAgentBackend
 from .cuda_backend import KernelBenchCudaBackend
 from .tvm_ffi_backend import KernelBenchTvmFfiBackend
 from .triton_backend import KernelBenchTritonBackend
+from .tilelang_backend import KernelBenchTileLangBackend
 
 
 class KernelBenchBackend(Backend):
@@ -17,6 +18,7 @@ class KernelBenchBackend(Backend):
 
     def __init__(self) -> None:
         self._triton = KernelBenchTritonBackend()
+        self._tilelang = KernelBenchTileLangBackend()
         self._cuda = KernelBenchCudaBackend()
         self._cuda_agent = KernelBenchCudaAgentBackend()
         self._tvm_ffi = KernelBenchTvmFfiBackend()
@@ -26,23 +28,29 @@ class KernelBenchBackend(Backend):
         key = (name or "triton").strip().lower()
         if key == "triton":
             return "triton"
-        if key in ("cuda", "tilelang", "torch", "torch_compile", "torch-compile"):
+        if key == "tilelang":
+            return "tilelang"
+        if key in ("cuda", "torch", "torch_compile", "torch-compile"):
             return "cuda"
         if key == "cuda_agent":
             return "cuda_agent"
         if key in ("tvm_ffi", "tvm-ffi", "tvmffi"):
             return "tvm_ffi"
-        return "cuda"
+        raise ValueError(f"Unsupported KernelBench backend '{name}'")
 
     def _select(self, name: Any | None) -> Backend:
         backend = self._resolve_backend_name(name)
         if backend == "triton":
             return self._triton
+        if backend == "tilelang":
+            return self._tilelang
         if backend == "cuda_agent":
             return self._cuda_agent
         if backend == "tvm_ffi":
             return self._tvm_ffi
-        return self._cuda
+        if backend == "cuda":
+            return self._cuda
+        raise ValueError(f"Unsupported KernelBench backend '{name}'")
 
     def compile(self, code: str, **kwargs: Any) -> Dict[str, Any]:
         backend_name = kwargs.get("backend", "triton")

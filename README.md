@@ -50,6 +50,34 @@ bash check_node.sh                  # GPU + worker health summary (ASCII tables 
 bash test_reward.sh                 # round-trip a hand-written CUDA add kernel
 ```
 
+For a broader real-GPU regression across all supported KernelBench languages, run the shared language matrix. It
+submits CUDA (through the TVM-FFI backend), Triton, and TileLang fixtures through the HTTP API, uses two concurrent requests by default,
+and requires correctness, profiler kernel capture, and decoy detection to pass:
+
+```bash
+python benchmarks/run_language_matrix.py \
+    --api http://127.0.0.1:20111 \
+    --languages cuda,triton,tilelang \
+    --concurrency 2
+
+# DSL-only fast regression
+python benchmarks/run_language_matrix.py \
+    --languages triton,tilelang \
+    --concurrency 2 \
+    --out /tmp/kernelgym_language_matrix.json
+
+# Exercise CPU compile -> GPU execute artifact handoff
+python benchmarks/run_language_matrix.py \
+    --languages triton,tilelang \
+    --split
+```
+
+The versioned fixtures live under `benchmarks/kernels/{cuda,triton,tilelang}/`. The CUDA fixture uses the
+`CUDA_KERNELS + APPLY_BINDINGS + MODEL_NEW` submission format with `backend=tvm_ffi`; it does not use the legacy
+CUDA-Agent adapter. Triton and TileLang cover
+inference-style operations such as RMSNorm, RoPE, KV gather, attention-state merge, matmul, mixed dtypes, odd
+shapes, and non-contiguous strides. Add `--include-negative` to also verify that torch-only candidates are rejected.
+
 ### 4. Stop
 
 ```bash
@@ -62,7 +90,7 @@ Stops the API server, worker monitor, GPU/CPU workers, and shuts down local Redi
 
 ## About this Repository
 
-This is a standalone reward-service extraction of KernelGYM. It keeps the API server, task manager, workers, workflow layer, KernelBench toolkits, and CUDA / Triton / TVM-FFI reward backends, while intentionally excluding `drkernel`, training launchers, rollout code, model-serving launchers, and offline-eval runbooks.
+This is a standalone reward-service extraction of KernelGYM. It keeps the API server, task manager, workers, workflow layer, KernelBench toolkits, and CUDA / Triton / TileLang / TVM-FFI reward backends, while intentionally excluding `drkernel`, training launchers, rollout code, model-serving launchers, and offline-eval runbooks.
 
 ## Source Lineage
 
@@ -143,4 +171,4 @@ Formatting is done by `ruff format`, not Black. Linting is done by `ruff check`.
 
 ### Benchmarks
 
-- [benchmarks/README.md](benchmarks/README.md) — Compile-speed benchmark scaffold, kernel fixtures, scenarios, and findings log.
+- [benchmarks/README.md](benchmarks/README.md) — Cross-language correctness/profiling matrix plus compile-speed benchmarks and kernel fixtures.

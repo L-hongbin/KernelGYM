@@ -82,7 +82,7 @@ class KernelBenchBackendBase(Backend):
         if not isinstance(device, torch.device):
             device = self._normalize_device(device)
         self._maybe_set_cuda_device(device)
-        if handle.get("backend") == "triton":
+        if handle.get("backend") in {"triton", "tilelang"}:
             self._maybe_set_triton_env(device)
         no_grad = kwargs.get("no_grad", True)
         synchronize = kwargs.get("synchronize", False)
@@ -120,7 +120,7 @@ class KernelBenchBackendBase(Backend):
         if not isinstance(device, torch.device):
             device = self._normalize_device(device)
         self._maybe_set_cuda_device(device)
-        if handle.get("backend") == "triton":
+        if handle.get("backend") in {"triton", "tilelang"}:
             self._maybe_set_triton_env(device)
         no_grad = kwargs.get("no_grad", True)
         synchronize = kwargs.get("synchronize", True)

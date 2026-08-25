@@ -15,6 +15,7 @@ __all__ = [
     "KernelBenchCudaBackend",
     "KernelBenchTvmFfiBackend",
     "KernelBenchTritonBackend",
+    "KernelBenchTileLangBackend",
 ]
 
 
@@ -43,4 +44,8 @@ def __getattr__(name: str) -> Any:
         from .triton_backend import KernelBenchTritonBackend
 
         return KernelBenchTritonBackend
+    if name == "KernelBenchTileLangBackend":
+        from .tilelang_backend import KernelBenchTileLangBackend
+
+        return KernelBenchTileLangBackend
     raise AttributeError(name)

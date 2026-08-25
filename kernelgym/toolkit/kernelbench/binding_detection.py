@@ -18,6 +18,14 @@ TVM_FFI_MARKER_RE = re.compile(
     r")",
     re.IGNORECASE,
 )
+TILELANG_MARKER_RE = re.compile(
+    r"(?:\bimport\s+tilelang\b|\bfrom\s+tilelang\b|@\s*tilelang\.jit\b|@\s*T\.prim_func\b)",
+    re.IGNORECASE,
+)
+TRITON_MARKER_RE = re.compile(
+    r"(?:\bimport\s+triton\b|\bfrom\s+triton\b|@\s*triton\.jit\b)",
+    re.IGNORECASE,
+)
 AUTO_KERNEL_BACKENDS = {"auto", "mixed", "auto_cuda_tvm_ffi", "cuda_agent_or_tvm_ffi"}
 
 
@@ -45,6 +53,10 @@ def detect_kernel_backend(text: str, *, default: str = "cuda_agent") -> str:
     stripped = strip_think_blocks(text)
     if TVM_FFI_MARKER_RE.search(stripped or ""):
         return "tvm_ffi"
+    if TILELANG_MARKER_RE.search(stripped or ""):
+        return "tilelang"
+    if TRITON_MARKER_RE.search(stripped or ""):
+        return "triton"
     return normalize_kernel_backend(default, default="cuda_agent")
 
 

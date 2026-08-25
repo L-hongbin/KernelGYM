@@ -56,7 +56,7 @@ Backend / workflow selection:
 
 | Field | Default | Notes |
 |---|---|---|
-| `backend` | `auto` | One of `cuda`, `triton`, `cuda_agent`, `tvm_ffi`, `auto`. `auto` lets the backend-adapter pick. |
+| `backend` | `auto` | One of `cuda`, `triton`, `tilelang`, `cuda_agent`, `tvm_ffi`, `auto`. `auto` lets the backend adapter detect the submitted language. |
 | `backend_adapter` | `"kernelbench"` | Adapter that interprets the request and dispatches to a backend. |
 | `toolkit` | `"kernelbench"` | Toolkit driver for correctness + perf measurement. |
 | `workflow` | `"kernelbench"` | Controller name. Other workflows accept this via `/workflow/submit`. |

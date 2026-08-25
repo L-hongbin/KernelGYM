@@ -31,6 +31,8 @@ This file indexes stable repository docs and evidence locations.
 | `scripts/debug_line451_rmsnorm_nondeterminism.py` | Standalone reproduction for line 451 RMSNorm CUDA-Agent nondeterministic correctness. |
 | `kernelgym/backend/kernelbench/cuda_agent_backend.py` | CUDA-Agent parsing, validation scaffold, compile/load backend. |
 | `kernelgym/backend/kernelbench/tvm_ffi_backend.py` | TVM-FFI compile/load backend and compile artifact cache. |
+| `kernelgym/backend/kernelbench/python_dsl_backend.py` | Shared source-artifact backend for Triton and TileLang JIT submissions. |
+| `kernelgym/backend/kernelbench/tilelang_backend.py` | TileLang KernelBench backend export. |
 | `kernelgym/schema/precision.py` | Canonical FP32/FP16/BF16 aliases and fail-closed internal normalization. |
 | `kernelgym/toolkit/kernelbench/pipeline.py` | KernelBench compile/load/correctness/performance pipeline. |
 | `kernelgym/toolkit/kernelbench/profiling.py` | CUDA profiling, exact MusaCoder Appendix J plus explicit PyTorch compatibility ATen classification, and named-kernel coverage extraction. |
@@ -50,9 +52,11 @@ This file indexes stable repository docs and evidence locations.
 | `tests/server/` | API, request defaults, task-manager queues, Redis integration, and heartbeat-route tests. |
 | `tests/workers/` | CPU/GPU worker, subprocess-pool, monitor, shutdown-drain, and quarantine tests. |
 | `tests/utils/` | Core-dump and page-user notification utility tests. |
-| `tests/kernelbench/backends/` | CUDA-Agent and TVM-FFI backend/schema tests. |
+| `tests/kernelbench/backends/` | CUDA-Agent, TVM-FFI, Triton, and TileLang backend/schema tests. |
 | `tests/kernelbench/correctness/` | Correctness, cache-poison, and true-FP32 policy tests. |
 | `tests/kernelbench/execution_modes/` | Active eval plus no-grad correctness, timing, Triton-detection, and cache-fence regressions. |
+| `benchmarks/run_language_matrix.py` | Unified real-API CUDA(TVM-FFI)/Triton/TileLang correctness, profiling, and split-execution runner. |
+| `benchmarks/kernels/{cuda,triton,tilelang}/` | Versioned cross-language KernelBench fixture matrices; CUDA uses TVM-FFI bindings. |
 | `tests/kernelbench/profiling/` | CUPTI, profiler capture/trial, and ATen decoy-detection tests. |
 | `tests/kernelbench/timing/` | CUDA timing-window tests. |
 | `tests/kernelbench/workflow/` | Precision propagation and split-stage affinity tests. |

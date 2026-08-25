@@ -93,7 +93,7 @@ When profiling is enabled, the harness records captured CUDA kernel metadata and
 - `raw_custom_kernel_time_coverage`
 - `coverage_measurement_valid`
 
-For CUDA-Agent and TVM-FFI, expected custom kernel names come from backend profiling hints when available. Coverage uses only actual CUDA device events; CPU-side ATen aggregates that repeat child CUDA time are excluded from the denominator.
+For CUDA-Agent, TVM-FFI, and TileLang, expected custom kernel names come from backend profiling hints when available. Triton keeps its runtime launch hook. Coverage uses only actual CUDA device events; CPU-side ATen aggregates that repeat child CUDA time are excluded from the denominator.
 
 Named custom-kernel CUDA-time coverage below 30% records `suspected_decoy=true`. Coverage below 0.1% additionally records `hard_decoy_coverage_candidate=true`, but does not hard-reject while direct extension-internal cuBLAS/cuDNN provenance remains unavailable: unmatched CUDA time may be a legal vendor-library implementation. The hard legality decision is therefore driven by forbidden ATen compute; named-kernel coverage remains a conservative diagnostic/bypass signal.
 

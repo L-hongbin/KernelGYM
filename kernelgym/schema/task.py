@@ -14,6 +14,7 @@ class EvaluationTask:
     toolkit: str = "kernelbench"
     backend_adapter: str = "kernelbench"
     backend: str = "triton"
+    compiler_options: Optional[Dict[str, Any]] = None
     precision: str = "fp32"
     num_correct_trials: int = 5
     num_perf_trials: int = 100
@@ -99,6 +100,7 @@ class KernelEvaluationTask:
     toolkit: str = "kernelbench"
     backend_adapter: str = "kernelbench"
     backend: str = "triton"
+    compiler_options: Optional[Dict[str, Any]] = None
     precision: str = "fp32"
     num_correct_trials: int = 5
     num_perf_trials: int = 100

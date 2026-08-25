@@ -7,7 +7,7 @@ This document records how the new reward-only repository differs from both sourc
 Same core reward behavior:
 
 - Keeps the `kernelgym/` implementation as the active reward service.
-- Keeps CUDA-Agent, Triton, CUDA, and TVM-FFI backend wiring.
+- Keeps CUDA-Agent, Triton, TileLang, CUDA, and TVM-FFI backend wiring.
 - Keeps current CUDA-Agent parser, validation, static checker, timing metadata, and KernelBench reward behavior.
 
 Removed scope:
@@ -71,7 +71,7 @@ Validation and parsing:
 
 Profiling and reward semantics:
 
-- This repo keeps named-kernel coverage for CUDA-Agent/TVM-FFI based on backend profiling hints.
+- This repo keeps named-kernel coverage for CUDA-Agent/TVM-FFI/TileLang based on backend profiling hints.
 - It avoids automatically marking CUDA-Agent submissions as decoys when no custom kernel name can be extracted.
 - LHB has an additional CUDA detection precheck and a stricter CUDA-Agent decoy policy.
 

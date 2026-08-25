@@ -18,6 +18,7 @@ class Backend(str, Enum):
 
     CUDA = "cuda"
     TRITON = "triton"
+    TILELANG = "tilelang"
     CUDA_AGENT = "cuda_agent"
     TVM_FFI = "tvm_ffi"
     AUTO = "auto"

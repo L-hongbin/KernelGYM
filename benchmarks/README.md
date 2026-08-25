@@ -1,6 +1,61 @@
-# Compile-speed benchmarks
+# KernelBench language matrix and compile-speed benchmarks
 
 End-to-end measurements of the reward service's `/evaluate` path.
+
+## Cross-language GPU matrix
+
+`run_language_matrix.py` is the common correctness, profiling, and backend-routing runner for CUDA, Triton, and
+TileLang. CUDA is compiled and bound through `backend=tvm_ffi`, matching the production CUDA submission path; the
+legacy CUDA-Agent backend is not part of this language matrix. The fixtures are checked into the repository instead
+of being maintained as ad-hoc `/tmp` scripts:
+
+```text
+benchmarks/kernels/
+├── cuda/cases.py
+├── triton/cases.py
+└── tilelang/cases.py
+```
+
+Run every positive fixture against a local two-GPU service:
+
+```bash
+python benchmarks/run_language_matrix.py \
+    --api http://127.0.0.1:20111 \
+    --languages cuda,triton,tilelang \
+    --concurrency 2
+```
+
+Useful variants:
+
+```bash
+# Faster Python-DSL regression and a persistent JSON report
+python benchmarks/run_language_matrix.py \
+    --languages triton,tilelang \
+    --concurrency 2 \
+    --out /tmp/kernelgym_language_matrix.json
+
+# Select cases by their shared case name
+python benchmarks/run_language_matrix.py \
+    --languages triton,tilelang \
+    --cases add_odd_fp32,rmsnorm_fp32
+
+# Verify source-artifact handoff and negative torch-only rejection
+python benchmarks/run_language_matrix.py \
+    --languages triton,tilelang \
+    --split \
+    --include-negative
+```
+
+A positive case passes only when compilation succeeds, correctness succeeds, no decoy is detected, and the
+profiler captures at least one real CUDA kernel. A `*_rejected` negative case passes only when compilation is
+rejected. The runner prints one JSON record per case plus a final `SUMMARY=...` record and exits non-zero if any
+expectation fails.
+
+The matrix is intentionally separate from pytest: it requires a running reward service and real GPUs, and CUDA
+TVM-FFI compilation has different costs from Python-DSL JIT cases. Unit and narrowly scoped GPU
+regressions remain under `tests/kernelbench/`.
+
+## Compile-speed benchmarks
 
 | Experiment | Doc | Scope |
 |---|---|---|
@@ -17,9 +72,13 @@ The vector-add scaffold was created during the
 ```
 benchmarks/
 ├── README.md
+├── run_language_matrix.py      # CUDA(TVM-FFI)/Triton/TileLang API matrix
 ├── run_compile_benchmark.py     # the runner (stdlib only, can run from any venv)
 ├── kernels/
 │   ├── _reference.py            # shared reference Model (element-wise add)
+│   ├── cuda/cases.py             # CUDA source with TVM-FFI bindings
+│   ├── triton/cases.py           # Triton inference-style fixtures
+│   ├── tilelang/cases.py         # TileLang inference-style fixtures
 │   ├── cuda_agent_vector_add.py # torch/extension.h + pybind11 binding
 │   └── tvm_ffi_vector_add.py    # tvm/ffi/tvm_ffi.h + TVM_FFI_DLL_EXPORT_TYPED_FUNC
 └── results/                     # append-only JSONL output (gitignored if you prefer)

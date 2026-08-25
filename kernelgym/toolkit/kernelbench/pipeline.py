@@ -592,7 +592,7 @@ def _run_performance_step(
                         coverage_backend="triton",
                         detect_decoy_kernel=detect_decoy_kernel,
                     )
-                elif backend in {"cuda_agent", "tvm_ffi"}:
+                elif backend in {"cuda_agent", "tvm_ffi", "tilelang"}:
                     custom_kernel_names = []
                     if backend_profiling_hints:
                         custom_kernel_names = list(backend_profiling_hints.get("custom_kernel_names", []))
@@ -648,6 +648,7 @@ def eval_kernel_against_ref(
     device: Union[torch.device, int] = (torch.cuda.current_device() if torch.cuda.is_available() else None),
     backend: str = "cuda",
     precision: str = "fp32",
+    compiler_options: Optional[Dict[str, Any]] = None,
     entry_point: str = "Model",
     enable_profiling: bool = True,
     enable_triton_detection: bool = True,
@@ -710,6 +711,7 @@ def eval_kernel_against_ref(
                 entry_point=f"{entry_point}New",
                 build_dir=build_dir,
                 enable_compile_artifact_cache=enable_compile_artifact_cache,
+                compiler_options=compiler_options,
             )
             _finish_stage(
                 metadata,
@@ -854,6 +856,7 @@ def eval_kernel_against_ref(
                     entry_point=f"{entry_point}New",
                     build_dir=build_dir,
                     enable_compile_artifact_cache=enable_compile_artifact_cache,
+                    compiler_options=compiler_options,
                 )
                 _record_phase_timing(
                     metadata,

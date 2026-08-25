@@ -1,3 +1,4 @@
 apache-tvm-ffi==0.1.11
 torch==2.11.0+cu129
 torchvision==0.26.0+cu129
+tilelang==0.1.8
