@@ -3,7 +3,6 @@ import importlib.util
 from pathlib import Path
 import time
 
-
 SUBPROCESS_POOL_PATH = Path(__file__).resolve().parents[1] / "kernelgym" / "worker" / "subprocess_pool.py"
 spec = importlib.util.spec_from_file_location("subprocess_pool_under_test", SUBPROCESS_POOL_PATH)
 assert spec is not None and spec.loader is not None
@@ -61,6 +60,38 @@ def _pool_without_processes(*, pool_size: int = 1) -> SubprocessWorkerPool:
     pool.pool_start_time = time.time()
     pool.lock = asyncio.Lock()
     return pool
+
+
+def test_sanitizer_issues_found_preserves_result_and_recycles_worker() -> None:
+    sanitizer = {
+        "status": "issues_found",
+        "check_results": [{"issues": [{"message": "Invalid __global__ write"}]}],
+    }
+    toolkit_result = {
+        "status": "failed",
+        "error_message": "Runtime Sanitizer detected an unsafe CUDA kernel",
+        "runtime_sanitizer": sanitizer,
+        "metadata": {},
+    }
+
+    class FakeToolkit:
+        def evaluate(self, _task_data, backend=None):
+            assert backend is not None
+            return toolkit_result
+
+    result = subprocess_pool._execute_task_in_worker(
+        {"toolkit": "kernelbench", "backend_adapter": "kernelbench"},
+        "cuda:0",
+        {"kernelbench": FakeToolkit()},
+        {"kernelbench": object()},
+        lambda _name: None,
+        lambda _name: None,
+    )
+
+    assert result["success"] is True
+    assert result["result"] is toolkit_result
+    assert result["worker_exiting"] is True
+    assert result["error_type"] == "RuntimeSanitizerFailure"
 
 
 def test_get_idle_worker_waits_for_pending_replacement(monkeypatch) -> None:

@@ -273,6 +273,19 @@ build extension.so: link generated.cuda.o generated_binding.o binding.o
     assert "generated.cuda.o /cache/generated_binding.o binding.o" in rewritten
 
 
+def test_cuda_compile_flags_enable_lineinfo_and_resource_usage() -> None:
+    expected = [
+        "-O3",
+        "--use_fast_math",
+        "-lineinfo",
+        "--resource-usage",
+        "--threads",
+        "7",
+    ]
+    assert KernelBenchCudaAgentBackend._cuda_compile_flags("7") == expected
+    assert KernelBenchTvmFfiBackend._cuda_compile_flags("7") == expected
+
+
 def test_tvm_ffi_compile_artifact_cache_reuses_built_work_dir(tmp_path, monkeypatch) -> None:
     calls = {"build": 0}
 

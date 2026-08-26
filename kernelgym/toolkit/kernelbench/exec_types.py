@@ -25,3 +25,4 @@ class KernelExecResult(BaseModel):
     runtime: float = -1.0
     runtime_stats: dict = {}
     memory: dict = {}
+    runtime_sanitizer: dict = {}

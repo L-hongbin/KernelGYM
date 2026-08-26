@@ -42,6 +42,8 @@ class EvaluationTask:
     is_valid: bool = False
     enable_profiling: Optional[bool] = None
     enable_ncu: Optional[bool] = None
+    enable_compute_sanitizer: Optional[bool] = None
+    compute_sanitizer_mode: Optional[str] = None
     enable_triton_detection: Optional[bool] = None
     detect_decoy_kernel: Optional[bool] = None
     measure_performance: Optional[bool] = None
@@ -128,6 +130,8 @@ class KernelEvaluationTask:
     force_refresh: bool = False
     enable_profiling: Optional[bool] = None
     enable_ncu: Optional[bool] = None
+    enable_compute_sanitizer: Optional[bool] = None
+    compute_sanitizer_mode: Optional[str] = None
     enable_triton_detection: Optional[bool] = None
     detect_decoy_kernel: Optional[bool] = None
     measure_performance: Optional[bool] = None

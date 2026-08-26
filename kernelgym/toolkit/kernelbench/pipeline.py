@@ -14,8 +14,19 @@ import torch
 
 from kernelgym.config import settings
 from kernelgym.toolkit.kernelbench import triton_detect as detect
+from kernelgym.toolkit.kernelbench.compute_sanitizer import (
+    FULL_SANITIZER_TOOLS,
+    SANITIZER_MODE_FULL,
+    classify_compute_sanitizer_error,
+    run_compute_sanitizer,
+    skipped_compute_sanitizer_result,
+)
 from kernelgym.toolkit.kernelbench.correctness import run_and_check_correctness
-from kernelgym.toolkit.kernelbench.exec_types import KernelExecResult, get_error_name, set_seed
+from kernelgym.toolkit.kernelbench.exec_types import (
+    KernelExecResult,
+    get_error_name,
+    set_seed,
+)
 from kernelgym.toolkit.kernelbench.loading import (
     OriginalModelLoadError,
     graceful_eval_cleanup,
@@ -388,6 +399,27 @@ def _run_correctness_step(
         return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
 
 
+def _is_candidate_correctness_runtime_failure(metadata: Dict[str, Any]) -> bool:
+    return bool(metadata.get("runtime_error")) and (
+        metadata.get("correctness_runtime_error_stage") == "custom_forward"
+    )
+
+
+def _select_compute_sanitizer_execution_mode(
+    runtime_error: Exception | str, requested_mode: Optional[str]
+) -> tuple[str, Optional[str]]:
+    selection_mode = str(requested_mode or "error_based").strip().lower()
+    if selection_mode not in {"error_based", SANITIZER_MODE_FULL}:
+        raise ValueError(
+            "Unsupported Compute Sanitizer selection mode " f"{requested_mode!r}; expected 'error_based' or 'full'"
+        )
+    preferred_tool = classify_compute_sanitizer_error(runtime_error)
+    execution_mode = (
+        SANITIZER_MODE_FULL if selection_mode == SANITIZER_MODE_FULL else preferred_tool or SANITIZER_MODE_FULL
+    )
+    return execution_mode, preferred_tool
+
+
 def _run_triton_detection_step(
     *,
     enable_triton_detection: bool,
@@ -562,15 +594,25 @@ def _run_performance_step(
                     )
 
             if enable_profiling:
-                logger.debug("profiling_metrics type: %s, empty: %s", type(profiling_metrics), not profiling_metrics)
+                logger.debug(
+                    "profiling_metrics type: %s, empty: %s",
+                    type(profiling_metrics),
+                    not profiling_metrics,
+                )
                 if profiling_metrics.get("profiling_warning"):
                     logger.warning("Profiling warning: %s", profiling_metrics["profiling_warning"])
 
                 if _profiling_empty(profiling_metrics):
                     logger.warning("Profiler returned empty results!")
                     logger.warning("This may be a profiler bug, not a decoy kernel issue.")
-                    logger.warning("Triton hook detected: %s", metadata.get("triton_profiler_used", False))
-                    logger.warning("Triton matches: %s", len(metadata.get("triton_profiler_matches", [])))
+                    logger.warning(
+                        "Triton hook detected: %s",
+                        metadata.get("triton_profiler_used", False),
+                    )
+                    logger.warning(
+                        "Triton matches: %s",
+                        len(metadata.get("triton_profiler_matches", [])),
+                    )
                     if metadata.get("triton_profiler_used", False):
                         logger.info("Skipping decoy detection due to profiler failure (Triton hook passed)")
 
@@ -676,9 +718,7 @@ def _run_memory_step(
         torch.cuda.synchronize(device=device)
         set_seed(seed_num)
         inputs = get_inputs()
-        inputs = [
-            x.cuda(device=device) if isinstance(x, torch.Tensor) else x for x in inputs
-        ]
+        inputs = [x.cuda(device=device) if isinstance(x, torch.Tensor) else x for x in inputs]
         model = model.cuda(device=device)
         torch.cuda.synchronize(device=device)
         kernel_exec_result.memory = measure_cuda_memory_trial(
@@ -693,9 +733,7 @@ def _run_memory_step(
         if verbose:
             logger.info(
                 "[Eval] Memory peak increment: %s bytes, total task peak: %s bytes (complete=%s)",
-                kernel_exec_result.memory.get(
-                    "forward_incremental_peak_allocated_bytes"
-                ),
+                kernel_exec_result.memory.get("forward_incremental_peak_allocated_bytes"),
                 kernel_exec_result.memory.get("total_task_peak_allocated_bytes"),
                 kernel_exec_result.memory.get("measurement_complete"),
             )
@@ -707,29 +745,15 @@ def _run_memory_step(
             "method": "torch_cuda_peak_allocated_delta",
             "allocator_scope": "pytorch_cuda_caching_allocator",
             "environment_floor_available": bool(environment_floor),
-            "environment_floor_allocated_bytes": environment_floor.get(
-                "allocated_bytes"
-            ),
+            "environment_floor_allocated_bytes": environment_floor.get("allocated_bytes"),
             "environment_floor_reserved_bytes": environment_floor.get("reserved_bytes"),
             "measurement_valid": False,
             "measurement_complete": False,
-            "measurement_is_lower_bound": allocation_check[
-                "direct_cuda_allocation_detected"
-            ],
-            "direct_cuda_allocation_detected": allocation_check[
-                "direct_cuda_allocation_detected"
-            ],
-            "direct_cuda_allocation_apis": allocation_check[
-                "direct_cuda_allocation_apis"
-            ],
-            "direct_cuda_allocation_matches": allocation_check[
-                "direct_cuda_allocation_matches"
-            ],
-            "warnings": [
-                warning
-                for warning in (allocation_check["warning"], str(exc))
-                if warning
-            ],
+            "measurement_is_lower_bound": allocation_check["direct_cuda_allocation_detected"],
+            "direct_cuda_allocation_detected": allocation_check["direct_cuda_allocation_detected"],
+            "direct_cuda_allocation_apis": allocation_check["direct_cuda_allocation_apis"],
+            "direct_cuda_allocation_matches": allocation_check["direct_cuda_allocation_matches"],
+            "warnings": [warning for warning in (allocation_check["warning"], str(exc)) if warning],
             "error": str(exc),
         }
         metadata["memory_measurement_error"] = str(exc)
@@ -755,6 +779,8 @@ def eval_kernel_against_ref(
     entry_point: str = "Model",
     enable_profiling: bool = True,
     enable_ncu: bool = True,
+    enable_compute_sanitizer: bool = True,
+    compute_sanitizer_mode: Optional[str] = None,
     enable_triton_detection: bool = True,
     detect_decoy_kernel: bool = True,
     backend_adapter: Optional[Any] = None,
@@ -972,7 +998,10 @@ def eval_kernel_against_ref(
             if not artifact.get("compiled"):
                 error = artifact.get("error", "Unknown compile error")
                 if "lock" in str(error) or "No such file or directory" in str(error):
-                    logger.warning("[Eval] Lock file error during compilation, please retry. Error: %s", error)
+                    logger.warning(
+                        "[Eval] Lock file error during compilation, please retry. Error: %s",
+                        error,
+                    )
                     metadata["compilation_error_name"] = "compile_error"
                     metadata["compilation_error"] = error
                     metadata["compilation_error_detail"] = classify_compile_error_detail(
@@ -1041,7 +1070,10 @@ def eval_kernel_against_ref(
             start_time=compile_start,
         )
     except Exception as e:
-        logger.warning("Failed to compile custom CUDA kernel; recording compilation failure. Error: %s", e)
+        logger.warning(
+            "Failed to compile custom CUDA kernel; recording compilation failure. Error: %s",
+            e,
+        )
         _finish_stage(
             metadata,
             stage="kernel.compile_and_load",
@@ -1067,6 +1099,8 @@ def eval_kernel_against_ref(
         )
         _cleanup()
         return KernelExecResult(compiled=False, metadata=metadata)
+
+    runtime_sanitizer = skipped_compute_sanitizer_result("not_triggered")
 
     try:
 
@@ -1120,7 +1154,12 @@ def eval_kernel_against_ref(
                 timing_key="kg_kernel_build_custom_model_s",
                 start_time=custom_model_start,
             )
-        return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
+        return KernelExecResult(
+            compiled=True,
+            correctness=False,
+            metadata=metadata,
+            runtime_sanitizer=runtime_sanitizer,
+        )
 
     kernel_exec_result = None
 
@@ -1148,6 +1187,86 @@ def eval_kernel_against_ref(
         timing_key="kg_kernel_correctness_s",
         start_time=correctness_start,
     )
+
+    selection_mode = str(compute_sanitizer_mode or "error_based").strip().lower()
+    correctness_runtime_failure = _is_candidate_correctness_runtime_failure(metadata)
+    if not enable_compute_sanitizer:
+        runtime_sanitizer = skipped_compute_sanitizer_result("disabled")
+    elif correctness_runtime_failure:
+        sanitizer_start = _begin_stage(
+            metadata,
+            prefix="kg_kernel",
+            stage="kernel.runtime_sanitizer",
+            overall_start=overall_start,
+        )
+        runtime_error = metadata.get("runtime_error", "")
+        execution_mode, preferred_tool = _select_compute_sanitizer_execution_mode(runtime_error, selection_mode)
+        sanitizer_tools = list(FULL_SANITIZER_TOOLS) if execution_mode == SANITIZER_MODE_FULL else [execution_mode]
+        run_all_checks = execution_mode == SANITIZER_MODE_FULL
+        metadata["runtime_sanitizer_trigger"] = "correctness_runtime_error"
+        metadata["runtime_sanitizer_mode"] = selection_mode
+        metadata["runtime_sanitizer_execution_mode"] = execution_mode
+        metadata["runtime_sanitizer_tool_order"] = sanitizer_tools
+        metadata["runtime_sanitizer_error_classification"] = preferred_tool or "ambiguous"
+        metadata["runtime_sanitizer_run_all_checks"] = run_all_checks
+        sanitizer_kernel_names = select_kernel_names(
+            metadata,
+            settings.compute_sanitizer_max_kernels,
+        )
+        sanitizer_kwargs = dict(
+            original_model_src=original_model_src,
+            custom_model_src=custom_model_src,
+            artifact=artifact,
+            backend=backend,
+            entry_point=entry_point,
+            device=device,
+            kernel_names=sanitizer_kernel_names,
+            sanitizer_path=settings.compute_sanitizer_path,
+            timeout_s=settings.compute_sanitizer_timeout_s,
+            max_kernels=settings.compute_sanitizer_max_kernels,
+            max_issues=settings.compute_sanitizer_max_issues,
+            input_seed=metadata.get("correctness_failed_trial_seed"),
+            model_seed=seed_num,
+            generate_inputs_on_gpu=bool(metadata.get("correctness_inputs_generated_on_gpu", True)),
+        )
+        runtime_sanitizer = run_compute_sanitizer(
+            **sanitizer_kwargs,
+            mode=execution_mode,
+            primary_tool=preferred_tool,
+        )
+        final_error_classification = preferred_tool or "ambiguous"
+        runtime_sanitizer["selection_mode"] = selection_mode
+        runtime_sanitizer["error_classification"] = final_error_classification
+        metadata["runtime_sanitizer_error_classification"] = final_error_classification
+        metadata["runtime_sanitizer_run_all_checks"] = run_all_checks
+        _finish_stage(
+            metadata,
+            stage="kernel.runtime_sanitizer",
+            timing_key="kg_kernel_runtime_sanitizer_s",
+            start_time=sanitizer_start,
+        )
+    else:
+        skip_reason = (
+            "correctness_passed" if kernel_exec_result.correctness else "correctness_failed_without_runtime_error"
+        )
+        runtime_sanitizer = skipped_compute_sanitizer_result(skip_reason)
+
+    runtime_sanitizer.setdefault("selection_mode", selection_mode)
+    runtime_sanitizer.setdefault("mode", None)
+    metadata["runtime_sanitizer_status"] = runtime_sanitizer.get("status")
+    metadata["runtime_sanitizer_issue_count"] = runtime_sanitizer.get("detected_issue_count", 0)
+    kernel_exec_result.runtime_sanitizer = runtime_sanitizer
+
+    if correctness_runtime_failure:
+        # A CUDA launch failure may poison this worker's context. Sanitizer ran
+        # in a fresh process, so do not synchronize or start another trial here.
+        metadata["kg_kernel_total_s"] = perf_counter() - overall_start
+        _sync_exec_result_metadata(kernel_exec_result, metadata)
+        try:
+            _cleanup()
+        except Exception as cleanup_exc:
+            metadata["cleanup_after_runtime_error"] = str(cleanup_exc)
+        return kernel_exec_result
 
     del original_model
     gc.collect()

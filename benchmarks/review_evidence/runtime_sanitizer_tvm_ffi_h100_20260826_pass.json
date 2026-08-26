@@ -1,0 +1,828 @@
+{
+  "captured_at": "2026-08-26T10:43:43.765157+00:00",
+  "device": "cuda:0",
+  "gpu": "NVIDIA H100 PCIe",
+  "backend": "tvm_ffi",
+  "compiled": true,
+  "all_expectations_met": true,
+  "cases": [
+    {
+      "case": "safe",
+      "mode": 0,
+      "check": "memcheck",
+      "kernel_name": "sanitizer_safe_kernel",
+      "expected_status": "clean",
+      "status_matches": true,
+      "hazard_matches": true,
+      "result": {
+        "status": "clean",
+        "passed": true,
+        "measurement_complete": true,
+        "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+        "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+        "requested_checks": [
+          "memcheck"
+        ],
+        "kernel_filter": [
+          "sanitizer_safe_kernel"
+        ],
+        "detected_issue_count": 0,
+        "check_results": [
+          {
+            "check": "memcheck",
+            "status": "clean",
+            "passed": true,
+            "process_completed": true,
+            "target_application_failed": false,
+            "sanitizer_issue_found": false,
+            "input_generation": "gpu",
+            "input_values_exactly_replayed": true,
+            "return_code": 0,
+            "summary_error_count": 0,
+            "observed_issue_count": 0,
+            "parsed_issue_count": 0,
+            "detected_issue_count": 0,
+            "unique_issue_count": 0,
+            "returned_issue_count": 0,
+            "occurrences_truncated": false,
+            "issue_groups_truncated": false,
+            "issues_truncated": false,
+            "aggregation_complete": true,
+            "issues": [],
+            "raw_output_tail": "========= COMPUTE-SANITIZER\n========= ERROR SUMMARY: 0 errors\n",
+            "wall_time_s": 3.4452818874269724
+          }
+        ],
+        "mode": "memcheck",
+        "run_all_checks": false,
+        "replayed_input_seed": null,
+        "executed_checks": [
+          "memcheck"
+        ],
+        "primary_check": "memcheck",
+        "primary_detected_issue_count": 0,
+        "issue_count_by_check": {
+          "memcheck": 0
+        },
+        "issues_truncated": false,
+        "wall_time_s": 3.4633972123265266
+      }
+    },
+    {
+      "case": "global_oob",
+      "mode": 1,
+      "check": "memcheck",
+      "kernel_name": "sanitizer_oob_kernel",
+      "expected_status": "issues_found",
+      "status_matches": true,
+      "hazard_matches": true,
+      "result": {
+        "status": "issues_found",
+        "passed": false,
+        "measurement_complete": true,
+        "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+        "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+        "requested_checks": [
+          "memcheck"
+        ],
+        "kernel_filter": [
+          "sanitizer_oob_kernel"
+        ],
+        "detected_issue_count": 24,
+        "check_results": [
+          {
+            "check": "memcheck",
+            "status": "issues_found",
+            "passed": false,
+            "process_completed": true,
+            "target_application_failed": false,
+            "sanitizer_issue_found": true,
+            "input_generation": "gpu",
+            "input_values_exactly_replayed": true,
+            "return_code": 86,
+            "summary_error_count": 24,
+            "observed_issue_count": 24,
+            "parsed_issue_count": 24,
+            "detected_issue_count": 24,
+            "unique_issue_count": 1,
+            "returned_issue_count": 1,
+            "occurrences_truncated": false,
+            "issue_groups_truncated": false,
+            "issues_truncated": false,
+            "aggregation_complete": true,
+            "issues": [
+              {
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (232,0,0) in block (3,0,0)\nAccess at 0x7f4bfa000fa0 is out of bounds\nand is 1 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes",
+                "occurrence_count": 24,
+                "threads": {
+                  "x": [
+                    232,
+                    255
+                  ],
+                  "y": [
+                    0,
+                    0
+                  ],
+                  "z": [
+                    0,
+                    0
+                  ]
+                },
+                "blocks": {
+                  "x": [
+                    3,
+                    3
+                  ],
+                  "y": [
+                    0,
+                    0
+                  ],
+                  "z": [
+                    0,
+                    0
+                  ]
+                },
+                "addresses": {
+                  "ranges": [
+                    "0x7f4bfa000fa0",
+                    "0x7f4bfa000ffc"
+                  ]
+                },
+                "representative_occurrences": [
+                  {
+                    "thread": {
+                      "x": 232,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "block": {
+                      "x": 3,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "address": "0x7f4bfa000fa0"
+                  },
+                  {
+                    "thread": {
+                      "x": 233,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "block": {
+                      "x": 3,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "address": "0x7f4bfa000fa4"
+                  }
+                ],
+                "kernel_info": [
+                  {
+                    "name": "sanitizer_oob_kernel",
+                    "source": "file generated.cu line 12"
+                  }
+                ]
+              }
+            ],
+            "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (232,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fa0 is out of bounds\n=========     and is 1 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (233,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fa4 is out of bounds\n=========     and is 5 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (234,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fa8 is out of bounds\n=========     and is 9 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (235,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fac is out of bounds\n=========     and is 13 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (236,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fb0 is out of bounds\n=========     and is 17 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (237,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fb4 is out of bounds\n=========     and is 21 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (238,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fb8 is out of bounds\n=========     and is 25 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (239,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fbc is out of bounds\n=========     and is 29 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (240,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fc0 is out of bounds\n=========     and is 33 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (241,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fc4 is out of bounds\n=========     and is 37 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (242,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fc8 is out of bounds\n=========     and is 41 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (243,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fcc is out of bounds\n=========     and is 45 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (244,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fd0 is out of bounds\n=========     and is 49 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (245,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fd4 is out of bounds\n=========     and is 53 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (246,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fd8 is out of bounds\n=========     and is 57 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (247,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fdc is out of bounds\n=========     and is 61 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (248,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fe0 is out of bounds\n=========     and is 65 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (249,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fe4 is out of bounds\n=========     and is 69 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (250,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fe8 is out of bounds\n=========     and is 73 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (251,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000fec is out of bounds\n=========     and is 77 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (252,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000ff0 is out of bounds\n=========     and is 81 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (253,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000ff4 is out of bounds\n=========     and is 85 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (254,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000ff8 is out of bounds\n=========     and is 89 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (255,0,0) in block (3,0,0)\n=========     Access at 0x7f4bfa000ffc is out of bounds\n=========     and is 93 bytes after the nearest allocation at 0x7f4bfa000000 of size 4000 bytes\n========= \n========= ERROR SUMMARY: 24 errors\n",
+            "wall_time_s": 3.6161626931279898
+          }
+        ],
+        "mode": "memcheck",
+        "run_all_checks": false,
+        "replayed_input_seed": null,
+        "executed_checks": [
+          "memcheck"
+        ],
+        "primary_check": "memcheck",
+        "primary_detected_issue_count": 24,
+        "issue_count_by_check": {
+          "memcheck": 24
+        },
+        "issues_truncated": false,
+        "wall_time_s": 3.6171741113066673
+      }
+    },
+    {
+      "case": "shared_race",
+      "mode": 2,
+      "check": "racecheck",
+      "kernel_name": "sanitizer_race_kernel",
+      "expected_status": "issues_found",
+      "status_matches": true,
+      "hazard_matches": true,
+      "result": {
+        "status": "issues_found",
+        "passed": false,
+        "measurement_complete": true,
+        "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+        "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+        "requested_checks": [
+          "racecheck"
+        ],
+        "kernel_filter": [
+          "sanitizer_race_kernel"
+        ],
+        "detected_issue_count": 3777,
+        "check_results": [
+          {
+            "check": "racecheck",
+            "status": "issues_found",
+            "passed": false,
+            "process_completed": true,
+            "target_application_failed": false,
+            "sanitizer_issue_found": true,
+            "input_generation": "gpu",
+            "input_values_exactly_replayed": true,
+            "return_code": 86,
+            "summary_error_count": 3777,
+            "observed_issue_count": 3776,
+            "parsed_issue_count": 3776,
+            "detected_issue_count": 3777,
+            "unique_issue_count": 4,
+            "returned_issue_count": 4,
+            "occurrences_truncated": true,
+            "issue_groups_truncated": false,
+            "issues_truncated": true,
+            "aggregation_complete": false,
+            "issues": [
+              {
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (1,0,0) :",
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (1,0,0) :\nWrite Thread (128,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 180, Incoming Value : 22",
+                "occurrence_count": 963,
+                "threads": {
+                  "x": [
+                    0,
+                    255
+                  ],
+                  "y": [
+                    0,
+                    0
+                  ],
+                  "z": [
+                    0,
+                    0
+                  ]
+                },
+                "blocks": {
+                  "x": [
+                    1,
+                    1
+                  ],
+                  "y": [
+                    0,
+                    0
+                  ],
+                  "z": [
+                    0,
+                    0
+                  ]
+                },
+                "addresses": null,
+                "representative_occurrences": [
+                  {
+                    "thread": {
+                      "x": 128,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "block": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    }
+                  },
+                  {
+                    "thread": {
+                      "x": 128,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "block": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    }
+                  }
+                ],
+                "kernel_info": [
+                  {
+                    "name": "sanitizer_race_kernel",
+                    "source": "file generated.cu line 18"
+                  }
+                ]
+              },
+              {
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (3,0,0) :",
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (3,0,0) :\nWrite Thread (128,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 131, Incoming Value : 198",
+                "occurrence_count": 873,
+                "threads": {
+                  "x": [
+                    0,
+                    255
+                  ],
+                  "y": [
+                    0,
+                    0
+                  ],
+                  "z": [
+                    0,
+                    0
+                  ]
+                },
+                "blocks": {
+                  "x": [
+                    3,
+                    3
+                  ],
+                  "y": [
+                    0,
+                    0
+                  ],
+                  "z": [
+                    0,
+                    0
+                  ]
+                },
+                "addresses": null,
+                "representative_occurrences": [
+                  {
+                    "thread": {
+                      "x": 128,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "block": {
+                      "x": 3,
+                      "y": 0,
+                      "z": 0
+                    }
+                  },
+                  {
+                    "thread": {
+                      "x": 128,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "block": {
+                      "x": 3,
+                      "y": 0,
+                      "z": 0
+                    }
+                  }
+                ],
+                "kernel_info": [
+                  {
+                    "name": "sanitizer_race_kernel",
+                    "source": "file generated.cu line 18"
+                  }
+                ]
+              },
+              {
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :",
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :\nWrite Thread (160,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (161,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 125, Incoming Value : 188",
+                "occurrence_count": 971,
+                "threads": {
+                  "x": [
+                    0,
+                    255
+                  ],
+                  "y": [
+                    0,
+                    0
+                  ],
+                  "z": [
+                    0,
+                    0
+                  ]
+                },
+                "blocks": {
+                  "x": [
+                    0,
+                    0
+                  ],
+                  "y": [
+                    0,
+                    0
+                  ],
+                  "z": [
+                    0,
+                    0
+                  ]
+                },
+                "addresses": null,
+                "representative_occurrences": [
+                  {
+                    "thread": {
+                      "x": 160,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "block": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    }
+                  },
+                  {
+                    "thread": {
+                      "x": 160,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "block": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    }
+                  }
+                ],
+                "kernel_info": [
+                  {
+                    "name": "sanitizer_race_kernel",
+                    "source": "file generated.cu line 18"
+                  }
+                ]
+              },
+              {
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (2,0,0) :",
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (2,0,0) :\nWrite Thread (128,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 136, Incoming Value : 51",
+                "occurrence_count": 969,
+                "threads": {
+                  "x": [
+                    0,
+                    255
+                  ],
+                  "y": [
+                    0,
+                    0
+                  ],
+                  "z": [
+                    0,
+                    0
+                  ]
+                },
+                "blocks": {
+                  "x": [
+                    2,
+                    2
+                  ],
+                  "y": [
+                    0,
+                    0
+                  ],
+                  "z": [
+                    0,
+                    0
+                  ]
+                },
+                "addresses": null,
+                "representative_occurrences": [
+                  {
+                    "thread": {
+                      "x": 128,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "block": {
+                      "x": 2,
+                      "y": 0,
+                      "z": 0
+                    }
+                  },
+                  {
+                    "thread": {
+                      "x": 128,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "block": {
+                      "x": 2,
+                      "y": 0,
+                      "z": 0
+                    }
+                  }
+                ],
+                "kernel_info": [
+                  {
+                    "name": "sanitizer_race_kernel",
+                    "source": "file generated.cu line 18"
+                  }
+                ]
+              }
+            ],
+            "raw_output_tail": ") at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 175, Incoming Value : 23\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x403 in block (2,0,0) :\n=========     Write Thread (55,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (56,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 62, Incoming Value : 190\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x400 in block (2,0,0) :\n=========     Write Thread (56,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (57,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 133, Incoming Value : 185\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x401 in block (2,0,0) :\n=========     Write Thread (56,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (57,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 58, Incoming Value : 72\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x402 in block (2,0,0) :\n=========     Write Thread (56,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (57,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 23, Incoming Value : 187\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x403 in block (2,0,0) :\n=========     Write Thread (56,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (57,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 190, Incoming Value : 63\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x400 in block (2,0,0) :\n=========     Write Thread (57,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (58,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 185, Incoming Value : 197\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x401 in block (2,0,0) :\n=========     Write Thread (57,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (58,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 72, Incoming Value : 252\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x402 in block (2,0,0) :\n=========     Write Thread (57,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (58,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 187, Incoming Value : 230\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x403 in block (2,0,0) :\n=========     Write Thread (57,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (58,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 63, Incoming Value : 191\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x400 in block (2,0,0) :\n=========     Write Thread (58,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (59,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 197, Incoming Value : 145\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x401 in block (2,0,0) :\n=========     Write Thread (58,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (59,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 252, Incoming Value : 103\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x402 in block (2,0,0) :\n=========     Write Thread (58,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (59,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 230, Incoming Value : 120\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x403 in block (2,0,0) :\n=========     Write Thread (58,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (59,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 191, Incoming Value : 62\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x400 in block (2,0,0) :\n=========     Write Thread (59,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (60,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 145, Incoming Value : 180\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x401 in block (2,0,0) :\n=========     Write Thread (59,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (60,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 103, Incoming Value : 226\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x402 in block (2,0,0) :\n=========     Write Thread (59,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (60,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 120, Incoming Value : 139\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x403 in block (2,0,0) :\n=========     Write Thread (59,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (60,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 62, Incoming Value : 190\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x400 in block (2,0,0) :\n=========     Write Thread (60,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (61,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 180, Incoming Value : 119\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x401 in block (2,0,0) :\n=========     Write Thread (60,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (61,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 226, Incoming Value : 29\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x402 in block (2,0,0) :\n=========     Write Thread (60,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (61,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 139, Incoming Value : 151\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x403 in block (2,0,0) :\n=========     Write Thread (60,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (61,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 190, Incoming Value : 62\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x400 in block (2,0,0) :\n=========     Write Thread (61,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (62,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 119, Incoming Value : 213\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x401 in block (2,0,0) :\n=========     Write Thread (61,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (62,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 29, Incoming Value : 78\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x402 in block (2,0,0) :\n=========     Write Thread (61,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (62,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 151, Incoming Value : 134\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x403 in block (2,0,0) :\n=========     Write Thread (61,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (62,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 62, Incoming Value : 191\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x400 in block (2,0,0) :\n=========     Write Thread (62,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (63,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 213, Incoming Value : 149\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x401 in block (2,0,0) :\n=========     Write Thread (62,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (63,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 78, Incoming Value : 16\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x402 in block (2,0,0) :\n=========     Write Thread (62,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (63,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 134, Incoming Value : 99\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :\n=========     Write Thread (93,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (94,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 79, Incoming Value : 8\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :\n=========     Write Thread (93,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (94,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 117, Incoming Value : 85\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :\n=========     Write Thread (93,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (94,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 37, Incoming Value : 153\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x403 in block (0,0,0) :\n=========     Write Thread (93,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (94,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 191, Incoming Value : 61\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :\n=========     Write Thread (94,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (95,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 8, Incoming Value : 39\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :\n=========     Write Thread (94,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (95,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 85, Incoming Value : 136\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :\n=========     Write Thread (94,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (95,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 153, Incoming Value : 70\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x403 in block (0,0,0) :\n=========     Write Thread (94,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (95,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 61, Incoming Value : 62\n========= \n========= Error: Race reported between Write access at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     and Write access at sanitizer_race_kernel+0xf0 in generated.cu:18 [3776 hazards]\n========= \n========= RACECHECK SUMMARY: 3777 hazards displayed (3777 errors, 0 warnings)\n",
+            "wall_time_s": 9.150209121406078
+          }
+        ],
+        "mode": "racecheck",
+        "run_all_checks": false,
+        "replayed_input_seed": null,
+        "executed_checks": [
+          "racecheck"
+        ],
+        "primary_check": "racecheck",
+        "primary_detected_issue_count": 3777,
+        "issue_count_by_check": {
+          "racecheck": 3777
+        },
+        "issues_truncated": true,
+        "wall_time_s": 9.15108373016119
+      }
+    },
+    {
+      "case": "divergent_sync",
+      "mode": 3,
+      "check": "synccheck",
+      "kernel_name": "sanitizer_sync_kernel",
+      "expected_status": "issues_found",
+      "status_matches": true,
+      "hazard_matches": true,
+      "result": {
+        "status": "issues_found",
+        "passed": false,
+        "measurement_complete": true,
+        "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+        "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+        "requested_checks": [
+          "synccheck"
+        ],
+        "kernel_filter": [
+          "sanitizer_sync_kernel"
+        ],
+        "detected_issue_count": 544,
+        "check_results": [
+          {
+            "check": "synccheck",
+            "status": "issues_found",
+            "passed": false,
+            "process_completed": true,
+            "target_application_failed": false,
+            "sanitizer_issue_found": true,
+            "input_generation": "gpu",
+            "input_values_exactly_replayed": true,
+            "return_code": 86,
+            "summary_error_count": 544,
+            "observed_issue_count": 544,
+            "parsed_issue_count": 544,
+            "detected_issue_count": 544,
+            "unique_issue_count": 1,
+            "returned_issue_count": 1,
+            "occurrences_truncated": false,
+            "issue_groups_truncated": false,
+            "issues_truncated": false,
+            "aggregation_complete": true,
+            "issues": [
+              {
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (64,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34",
+                "occurrence_count": 544,
+                "threads": {
+                  "x": [
+                    0,
+                    240
+                  ],
+                  "y": [
+                    0,
+                    0
+                  ],
+                  "z": [
+                    0,
+                    0
+                  ]
+                },
+                "blocks": {
+                  "x": [
+                    0,
+                    3
+                  ],
+                  "y": [
+                    0,
+                    0
+                  ],
+                  "z": [
+                    0,
+                    0
+                  ]
+                },
+                "addresses": null,
+                "representative_occurrences": [
+                  {
+                    "thread": {
+                      "x": 64,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "block": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    }
+                  },
+                  {
+                    "thread": {
+                      "x": 65,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "block": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    }
+                  }
+                ],
+                "kernel_info": [
+                  {
+                    "name": "sanitizer_sync_kernel",
+                    "source": "file generated.cu line 34"
+                  }
+                ]
+              }
+            ],
+            "raw_output_tail": "t __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (228,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (229,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (230,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (231,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (232,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (233,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (234,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (235,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (236,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (237,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (238,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (239,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (240,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (128,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (129,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (130,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (131,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (132,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (133,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (134,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (135,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (136,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (137,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (138,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (139,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (140,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (141,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (142,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (143,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (144,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (160,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (161,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (162,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (163,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (164,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (165,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (166,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (167,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (168,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (169,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (170,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (171,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (172,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (173,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (174,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (175,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (176,0,0) in block (3,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= ERROR SUMMARY: 544 errors\n",
+            "wall_time_s": 4.38974136672914
+          }
+        ],
+        "mode": "synccheck",
+        "run_all_checks": false,
+        "replayed_input_seed": null,
+        "executed_checks": [
+          "synccheck"
+        ],
+        "primary_check": "synccheck",
+        "primary_detected_issue_count": 544,
+        "issue_count_by_check": {
+          "synccheck": 544
+        },
+        "issues_truncated": false,
+        "wall_time_s": 4.390296822413802
+      }
+    },
+    {
+      "case": "uninitialized_read",
+      "mode": 4,
+      "check": "initcheck",
+      "kernel_name": "sanitizer_init_kernel",
+      "expected_status": "issues_found",
+      "status_matches": true,
+      "hazard_matches": true,
+      "result": {
+        "status": "issues_found",
+        "passed": false,
+        "measurement_complete": true,
+        "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+        "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+        "requested_checks": [
+          "initcheck"
+        ],
+        "kernel_filter": [
+          "sanitizer_init_kernel"
+        ],
+        "detected_issue_count": 1000,
+        "check_results": [
+          {
+            "check": "initcheck",
+            "status": "issues_found",
+            "passed": false,
+            "process_completed": true,
+            "target_application_failed": false,
+            "sanitizer_issue_found": true,
+            "input_generation": "cpu_then_h2d",
+            "input_values_exactly_replayed": false,
+            "return_code": 86,
+            "summary_error_count": 1000,
+            "observed_issue_count": 1000,
+            "parsed_issue_count": 1000,
+            "detected_issue_count": 1000,
+            "unique_issue_count": 1,
+            "returned_issue_count": 1,
+            "occurrences_truncated": false,
+            "issue_groups_truncated": false,
+            "issues_truncated": false,
+            "aggregation_complete": true,
+            "issues": [
+              {
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (64,0,0) in block (0,0,0)\nAddress 0x7f7a3ea00100",
+                "occurrence_count": 1000,
+                "threads": {
+                  "x": [
+                    0,
+                    255
+                  ],
+                  "y": [
+                    0,
+                    0
+                  ],
+                  "z": [
+                    0,
+                    0
+                  ]
+                },
+                "blocks": {
+                  "x": [
+                    0,
+                    3
+                  ],
+                  "y": [
+                    0,
+                    0
+                  ],
+                  "z": [
+                    0,
+                    0
+                  ]
+                },
+                "addresses": {
+                  "ranges": [
+                    "0x7f7a3ea00000",
+                    "0x7f7a3ea00f9c"
+                  ]
+                },
+                "representative_occurrences": [
+                  {
+                    "thread": {
+                      "x": 64,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "block": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "address": "0x7f7a3ea00100"
+                  },
+                  {
+                    "thread": {
+                      "x": 65,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "block": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "address": "0x7f7a3ea00104"
+                  }
+                ],
+                "kernel_info": [
+                  {
+                    "name": "sanitizer_init_kernel",
+                    "source": "file generated.cu line 49"
+                  }
+                ]
+              }
+            ],
+            "raw_output_tail": "    Address 0x7f7a3ea00ea8\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (171,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00eac\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (172,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00eb0\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (173,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00eb4\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (174,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00eb8\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (175,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00ebc\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (176,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00ec0\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (177,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00ec4\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (178,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00ec8\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (179,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00ecc\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (180,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00ed0\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (181,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00ed4\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (182,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00ed8\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (183,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00edc\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (184,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00ee0\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (185,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00ee4\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (186,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00ee8\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (187,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00eec\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (188,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00ef0\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (189,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00ef4\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (190,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00ef8\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (191,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00efc\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (192,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f00\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (193,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f04\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (194,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f08\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (195,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f0c\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (196,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f10\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (197,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f14\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (198,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f18\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (199,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f1c\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (200,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f20\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (201,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f24\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (202,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f28\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (203,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f2c\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (204,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f30\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (205,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f34\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (206,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f38\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (207,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f3c\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (208,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f40\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (209,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f44\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (210,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f48\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (211,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f4c\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (212,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f50\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (213,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f54\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (214,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f58\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (215,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f5c\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (216,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f60\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (217,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f64\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (218,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f68\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (219,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f6c\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (220,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f70\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (221,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f74\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (222,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f78\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (223,0,0) in block (3,0,0)\n=========     Address 0x7f7a3ea00f7c\n========= \n========= ERROR SUMMARY: 1000 errors\n",
+            "wall_time_s": 5.234204830601811
+          }
+        ],
+        "mode": "initcheck",
+        "run_all_checks": false,
+        "replayed_input_seed": null,
+        "executed_checks": [
+          "initcheck"
+        ],
+        "primary_check": "initcheck",
+        "primary_detected_issue_count": 1000,
+        "issue_count_by_check": {
+          "initcheck": 1000
+        },
+        "issues_truncated": false,
+        "wall_time_s": 5.234795367345214
+      }
+    }
+  ]
+}

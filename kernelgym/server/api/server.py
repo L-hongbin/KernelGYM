@@ -381,6 +381,8 @@ async def _execute_workflow(
             split_compile_and_execute=settings.split_compile_and_execute,
             enable_ncu=settings.enable_ncu,
             ncu_profile_version=settings.ncu_profile_version,
+            enable_compute_sanitizer=settings.enable_compute_sanitizer,
+            compute_sanitizer_profile_version=settings.compute_sanitizer_profile_version,
         )
     task_id = task_id or payload.get("task_id")
     if not task_id:

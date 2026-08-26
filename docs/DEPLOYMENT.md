@@ -18,6 +18,9 @@ KernelGYM reward-only supports two deployment modes. Runtime env values come fro
   - `/usr/local/cuda-12.9/bin/nvcc --version` must report CUDA 12.9.
 - Nsight Compute collection is enabled by default at `/usr/local/cuda-12.9/bin/ncu`. The runtime validator checks the executable and version; deployed workers must have permission to access NVIDIA GPU performance counters.
 - Set `ENABLE_NCU=false` to disable collection globally, or use request field `enable_ncu=false` for one evaluation.
+- Runtime Sanitizer is enabled by default at `/usr/local/cuda-12.9/bin/compute-sanitizer`; deployment validation fails fast if the executable is missing.
+- It runs only after a candidate correctness forward raises and regenerates that trial's input in an isolated process. `error_based` runs the check selected from the failure and falls back to all four checks when classification is ambiguous; `full` always runs all four checks.
+- Set `ENABLE_COMPUTE_SANITIZER=false` globally or request field `enable_compute_sanitizer=false` per evaluation to skip its isolated trials.
 - If CUDA wheel dependencies cannot be fetched directly, `ensure_venv.sh` retries with
   `http://192.168.28.186:7897` on external nodes. Override with `KERNELGYM_PROXY` or
   `KERNELGYM_FALLBACK_PROXY` only when needed.

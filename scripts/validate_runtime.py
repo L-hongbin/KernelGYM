@@ -28,7 +28,21 @@ import torch
 REQUIRED_CUDA = (12, 9)
 PREFERRED_NVCC = Path("/usr/local/cuda-12.9/bin/nvcc")
 PREFERRED_NCU = Path(os.environ.get("NCU_PATH", "/usr/local/cuda-12.9/bin/ncu"))
-ENABLE_NCU = os.environ.get("ENABLE_NCU", "true").strip().lower() not in {"0", "false", "no", "off"}
+ENABLE_NCU = os.environ.get("ENABLE_NCU", "true").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
+PREFERRED_COMPUTE_SANITIZER = Path(
+    os.environ.get("COMPUTE_SANITIZER_PATH", "/usr/local/cuda-12.9/bin/compute-sanitizer")
+)
+ENABLE_COMPUTE_SANITIZER = os.environ.get("ENABLE_COMPUTE_SANITIZER", "true").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
 _RELEASE_RE = re.compile(r"release (\d+)\.(\d+)")
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "20110"))
@@ -94,9 +108,39 @@ def _check_ncu() -> str | None:
         output = subprocess.check_output([ncu, "--version"], text=True, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as exc:
         raise SystemExit(f"ncu --version failed at {ncu}: {exc.output or exc}")
-    version_line = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "unknown")
+    version_line = next(
+        (line.strip() for line in reversed(output.splitlines()) if line.strip()),
+        "unknown",
+    )
     print(f"ncu={ncu}")
     print(f"ncu_version={version_line}")
+    return version_line
+
+
+def _check_compute_sanitizer() -> str | None:
+    if not ENABLE_COMPUTE_SANITIZER:
+        print("compute_sanitizer=skipped (ENABLE_COMPUTE_SANITIZER=false)")
+        return None
+    if PREFERRED_COMPUTE_SANITIZER.exists():
+        executable = str(PREFERRED_COMPUTE_SANITIZER)
+    else:
+        located = shutil.which("compute-sanitizer")
+        if not located:
+            raise SystemExit(
+                "ENABLE_COMPUTE_SANITIZER=true but compute-sanitizer was not found at "
+                f"{PREFERRED_COMPUTE_SANITIZER} or on PATH"
+            )
+        executable = located
+    try:
+        output = subprocess.check_output([executable, "--version"], text=True, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"compute-sanitizer --version failed at {executable}: {exc.output or exc}")
+    version_line = next(
+        (line.strip() for line in reversed(output.splitlines()) if line.strip()),
+        "unknown",
+    )
+    print(f"compute_sanitizer={executable}")
+    print(f"compute_sanitizer_version={version_line}")
     return version_line
 
 
@@ -268,6 +312,7 @@ def main() -> int:
     _check_torch_cuda()
     nvcc, nvcc_version = _check_nvcc()
     _check_ncu()
+    _check_compute_sanitizer()
     device_count = _check_cuda_init()
     _check_cuda_math_libs()
     _check_redis()

@@ -43,7 +43,11 @@ from kernelgym.utils.core_dumps import (
     ensure_core_dump_dir,
     prune_core_dumps,
 )
-from kernelgym.utils.device_info import DEVICE_INFO_ENV, detect_device_info, encode_device_info
+from kernelgym.utils.device_info import (
+    DEVICE_INFO_ENV,
+    detect_device_info,
+    encode_device_info,
+)
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 TORCH_CUDA_ARCH_LIST_ENV = "TORCH_CUDA_ARCH_LIST"
@@ -217,7 +221,10 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
                 "KERNELGYM_REDIS_REMOTE_ACCESS",
             ),
         ),
-        ("Worker pool", ("WORKER_POOL_SIZE", "MAX_TASKS_PER_WORKER", "CPU_COMPILE_WORKERS")),
+        (
+            "Worker pool",
+            ("WORKER_POOL_SIZE", "MAX_TASKS_PER_WORKER", "CPU_COMPILE_WORKERS"),
+        ),
         ("Defaults", ("DEFAULT_TOOLKIT", "DEFAULT_BACKEND_ADAPTER", "DEFAULT_BACKEND")),
         ("Logging", ("LOG_LEVEL", "LOG_DIR", "PY_LOG_DIR")),
         ("Core dumps", ("KERNELGYM_CORE_DUMP_DIR", "KERNELGYM_CORE_DUMP_KEEP")),
@@ -232,6 +239,17 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
                 "NCU_MAX_KERNELS",
                 "NCU_WARMUP",
                 "NCU_PROFILE_VERSION",
+            ),
+        ),
+        (
+            "Compute Sanitizer",
+            (
+                "ENABLE_COMPUTE_SANITIZER",
+                "COMPUTE_SANITIZER_PATH",
+                "COMPUTE_SANITIZER_TIMEOUT_S",
+                "COMPUTE_SANITIZER_MAX_KERNELS",
+                "COMPUTE_SANITIZER_MAX_ISSUES",
+                "COMPUTE_SANITIZER_PROFILE_VERSION",
             ),
         ),
         ("Errors", ("VERBOSE_ERROR_TRACEBACK",)),
@@ -502,7 +520,12 @@ def _clear_expected_workers_for_host(client: Any, hostname: str) -> None:
 
 
 def _register_expected_worker(
-    client: Any, worker_id: str, device: str, hostname: str, node_id: str, worker_pid: int
+    client: Any,
+    worker_id: str,
+    device: str,
+    hostname: str,
+    node_id: str,
+    worker_pid: int,
 ) -> None:
     """Register a worker for monitor supervision.
 
@@ -520,7 +543,11 @@ def _register_expected_worker(
         )
         client.hset(
             f"{prefix}:worker_process:{worker_id}",
-            mapping={"pid": str(worker_pid), "start_time": time.ctime(), "device": device},
+            mapping={
+                "pid": str(worker_pid),
+                "start_time": time.ctime(),
+                "device": device,
+            },
         )
         client.sadd(f"{prefix}:expected_workers", worker_id)
     except Exception as exc:
@@ -676,7 +703,9 @@ def cmd_start_local(args: argparse.Namespace) -> int:
         _clear_expected_workers_for_host(client, _hostname())
 
     api_pid = _launch_background(
-        [sys.executable, "-m", "kernelgym.server.api.server"], log_dir / "api_server.log", env
+        [sys.executable, "-m", "kernelgym.server.api.server"],
+        log_dir / "api_server.log",
+        env,
     )
     print(f"API server PID: {api_pid}")
     monitor_pid = _launch_background(
@@ -703,7 +732,14 @@ def cmd_start_local(args: argparse.Namespace) -> int:
             env,
         )
         print(f"{worker_id} PID: {pid}")
-        _register_expected_worker(client, worker_id, f"cuda:{gpu}", _hostname(), values.get("NODE_ID", ""), pid)
+        _register_expected_worker(
+            client,
+            worker_id,
+            f"cuda:{gpu}",
+            _hostname(),
+            values.get("NODE_ID", ""),
+            pid,
+        )
     cpu_workers = int(env.get("CPU_COMPILE_WORKERS", "2"))
     for index in range(max(0, cpu_workers)):
         worker_id = f"worker_cpu_{index}"
@@ -753,7 +789,9 @@ def cmd_start_worker_node(args: argparse.Namespace) -> int:
         if not master_addr:
             raise SystemExit("--master-addr is required when server_env is not provided")
         values = _worker_profile_values(
-            getattr(args, "profile", "auto"), master_addr, getattr(args, "node_rank", None)
+            getattr(args, "profile", "auto"),
+            master_addr,
+            getattr(args, "node_rank", None),
         )
     values = _apply_runtime_overrides(values, args)
     values = _with_torch_cuda_arch_list(values)
@@ -832,7 +870,13 @@ def cmd_start_worker_node(args: argparse.Namespace) -> int:
     for index in range(max(0, int(env.get("CPU_COMPILE_WORKERS", "2")))):
         cpu_worker_id = f"{node_prefix}_cpu_{index}"
         cpu_pid = _launch_background(
-            [sys.executable, "-m", "kernelgym.worker.cpu_worker", "--worker-id", cpu_worker_id],
+            [
+                sys.executable,
+                "-m",
+                "kernelgym.worker.cpu_worker",
+                "--worker-id",
+                cpu_worker_id,
+            ],
             log_dir / f"worker_cpu_{index}.log",
             env,
         )
@@ -856,7 +900,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     start_local = subparsers.add_parser("start-local", help="start local API, monitor, and GPU workers")
-    start_local.add_argument("--profile", default="auto", help=f"auto or known profile: {', '.join(profile_names())}")
+    start_local.add_argument(
+        "--profile",
+        default="auto",
+        help=f"auto or known profile: {', '.join(profile_names())}",
+    )
     start_local.add_argument("--log-dir", default=None)
     start_local.add_argument("--eval-results-path", default=None)
     start_local.add_argument("--cpu-compile-workers", "--cpu-workers", type=int, default=None)
@@ -866,14 +914,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     worker_node = subparsers.add_parser("start-worker-node", help="start a worker-only node")
     worker_node.add_argument("server_env", nargs="?")
-    worker_node.add_argument("--profile", default="auto", help=f"auto or known profile: {', '.join(profile_names())}")
+    worker_node.add_argument(
+        "--profile",
+        default="auto",
+        help=f"auto or known profile: {', '.join(profile_names())}",
+    )
     worker_node.add_argument("--master-addr", default=None)
     worker_node.add_argument("--node-rank", default=None)
     worker_node.add_argument("--cpu-compile-workers", "--cpu-workers", type=int, default=None)
     worker_node.set_defaults(func=cmd_start_worker_node)
 
     stop = subparsers.add_parser("stop", help="stop local KernelGym processes and clear Redis keys")
-    stop.add_argument("--profile", default="auto", help=f"auto or known profile: {', '.join(profile_names())}")
+    stop.add_argument(
+        "--profile",
+        default="auto",
+        help=f"auto or known profile: {', '.join(profile_names())}",
+    )
     stop.add_argument(
         "--graceful-seconds",
         type=float,

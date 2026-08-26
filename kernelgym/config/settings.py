@@ -143,6 +143,19 @@ class Settings(BaseSettings):
         env="NCU_METRICS",
         description="Compact NCU metric set returned in evaluation metadata.",
     )
+    enable_compute_sanitizer: bool = Field(
+        default=True,
+        env="ENABLE_COMPUTE_SANITIZER",
+        description="Run isolated Compute Sanitizer trials after a correctness runtime failure.",
+    )
+    compute_sanitizer_path: str = Field(
+        default="/usr/local/cuda-12.9/bin/compute-sanitizer",
+        env="COMPUTE_SANITIZER_PATH",
+    )
+    compute_sanitizer_timeout_s: int = Field(default=60, env="COMPUTE_SANITIZER_TIMEOUT_S")
+    compute_sanitizer_max_kernels: int = Field(default=16, env="COMPUTE_SANITIZER_MAX_KERNELS")
+    compute_sanitizer_max_issues: int = Field(default=4, env="COMPUTE_SANITIZER_MAX_ISSUES")
+    compute_sanitizer_profile_version: str = Field(default="v1", env="COMPUTE_SANITIZER_PROFILE_VERSION")
 
     adaptive_perf_trials: bool = Field(
         default=True,
@@ -408,9 +421,24 @@ GPU_DEVICE_MAP = {
 }
 
 TASK_CONFIGS = {
-    "quick": {"num_correct_trials": 3, "num_perf_trials": 10, "timeout": 60, "priority": "high"},
-    "standard": {"num_correct_trials": 5, "num_perf_trials": 100, "timeout": 300, "priority": "normal"},
-    "thorough": {"num_correct_trials": 10, "num_perf_trials": 1000, "timeout": 600, "priority": "low"},
+    "quick": {
+        "num_correct_trials": 3,
+        "num_perf_trials": 10,
+        "timeout": 60,
+        "priority": "high",
+    },
+    "standard": {
+        "num_correct_trials": 5,
+        "num_perf_trials": 100,
+        "timeout": 300,
+        "priority": "normal",
+    },
+    "thorough": {
+        "num_correct_trials": 10,
+        "num_perf_trials": 1000,
+        "timeout": 600,
+        "priority": "low",
+    },
 }
 
 

@@ -21,7 +21,6 @@ from kernelgym.toolkit.kernelbench.profiling import (
     extract_aten_operator_metrics,
 )
 
-
 logger = logging.getLogger(__name__)
 _CORRECTNESS_EARLY_STOP_ENV = "KERNELGYM_CORRECTNESS_EARLY_STOP"
 _CORRECTNESS_MAX_WALL_S_ENV = "KERNELGYM_CORRECTNESS_MAX_WALL_S"
@@ -453,6 +452,7 @@ def run_and_check_correctness(
     metadata["correctness_forward_seed_reset_enabled"] = True
     metadata["correctness_tolerance_source"] = "kernelbench_precision_or_fp32_integral"
     metadata["aten_detection_enabled"] = bool(detect_aten_fallback)
+    metadata["correctness_inputs_generated_on_gpu"] = bool(generate_inputs_on_gpu)
     if max_wall_time_s is not None:
         metadata["correctness_max_wall_s"] = max_wall_time_s
 
@@ -560,6 +560,7 @@ def run_and_check_correctness(
         *,
         trial: int,
         trial_start: float,
+        trial_seed: int,
     ) -> KernelExecResult:
         nonlocal metadata, trials_run
         trials_run = trial + 1
@@ -570,6 +571,8 @@ def run_and_check_correctness(
         metadata = register_and_format_exception("runtime_error", exception, metadata, truncate=False)
         metadata["runtime_error_name"] = get_error_name(exception)
         metadata["correctness_failed_trial"] = trial
+        metadata["correctness_failed_trial_seed"] = int(trial_seed)
+        metadata["correctness_runtime_error_stage"] = metadata.get("correctness_current_substage")
         _record_trial_metadata()
         return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
 
@@ -708,6 +711,7 @@ def run_and_check_correctness(
                     e,
                     trial=trial,
                     trial_start=trial_start,
+                    trial_seed=trial_seed,
                 )
 
     if verbose:

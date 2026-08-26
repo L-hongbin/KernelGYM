@@ -25,7 +25,6 @@ from kernelgym.toolkit.validation import precheck_cuda_agent_submission
 from .base import KernelBenchBackendBase
 from kernelgym.toolkit.kernelbench.binding_detection import strip_think_blocks
 
-
 _CUDA_AGENT_DEFAULT_TMPDIR = "/dev/shm/kernelgym/work/cuda_agent"
 _CUDA_AGENT_MIN_TMPDIR_FREE_BYTES = 512 * 1024 * 1024
 _NVCC_THREADS_ENV = "KERNELGYM_NVCC_THREADS"
@@ -798,6 +797,17 @@ public:
         return KernelBenchCudaAgentBackend._env_flag(_CUDA_AGENT_COMPILE_ARTIFACT_CACHE_ENV, default=False)
 
     @staticmethod
+    def _cuda_compile_flags(nvcc_threads: str) -> list[str]:
+        return [
+            "-O3",
+            "--use_fast_math",
+            "-lineinfo",
+            "--resource-usage",
+            "--threads",
+            nvcc_threads,
+        ]
+
+    @staticmethod
     def _artifact_cache_key(
         *,
         model_code: str,
@@ -815,6 +825,9 @@ public:
             "python": sys.version,
             "cuda_arch": KernelBenchCudaAgentBackend._cuda_arch_fingerprint(),
             "nvcc_threads": os.environ.get(_NVCC_THREADS_ENV, _CUDA_AGENT_DEFAULT_NVCC_THREADS),
+            "extra_cuda_cflags": KernelBenchCudaAgentBackend._cuda_compile_flags(
+                os.environ.get(_NVCC_THREADS_ENV, _CUDA_AGENT_DEFAULT_NVCC_THREADS)
+            ),
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -895,7 +908,7 @@ public:
         )
         torch, cpp_ext = _torch_modules()
         extra_cflags = ["-O3", "-std=c++17"]
-        extra_cuda_cflags = ["-O3", "--use_fast_math", "--threads", nvcc_threads]
+        extra_cuda_cflags = KernelBenchCudaAgentBackend._cuda_compile_flags(nvcc_threads)
         ext_name = ext_name_override or work_dir.name.replace("-", "_")
         compile_timing = KernelBenchCudaAgentBackend._new_compile_timing(build_dir, build_backend="manual_ninja")
 

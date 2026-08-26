@@ -89,6 +89,8 @@ Step toggles (override service defaults):
 | `run_correctness`, `run_performance`, `run_triton_detection` | Per-call overrides for each evaluation step. |
 | `enable_profiling` | `null` = use server `ENABLE_PROFILING` env, else explicit `true`/`false`. |
 | `enable_ncu` | `null` = use server `ENABLE_NCU` env (default `true`), else explicit `true`/`false`. NCU runs only after correctness and performance gates pass. |
+| `enable_compute_sanitizer` | `null` = use server `ENABLE_COMPUTE_SANITIZER` env (default `true`). A fresh child process is launched only when the candidate forward fails during correctness. |
+| `compute_sanitizer_mode` | Sanitizer strategy: `error_based` (default) selects an internal check from the correctness error and falls back to all checks when ambiguous; `full` always runs all four checks. Individual check names are internal execution modes and are not accepted in the payload. |
 | `enable_triton_detection`, `detect_decoy_kernel` | Decoy-kernel checks; see [REWARD_HACKING_DEFENSES](design-doc/REWARD_HACKING_DEFENSES.md). |
 | `measure_performance` | Legacy alias for `run_performance`. |
 | `verbose_errors` | `null` = server default (`VERBOSE_ERROR_TRACEBACK`). |
@@ -140,6 +142,7 @@ Split compile/execute (advanced, see [COMPILE_ACCELERATION](design-doc/COMPILE_A
       "kernel_to_reference_ratio": 0.9714
     }
   },
+  "runtime_sanitizer": { "status": "skipped", "reason": "correctness_passed", "check_results": [] },
   "metadata": { /* see below */ },
   "error_message": null,
   "error_code": null,
@@ -164,6 +167,39 @@ Memory feedback is returned for correct kernels:
 | `memory.comparison.kernel_to_reference_ratio` | Kernel divided by reference for `task_peak_allocated_delta`; below 1 means the Kernel uses less memory. |
 | `memory.allocator_check` | Returned only when the Kernel source contains a direct CUDA allocation or another allocator warning. |
 
+Runtime Sanitizer feedback is returned for compiled CUDA candidates. It is normally `skipped`; execution is
+triggered only when the candidate `custom_forward` raises during correctness. Output value/shape mismatch does not
+trigger it.
+
+| Field | Meaning |
+|---|---|
+| `runtime_sanitizer.status` | `clean`, `issues_found`, `partial`, `error`, `unavailable`, or `skipped`. `clean` means the selected checks explicitly reported zero sanitizer issues; the replayed target may still reproduce the known correctness failure, recorded by `target_application_failed`. Tool timeout/unavailability is fail-open metadata. |
+| `runtime_sanitizer.requested_checks` | Checks selected for this run. |
+| `runtime_sanitizer.check_results[].check` | Check represented by this result: `memcheck`, `synccheck`, `racecheck`, or `initcheck`. |
+| `runtime_sanitizer.check_results[].issues[]` | Unique issue groups containing hazard, `kernel_info`, access type, `occurrence_count`, compact thread/block axis values such as `"x": [start, end]`, address `ranges: [start, end]`, two representative occurrences, and a bounded raw excerpt. Equivalent diagnostics that differ only by Kernel name and source line are secondarily merged into `kernel_info`; the check name is stored only on the parent check result. |
+| `runtime_sanitizer.check_results[].unique_issue_count` | Number of final issue groups after repeated occurrences are aggregated and equivalent Kernel/source locations are secondarily merged. |
+| `runtime_sanitizer.check_results[].parsed_issue_count` | Number of individual diagnostic occurrences parsed before aggregation, capped at 5000. |
+| `runtime_sanitizer.check_results[].aggregation_complete` | Whether all detected occurrences were available within the parsing cap. |
+| `runtime_sanitizer.replayed_input_seed` | Failed correctness trial seed regenerated in the child; `initcheck` may switch GPU-generated inputs to CPU + H2D as described below. |
+| `runtime_sanitizer.executed_checks` | Checks actually executed by the selected mode. |
+| `runtime_sanitizer.mode` | Actual `run_compute_sanitizer` execution mode: one check or `full`. |
+| `runtime_sanitizer.selection_mode` | Payload strategy: `error_based` or `full`. |
+| `runtime_sanitizer.error_classification` | Check selected from the error, or `ambiguous`. |
+| `runtime_sanitizer.run_all_checks` | `true` only when the actual execution mode is `full`. |
+| `runtime_sanitizer.primary_check` | Error-classified check used for the top-level issue count; for an ambiguous full run, the first check that reports an issue. |
+| `runtime_sanitizer.detected_issue_count` | Issue count from `primary_check`; counts from heterogeneous tools are not added together. |
+| `runtime_sanitizer.issue_count_by_check` | Per-check issue counts for full diagnostics. |
+| `runtime_sanitizer.issues_truncated` | `true` when at least one check exceeds the 5000-occurrence parsing cap or the hard limit of four unique groups. Repeated occurrences merged into one group do not count as truncation. |
+| `runtime_sanitizer.check_results[].input_generation` | `gpu` normally; `initcheck` uses `cpu_then_h2d` so filtered-out PyTorch RNG kernels do not cause false uninitialized-read reports. |
+| `runtime_sanitizer.check_results[].input_values_exactly_replayed` | `false` only when an originally GPU-generated input is regenerated on CPU for `initcheck`; shape, dtype, and seed are replayed but RNG values may differ. |
+| `runtime_sanitizer.check_results[].target_application_failed` | Whether Compute Sanitizer reported that the target application itself failed. |
+
+A specific correctness error is classified outside `run_compute_sanitizer`: memory errors select `memcheck`,
+synchronization errors select `synccheck`, race errors select `racecheck`, and uninitialized-read errors select
+`initcheck`. In payload strategy `error_based`, an ambiguous error selects `full`; strategy `full` always selects
+`full`. The concrete internal execution mode is then passed to the single `run_compute_sanitizer` entry point;
+`full` runs `memcheck`, `synccheck`, `racecheck`, and `initcheck` without stopping after the first issue. The failing
+input is regenerated from the recorded trial seed.
 
 `metadata` is a large dict of server-side timing + caching diagnostics. Notable keys:
 

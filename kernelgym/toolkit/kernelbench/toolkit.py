@@ -149,6 +149,9 @@ class KernelBenchToolkit(Toolkit):
             enable_ncu = task.enable_ncu
             if enable_ncu is None:
                 enable_ncu = settings.enable_ncu
+            enable_compute_sanitizer = task.enable_compute_sanitizer
+            if enable_compute_sanitizer is None:
+                enable_compute_sanitizer = settings.enable_compute_sanitizer
 
             num_warmup = getattr(task, "num_warmup", 3)
             perf_trim_count = getattr(task, "perf_trim_count", 0)
@@ -168,6 +171,8 @@ class KernelBenchToolkit(Toolkit):
                 entry_point=task.entry_point,
                 enable_profiling=bool(enable_profiling),
                 enable_ncu=bool(enable_ncu),
+                enable_compute_sanitizer=bool(enable_compute_sanitizer),
+                compute_sanitizer_mode=task.compute_sanitizer_mode,
                 enable_triton_detection=enable_triton_detection,
                 detect_decoy_kernel=detect_decoy_kernel,
                 backend_adapter=backend_adapter,
@@ -372,6 +377,9 @@ class KernelBenchToolkit(Toolkit):
                 enable_ncu = task.enable_ncu
             if enable_ncu is None:
                 enable_ncu = settings.enable_ncu
+            enable_compute_sanitizer = task.enable_compute_sanitizer
+            if enable_compute_sanitizer is None:
+                enable_compute_sanitizer = settings.enable_compute_sanitizer
 
             result = kernelbench_pipeline.eval_kernel_against_ref(
                 original_model_src=task.reference_code,
@@ -387,6 +395,8 @@ class KernelBenchToolkit(Toolkit):
                 entry_point=task.entry_point,
                 enable_profiling=enable_profiling,
                 enable_ncu=bool(enable_ncu),
+                enable_compute_sanitizer=bool(enable_compute_sanitizer),
+                compute_sanitizer_mode=task.compute_sanitizer_mode,
                 enable_triton_detection=enable_triton_detection,
                 detect_decoy_kernel=detect_decoy_kernel,
                 backend_adapter=backend_adapter,

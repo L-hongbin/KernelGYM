@@ -1360,6 +1360,12 @@ def _persistent_worker_loop(worker_id: str, device_id: int, task_queue: mp.Queue
 
                 # 返回结果
                 result_queue.put(result)
+                if result.get("worker_exiting") is True:
+                    print(
+                        f"[{worker_id}] Returning structured result before recycling " "the CUDA worker",
+                        file=sys.stderr,
+                    )
+                    break
 
                 tasks_processed += 1
 
@@ -1537,15 +1543,26 @@ def _execute_task_in_worker(
             else:
                 os.environ[_STAGE_METADATA_PATH_ENV] = previous_stage_metadata_path
 
+        runtime_sanitizer = None
         if isinstance(result, dict):
             status = result.get("status")
             error_msg = result.get("error_message")
+            runtime_sanitizer = result.get("runtime_sanitizer")
         else:
             status = getattr(result, "status", None)
             error_msg = getattr(result, "error_message", None)
+            runtime_sanitizer = getattr(result, "runtime_sanitizer", None)
+        sanitizer_issues_found = bool(
+            isinstance(runtime_sanitizer, dict) and runtime_sanitizer.get("status") == "issues_found"
+        )
 
         if status == "failed" and error_msg:
-            if (
+            if sanitizer_issues_found:
+                logger.warning(
+                    "Runtime Sanitizer found a CUDA issue; preserving the structured "
+                    "result and recycling the potentially poisoned worker"
+                )
+            elif (
                 "CUDA" in error_msg
                 or "cuda" in error_msg.lower()
                 or "illegal memory access" in error_msg.lower()
@@ -1559,7 +1576,10 @@ def _execute_task_in_worker(
         return {
             "success": True,
             "result": result,
-            "worker_exiting": False,
+            "worker_exiting": sanitizer_issues_found,
+            "error_type": "RuntimeSanitizerFailure" if sanitizer_issues_found else None,
+            "error_message": error_msg if sanitizer_issues_found else None,
+            "cuda_error": sanitizer_issues_found,
         }
 
     except Exception:

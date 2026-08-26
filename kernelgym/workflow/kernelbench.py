@@ -263,11 +263,15 @@ class KernelBenchWorkflowController(WorkflowController):
         run_performance = self._first_not_none(eval_task.run_performance, eval_task.measure_performance, True)
         enable_profiling = self._first_not_none(eval_task.enable_profiling, settings.enable_profiling)
         enable_ncu = self._first_not_none(eval_task.enable_ncu, settings.enable_ncu)
+        enable_compute_sanitizer = self._first_not_none(
+            eval_task.enable_compute_sanitizer, settings.enable_compute_sanitizer
+        )
         if compile_only:
             run_correctness = False
             run_performance = False
             enable_profiling = False
             enable_ncu = False
+            enable_compute_sanitizer = False
         return {
             "run_correctness": run_correctness,
             "run_triton_detection": run_triton_detection,
@@ -276,6 +280,8 @@ class KernelBenchWorkflowController(WorkflowController):
             "measure_performance": run_performance,
             "enable_profiling": enable_profiling,
             "enable_ncu": enable_ncu,
+            "enable_compute_sanitizer": enable_compute_sanitizer,
+            "compute_sanitizer_mode": eval_task.compute_sanitizer_mode,
         }
 
     @staticmethod
@@ -466,6 +472,7 @@ class KernelBenchWorkflowController(WorkflowController):
             speedup=0.0,
             metadata=metadata,
             kernel_memory=kernel_result.kernel_memory,
+            runtime_sanitizer=kernel_result.runtime_sanitizer,
             status=kernel_result.status,
             error_message=kernel_result.error_message,
             error_code=kernel_result.error_code,

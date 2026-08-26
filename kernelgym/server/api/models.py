@@ -1,6 +1,6 @@
 """API request/response models for KernelGym server."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, root_validator, validator
 
@@ -20,25 +20,40 @@ class EvaluationRequest(BaseModel):
     backend: Backend = Field(default=Backend.AUTO, description="Backend type")
     num_correct_trials: int = Field(default=5, ge=1, le=20, description="Number of correctness trials")
     num_perf_trials: int = Field(
-        default=100, ge=1, le=1000, description="Number of performance trials (max when adaptive)"
+        default=100,
+        ge=1,
+        le=1000,
+        description="Number of performance trials (max when adaptive)",
     )
     refer_num_perf_trials: Optional[int] = Field(
-        default=None, ge=1, le=1000, description="Reference perf trials; defaults to num_perf_trials when unset"
+        default=None,
+        ge=1,
+        le=1000,
+        description="Reference perf trials; defaults to num_perf_trials when unset",
     )
     adaptive_perf_trials: Optional[bool] = Field(
-        default=None, description="Adaptively size kernel perf trials (None -> server default)"
+        default=None,
+        description="Adaptively size kernel perf trials (None -> server default)",
     )
     perf_min_trials: Optional[int] = Field(
-        default=None, ge=1, le=1000, description="Min kernel perf trials before adaptive CV early-stop"
+        default=None,
+        ge=1,
+        le=1000,
+        description="Min kernel perf trials before adaptive CV early-stop",
     )
     perf_cv_threshold: Optional[float] = Field(
-        default=None, gt=0, description="CV (std/mean) below which adaptive kernel timing stops early"
+        default=None,
+        gt=0,
+        description="CV (std/mean) below which adaptive kernel timing stops early",
     )
     correctness_timeout: Optional[float] = Field(
-        default=None, gt=0, description="Explicit correctness-stage timeout (seconds); overrides the formula"
+        default=None,
+        gt=0,
+        description="Explicit correctness-stage timeout (seconds); overrides the formula",
     )
     correctness_timeout_enabled: Optional[bool] = Field(
-        default=None, description="Enable/disable the correctness-stage timeout for this request"
+        default=None,
+        description="Enable/disable the correctness-stage timeout for this request",
     )
     num_warmup: int = Field(default=3, ge=0, le=100, description="Number of warmup iterations")
     perf_trim_count: int = Field(
@@ -73,6 +88,21 @@ class EvaluationRequest(BaseModel):
     enable_ncu: Optional[bool] = Field(
         default=None,
         description="Enable Nsight Compute metrics. None=use server default, True=enable, False=disable",
+    )
+    enable_compute_sanitizer: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Run isolated NVIDIA Compute Sanitizer trials after a correctness runtime failure. "
+            "None uses the server default."
+        ),
+    )
+    compute_sanitizer_mode: Literal["error_based", "full"] = Field(
+        default="error_based",
+        description=(
+            "Sanitizer selection strategy. error_based selects the most relevant check "
+            "from the correctness runtime error and falls back to all checks when ambiguous; "
+            "full always runs memcheck, synccheck, racecheck, and initcheck."
+        ),
     )
     enable_triton_detection: Optional[bool] = Field(
         default=None,
@@ -173,6 +203,8 @@ class EvaluationRequest(BaseModel):
                 "verbose_errors": None,
                 "enable_profiling": None,
                 "enable_ncu": None,
+                "enable_compute_sanitizer": None,
+                "compute_sanitizer_mode": "error_based",
             }
         }
 
@@ -189,6 +221,7 @@ class EvaluationResponse(BaseModel):
     kernel_runtime: Optional[float] = None
     speedup: Optional[float] = None
     memory: Optional[Dict[str, Any]] = None
+    runtime_sanitizer: Optional[Dict[str, Any]] = None
     metadata: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
     error_code: Optional[ErrorCode] = None
@@ -359,8 +392,16 @@ class SystemHealthResponse(BaseModel):
                 "status": "healthy",
                 "timestamp": "2025-01-16T10:30:00Z",
                 "gpu_status": {
-                    "cuda:0": {"utilization": 85.5, "memory_used": "12GB", "memory_total": "80GB"},
-                    "cuda:1": {"utilization": 23.1, "memory_used": "4GB", "memory_total": "80GB"},
+                    "cuda:0": {
+                        "utilization": 85.5,
+                        "memory_used": "12GB",
+                        "memory_total": "80GB",
+                    },
+                    "cuda:1": {
+                        "utilization": 23.1,
+                        "memory_used": "4GB",
+                        "memory_total": "80GB",
+                    },
                 },
                 "queue_status": {"pending": 15, "processing": 8, "completed": 1250},
                 "memory_usage": {"cpu_percent": 45.2, "memory_percent": 67.8},

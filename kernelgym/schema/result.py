@@ -242,6 +242,7 @@ class KernelEvaluationResult:
     kernel_runtime: float
     metadata: Dict[str, Any]
     kernel_memory: Optional[Dict[str, Any]] = None
+    runtime_sanitizer: Optional[Dict[str, Any]] = None
     status: str = "completed"
     error_message: Optional[str] = None
     error_code: Optional[ErrorCode | str] = None
@@ -300,7 +301,9 @@ class KernelEvaluationResult:
                                 )
                             )
                         else:
-                            metadata[key] = f"{type(metadata[key]).__name__}: {str(metadata[key])}"
+                            metadata[key] = (
+                                f"{type(metadata[key]).__name__}: {str(metadata[key])}"
+                            )
                     else:
                         metadata[key] = str(metadata[key])
                 else:
@@ -308,14 +311,38 @@ class KernelEvaluationResult:
 
         error_message: Optional[str] = None
         error_code: Optional[ErrorCode] = None
+        runtime_sanitizer = dict(result.runtime_sanitizer or {}) or None
+        sanitizer_issues_found = bool(
+            runtime_sanitizer and runtime_sanitizer.get("status") == "issues_found"
+        )
+        sanitizer_detail = None
+        if sanitizer_issues_found:
+            for check_result in runtime_sanitizer.get("check_results", []):
+                issues = (
+                    check_result.get("issues")
+                    if isinstance(check_result, dict)
+                    else None
+                )
+                if isinstance(issues, list) and issues:
+                    sanitizer_detail = issues[0].get("message")
+                    break
 
         if not result.compiled:
-            detail = metadata.get("compilation_error") or metadata.get("error") or metadata.get("validation_error")
+            detail = (
+                metadata.get("compilation_error")
+                or metadata.get("error")
+                or metadata.get("validation_error")
+            )
             if detail:
                 error_message = f"Kernel compilation failed: {detail}"
             else:
                 error_message = "Kernel compilation failed"
             error_code = ErrorCode.COMPILATION_ERROR
+        elif sanitizer_issues_found:
+            error_message = "Runtime Sanitizer detected an unsafe CUDA kernel"
+            if sanitizer_detail:
+                error_message = f"{error_message}: {sanitizer_detail}"
+            error_code = ErrorCode.RUNTIME_ERROR
         elif not result.correctness:
             detail = metadata.get("runtime_error") or metadata.get("error")
             if detail:
@@ -333,8 +360,13 @@ class KernelEvaluationResult:
             correctness=result.correctness,
             kernel_runtime=result.runtime,
             metadata=metadata,
-            status="completed" if result.compiled else "failed",
             kernel_memory=dict(result.memory or {}) or None,
+            runtime_sanitizer=runtime_sanitizer,
+            status=(
+                "failed"
+                if sanitizer_issues_found or not result.compiled
+                else "completed"
+            ),
             error_message=error_message,
             error_code=error_code,
         )
@@ -353,6 +385,7 @@ class EvaluationResult:
     reference_memory: Optional[Dict[str, Any]] = None
     kernel_memory: Optional[Dict[str, Any]] = None
     memory_comparison: Optional[Dict[str, Any]] = None
+    runtime_sanitizer: Optional[Dict[str, Any]] = None
     status: str = "completed"
     error_message: Optional[str] = None
     error_code: Optional[ErrorCode | str] = None
@@ -411,6 +444,9 @@ class EvaluationResult:
         if result.correctness and result.runtime > 0 and reference_runtime > 0:
             speedup = reference_runtime / result.runtime
 
+        kernel_result = KernelEvaluationResult.from_kernel_exec_result(
+            task_id, task_id, result
+        )
         return cls(
             task_id=task_id,
             compiled=result.compiled,
@@ -419,17 +455,27 @@ class EvaluationResult:
             reference_runtime=reference_runtime,
             kernel_runtime=result.runtime,
             speedup=speedup,
-            metadata=result.metadata,
-            status="completed" if result.compiled else "failed",
+            metadata=kernel_result.metadata,
             kernel_memory=dict(result.memory or {}) or None,
+            runtime_sanitizer=dict(result.runtime_sanitizer or {}) or None,
+            status=kernel_result.status,
+            error_message=kernel_result.error_message,
+            error_code=kernel_result.error_code,
         )
 
     @classmethod
     def from_paired_results(
-        cls, base_task_id: str, reference_result: ReferenceTimingResult, kernel_result: KernelEvaluationResult
+        cls,
+        base_task_id: str,
+        reference_result: ReferenceTimingResult,
+        kernel_result: KernelEvaluationResult,
     ) -> "EvaluationResult":
         speedup = 0.0
-        if kernel_result.correctness and kernel_result.kernel_runtime > 0 and reference_result.reference_runtime > 0:
+        if (
+            kernel_result.correctness
+            and kernel_result.kernel_runtime > 0
+            and reference_result.reference_runtime > 0
+        ):
             speedup = reference_result.reference_runtime / kernel_result.kernel_runtime
 
         combined_metadata: Dict[str, Any] = {}
@@ -467,6 +513,7 @@ class EvaluationResult:
             reference_memory=reference_result.reference_memory,
             kernel_memory=kernel_result.kernel_memory,
             memory_comparison=memory_comparison,
+            runtime_sanitizer=kernel_result.runtime_sanitizer,
             status=status,
             error_message=error_message,
             error_code=error_code,
