@@ -72,7 +72,7 @@ def _bounded_env_int(name: str, default: int, *, minimum: int) -> int:
 # wave that import/bootstrap phase exceeded the former shared 120-second
 # CONTAINED+READY deadline.  Bound node-local constructor concurrency and give
 # containment and post-containment CUDA initialization independent clocks.
-_WORKER_SPAWN_CONCURRENCY = _bounded_env_int("KERNELGYM_WORKER_SPAWN_CONCURRENCY", 2, minimum=1)
+_WORKER_SPAWN_CONCURRENCY = _bounded_env_int("KERNELGYM_WORKER_SPAWN_CONCURRENCY", 8, minimum=1)
 _WORKER_SPAWN_SLOT_TIMEOUT_S = _bounded_env_float("KERNELGYM_WORKER_SPAWN_SLOT_TIMEOUT", 600.0, minimum=30.0)
 _WORKER_CONTAINMENT_TIMEOUT_S = _bounded_env_float("KERNELGYM_WORKER_CONTAINMENT_TIMEOUT", 180.0, minimum=10.0)
 _WORKER_READY_AFTER_CONTAINMENT_TIMEOUT_S = _bounded_env_float("KERNELGYM_WORKER_READY_TIMEOUT", 90.0, minimum=10.0)
