@@ -91,6 +91,7 @@ Step toggles (override service defaults):
 | `enable_ncu` | `null` = use server `ENABLE_NCU` env (default `true`), else explicit `true`/`false`. NCU runs only after correctness and performance gates pass. |
 | `enable_compute_sanitizer` | `null` = use server `ENABLE_COMPUTE_SANITIZER` env (default `true`). A fresh child process is launched only when the candidate forward fails during correctness. |
 | `compute_sanitizer_mode` | Sanitizer strategy: `error_based` (default) selects an internal check from the correctness error and falls back to all checks when ambiguous; `full` always runs all four checks. Individual check names are internal execution modes and are not accepted in the payload. |
+| `enable_correctness_input_perturbations` | `null` = use server `ENABLE_CORRECTNESS_INPUT_PERTURBATIONS` (default `false`). When enabled, correctness cycles through original, scale-up, scale-down, and sign-challenge inputs. Direct `torch.rand` and `torch.randn` inputs use different sign-challenge transforms. |
 | `enable_triton_detection`, `detect_decoy_kernel` | Decoy-kernel checks; see [REWARD_HACKING_DEFENSES](design-doc/REWARD_HACKING_DEFENSES.md). |
 | `measure_performance` | Legacy alias for `run_performance`. |
 | `verbose_errors` | `null` = server default (`VERBOSE_ERROR_TRACEBACK`). |
@@ -200,6 +201,15 @@ synchronization errors select `synccheck`, race errors select `racecheck`, and u
 `full`. The concrete internal execution mode is then passed to the single `run_compute_sanitizer` entry point;
 `full` runs `memcheck`, `synccheck`, `racecheck`, and `initcheck` without stopping after the first issue. The failing
 input is regenerated from the recorded trial seed.
+
+When `enable_correctness_input_perturbations=true`, at least four correctness trials are run. Direct floating-point
+outputs of `torch.rand` use `original`, `x3`, `x0.01`, and negation; direct floating-point outputs of `torch.randn`
+use `original`, `x3`, `x0.01`, and absolute value. Integer, boolean, scalar, and unrecognized inputs are unchanged.
+If the reference raises or produces NaN/Inf for a non-original perturbation, that perturbation is recorded in
+`metadata.correctness_reference_skipped_perturbations` and excluded from the correctness denominator. Numerical
+kernel mismatches continue to use the existing `max_difference`, `avg_difference`, `correctness_atol`, and
+`correctness_rtol` metadata fields; `correctness_issue` additionally identifies the failed perturbation. Performance
+and memory measurements continue to use the original input distribution.
 
 `metadata` is a large dict of server-side timing + caching diagnostics. Notable keys:
 

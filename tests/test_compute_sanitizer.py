@@ -469,6 +469,7 @@ def test_run_compute_sanitizer_single_mode_replays_seed(monkeypatch, tmp_path: P
         executed.append(command[command.index("--tool") + 1])
         payload = Path(command[-1]).read_text(encoding="utf-8")
         assert '"input_seed": 1234' in payload
+        assert '"input_perturbation": "sign_challenge"' in payload
         assert '"model_seed": 42' in payload
         return SimpleNamespace(returncode=86, stdout="", stderr=MEMCHECK_OUTPUT)
 
@@ -487,6 +488,7 @@ def test_run_compute_sanitizer_single_mode_replays_seed(monkeypatch, tmp_path: P
         max_kernels=2,
         max_issues=5,
         input_seed=1234,
+        input_perturbation="sign_challenge",
         model_seed=42,
     )
 
@@ -494,6 +496,7 @@ def test_run_compute_sanitizer_single_mode_replays_seed(monkeypatch, tmp_path: P
     assert result["status"] == "issues_found"
     assert result["measurement_complete"] is True
     assert result["executed_checks"] == ["memcheck"]
+    assert result["replayed_input_perturbation"] == "sign_challenge"
 
 
 def test_run_compute_sanitizer_timeout_is_fail_open_metadata(monkeypatch, tmp_path: Path) -> None:

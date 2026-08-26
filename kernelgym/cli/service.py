@@ -242,6 +242,10 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
             ),
         ),
         (
+            "Correctness",
+            ("ENABLE_CORRECTNESS_INPUT_PERTURBATIONS",),
+        ),
+        (
             "Compute Sanitizer",
             (
                 "ENABLE_COMPUTE_SANITIZER",

@@ -68,6 +68,7 @@ class RewardProfile:
             "COMPUTE_SANITIZER_MAX_KERNELS": "16",
             "COMPUTE_SANITIZER_MAX_ISSUES": "4",
             "COMPUTE_SANITIZER_PROFILE_VERSION": "v1",
+            "ENABLE_CORRECTNESS_INPUT_PERTURBATIONS": "false",
             "VERBOSE_ERROR_TRACEBACK": "true",
             "SAVE_EVAL_RESULTS": "false",
             "EVAL_RESULTS_PATH": f"logs/{self.name}/eval_results.jsonl",

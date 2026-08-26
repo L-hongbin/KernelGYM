@@ -590,6 +590,7 @@ def run_compute_sanitizer(
     mode: str,
     primary_tool: Optional[str] = None,
     input_seed: Optional[int] = None,
+    input_perturbation: Optional[str] = None,
     model_seed: int = 42,
     generate_inputs_on_gpu: bool = True,
 ) -> Dict[str, Any]:
@@ -617,6 +618,7 @@ def run_compute_sanitizer(
         "mode": execution_mode,
         "run_all_checks": execution_mode == SANITIZER_MODE_FULL,
         "replayed_input_seed": input_seed,
+        "replayed_input_perturbation": input_perturbation,
     }
     if resolved_path is None:
         result["error"] = f"Compute Sanitizer executable not found: {sanitizer_path}"
@@ -637,6 +639,7 @@ def run_compute_sanitizer(
                         "entry_point": entry_point,
                         "device": "cuda:0",
                         "input_seed": input_seed,
+                        "input_perturbation": input_perturbation,
                         "model_seed": int(model_seed),
                         "generate_inputs_on_gpu": bool(generate_inputs_on_gpu),
                     }

@@ -19,6 +19,14 @@ def _filter_fields(cls, data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 _MEMORY_BYTE_UNITS = ("B", "KB", "MB", "GB", "TB", "PB")
+_INTERNAL_METADATA_FIELDS = ("correctness_failed_trial_seed",)
+
+
+def _prepare_public_metadata(value: Any) -> Dict[str, Any]:
+    metadata = make_json_safe(with_device_info(value))
+    for key in _INTERNAL_METADATA_FIELDS:
+        metadata.pop(key, None)
+    return metadata
 
 
 def _format_memory_bytes(value: Any) -> Any:
@@ -220,7 +228,7 @@ class ReferenceTimingResult:
 
     def to_dict(self) -> Dict[str, Any]:
         result = asdict(self)
-        result["metadata"] = make_json_safe(with_device_info(result.get("metadata")))
+        result["metadata"] = _prepare_public_metadata(result.get("metadata"))
         result["error_code"] = serialize_error_code(result.get("error_code"))
         return result
 
@@ -249,7 +257,7 @@ class KernelEvaluationResult:
 
     def to_dict(self) -> Dict[str, Any]:
         result = asdict(self)
-        result["metadata"] = make_json_safe(with_device_info(result.get("metadata")))
+        result["metadata"] = _prepare_public_metadata(result.get("metadata"))
         result["error_code"] = serialize_error_code(result.get("error_code"))
         return result
 
@@ -344,10 +352,14 @@ class KernelEvaluationResult:
                 error_message = f"{error_message}: {sanitizer_detail}"
             error_code = ErrorCode.RUNTIME_ERROR
         elif not result.correctness:
-            detail = metadata.get("runtime_error") or metadata.get("error")
+            detail = metadata.get("runtime_error") or metadata.get("error") or metadata.get("correctness_issue")
             if detail:
-                error_message = f"Kernel execution failed: {detail}"
-                error_code = ErrorCode.RUNTIME_ERROR
+                if metadata.get("runtime_error") or metadata.get("error"):
+                    error_message = f"Kernel execution failed: {detail}"
+                    error_code = ErrorCode.RUNTIME_ERROR
+                else:
+                    error_message = f"Kernel produced incorrect results: {detail}"
+                    error_code = ErrorCode.CORRECTNESS_ERROR
             else:
                 error_message = "Kernel produced incorrect results"
                 error_code = ErrorCode.CORRECTNESS_ERROR
@@ -392,7 +404,7 @@ class EvaluationResult:
 
     def to_dict(self) -> Dict[str, Any]:
         result = asdict(self)
-        metadata = make_json_safe(with_device_info(result.get("metadata")))
+        metadata = _prepare_public_metadata(result.get("metadata"))
         for metadata_key in (
             "memory_environment_floor",
             "kg_reference_memory_step_s",

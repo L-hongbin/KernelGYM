@@ -30,6 +30,7 @@ This file indexes stable repository docs and evidence locations.
 | `kernelgym/backend/kernelbench/cuda_agent_backend.py` | CUDA-Agent parsing, validation scaffold, compile/load backend. |
 | `kernelgym/backend/kernelbench/tvm_ffi_backend.py` | TVM-FFI compile/load backend and compile artifact cache. |
 | `kernelgym/toolkit/kernelbench/pipeline.py` | KernelBench compile/load/correctness/performance pipeline. |
+| `kernelgym/toolkit/kernelbench/input_perturbation.py` | Distribution-aware `torch.rand`/`torch.randn` correctness input capture and transformations. |
 | `kernelgym/toolkit/kernelbench/profiling.py` | CUDA profiling, exact MusaCoder Appendix J plus explicit PyTorch compatibility ATen classification, and named-kernel coverage extraction. |
 | `kernelgym/toolkit/kernelbench/compute_sanitizer.py` | Isolated memcheck/racecheck/synccheck/initcheck execution and structured report parsing. |
 | `kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py` | Fresh-process candidate launcher used as the Compute Sanitizer target. |
@@ -64,3 +65,5 @@ Tracked review-evidence files only. Untracked run logs and debug artifacts
 | `benchmarks/review_evidence/official_27b_review_evidence.json` | Adversarial review evidence for official 27B 3-binding c3/c8 runs: pairing, sample IDs, coverage, statuses, queue deltas, residuals, and c3/c8 consistency. |
 | `benchmarks/review_evidence/official_27b_perf_step_correctness_summary.json` | Perf-step breakdown split by completed, correct-only, and incorrect-completed rows for official 27B c3/c8 runs. |
 | `benchmarks/review_evidence/runtime_sanitizer_tvm_ffi_h100_20260826_pass.json` | Current-schema H100 TVM-FFI validation for clean, OOB, race, invalid synchronization, and uninitialized-read fixtures. |
+
+External end-to-end feedback evidence: `/data/lihongbin/code/Code-Agent/slime/examples/kernel_agent/test/log/pseudo_relu_tvm_ffi_input_perturbations_20260826_v2.json` contains the deployed TVM-FFI pseudo-ReLU A/B request, raw KernelGYM responses, and normalized slime environment feedback using the final difference-field schema.

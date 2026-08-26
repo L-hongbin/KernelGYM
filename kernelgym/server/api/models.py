@@ -104,6 +104,14 @@ class EvaluationRequest(BaseModel):
             "full always runs memcheck, synccheck, racecheck, and initcheck."
         ),
     )
+    enable_correctness_input_perturbations: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Enable distribution-aware hidden correctness inputs. torch.rand inputs use scale-up, "
+            "scale-down, and negation; torch.randn inputs use scale-up, scale-down, and absolute-value shifts. "
+            "None uses the server default, which is disabled."
+        ),
+    )
     enable_triton_detection: Optional[bool] = Field(
         default=None,
         description="Enable Triton kernel usage detection (decoy check)",
@@ -205,6 +213,7 @@ class EvaluationRequest(BaseModel):
                 "enable_ncu": None,
                 "enable_compute_sanitizer": None,
                 "compute_sanitizer_mode": "error_based",
+                "enable_correctness_input_perturbations": None,
             }
         }
 

@@ -114,6 +114,131 @@ def test_correctness_accepts_matching_cuda_model_with_cache_poison() -> None:
 
 
 @pytest.mark.gpu
+def test_correctness_input_perturbations_are_disabled_by_default() -> None:
+    torch = _require_cuda_runtime()
+    correctness = _get_correctness_module()
+
+    class Reference(torch.nn.Module):
+        def forward(self, x):
+            return torch.relu(x)
+
+    class PositiveOnlyCandidate(torch.nn.Module):
+        def forward(self, x):
+            return x
+
+    device = torch.device("cuda:0")
+    result = correctness.run_and_check_correctness(
+        Reference(),
+        PositiveOnlyCandidate(),
+        lambda: [torch.rand((128, 128), device=device)],
+        metadata={},
+        num_correct_trials=1,
+        seed=1234,
+        device=device,
+    )
+
+    assert result.correctness is True
+    assert result.metadata["correctness_input_perturbations_enabled"] is False
+    assert result.metadata["correctness_effective_trials"] == 1
+
+
+@pytest.mark.gpu
+def test_rand_sign_perturbation_returns_numerical_mismatch_details() -> None:
+    torch = _require_cuda_runtime()
+    correctness = _get_correctness_module()
+
+    class Reference(torch.nn.Module):
+        def forward(self, x):
+            return torch.relu(x)
+
+    class PositiveOnlyCandidate(torch.nn.Module):
+        def forward(self, x):
+            return x
+
+    device = torch.device("cuda:0")
+    result = correctness.run_and_check_correctness(
+        Reference(),
+        PositiveOnlyCandidate(),
+        lambda: [torch.rand((128, 128), device=device)],
+        metadata={},
+        num_correct_trials=1,
+        seed=1234,
+        device=device,
+        enable_input_perturbations=True,
+    )
+
+    assert result.correctness is False
+    assert result.metadata["correctness_effective_trials"] == 4
+    assert result.metadata["correctness_failed_input_perturbation"] == "sign_challenge"
+    assert result.metadata["correctness_issue_name"] == "numerical_mismatch"
+    assert float(result.metadata["max_difference"][0]) > 0
+    assert float(result.metadata["avg_difference"][0]) > 0
+    assert "correctness_numerical_errors" not in result.metadata
+    sign_trial = result.metadata["correctness_input_perturbation_trials"][-1]
+    assert sign_trial["detected_input_kinds"] == {"torch.rand": 1}
+    assert sign_trial["transforms"] == {"negate": 1}
+
+
+@pytest.mark.gpu
+def test_reference_error_skips_only_failing_input_perturbation() -> None:
+    torch = _require_cuda_runtime()
+    correctness = _get_correctness_module()
+
+    class NonnegativeOnly(torch.nn.Module):
+        def forward(self, x):
+            if bool((x < 0).any().item()):
+                raise ValueError("negative inputs are unsupported")
+            return x + 1
+
+    device = torch.device("cuda:0")
+    result = correctness.run_and_check_correctness(
+        NonnegativeOnly(),
+        NonnegativeOnly(),
+        lambda: [torch.rand((128, 128), device=device)],
+        metadata={},
+        num_correct_trials=1,
+        seed=1234,
+        device=device,
+        enable_input_perturbations=True,
+    )
+
+    assert result.correctness is True
+    assert result.metadata["correctness_trials"] == "(3 / 3)"
+    assert result.metadata["correctness_reference_skipped_perturbation_count"] == 1
+    skipped = result.metadata["correctness_reference_skipped_perturbations"][0]
+    assert skipped["perturbation"] == "sign_challenge"
+    assert "negative inputs are unsupported" in skipped["reason"]
+
+
+@pytest.mark.gpu
+def test_reference_nonfinite_output_skips_only_failing_input_perturbation() -> None:
+    torch = _require_cuda_runtime()
+    correctness = _get_correctness_module()
+
+    class SquareRoot(torch.nn.Module):
+        def forward(self, x):
+            return torch.sqrt(x)
+
+    device = torch.device("cuda:0")
+    result = correctness.run_and_check_correctness(
+        SquareRoot(),
+        SquareRoot(),
+        lambda: [torch.rand((128, 128), device=device)],
+        metadata={},
+        num_correct_trials=1,
+        seed=1234,
+        device=device,
+        enable_input_perturbations=True,
+    )
+
+    assert result.correctness is True
+    assert result.metadata["correctness_trials"] == "(3 / 3)"
+    skipped = result.metadata["correctness_reference_skipped_perturbations"][0]
+    assert skipped["perturbation"] == "sign_challenge"
+    assert skipped["reason"] == "reference output contains NaN or Inf"
+
+
+@pytest.mark.gpu
 def test_correctness_resets_seed_before_each_stochastic_forward() -> None:
     torch = _require_cuda_runtime()
     correctness = _get_correctness_module()

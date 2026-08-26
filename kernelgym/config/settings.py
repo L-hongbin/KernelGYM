@@ -156,6 +156,11 @@ class Settings(BaseSettings):
     compute_sanitizer_max_kernels: int = Field(default=16, env="COMPUTE_SANITIZER_MAX_KERNELS")
     compute_sanitizer_max_issues: int = Field(default=4, env="COMPUTE_SANITIZER_MAX_ISSUES")
     compute_sanitizer_profile_version: str = Field(default="v1", env="COMPUTE_SANITIZER_PROFILE_VERSION")
+    enable_correctness_input_perturbations: bool = Field(
+        default=False,
+        env="ENABLE_CORRECTNESS_INPUT_PERTURBATIONS",
+        description="Apply distribution-aware hidden input perturbations during correctness checks.",
+    )
 
     adaptive_perf_trials: bool = Field(
         default=True,

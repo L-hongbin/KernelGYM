@@ -366,6 +366,7 @@ def _run_correctness_step(
     device: Union[torch.device, int],
     overall_start: float | None = None,
     detect_decoy_kernel: bool = False,
+    enable_input_perturbations: bool = False,
 ) -> KernelExecResult:
     if verbose:
         logger.info("[Eval] Checking Correctness")
@@ -392,6 +393,7 @@ def _run_correctness_step(
             device=device,
             stage_update_fn=stage_update_fn,
             detect_aten_fallback=detect_decoy_kernel,
+            enable_input_perturbations=enable_input_perturbations,
         )
     except Exception as e:
         metadata["runtime_error"] = e
@@ -781,6 +783,7 @@ def eval_kernel_against_ref(
     enable_ncu: bool = True,
     enable_compute_sanitizer: bool = True,
     compute_sanitizer_mode: Optional[str] = None,
+    enable_correctness_input_perturbations: bool = False,
     enable_triton_detection: bool = True,
     detect_decoy_kernel: bool = True,
     backend_adapter: Optional[Any] = None,
@@ -1180,6 +1183,7 @@ def eval_kernel_against_ref(
         device,
         overall_start,
         detect_decoy_kernel,
+        enable_correctness_input_perturbations,
     )
     _finish_stage(
         metadata,
@@ -1226,6 +1230,7 @@ def eval_kernel_against_ref(
             max_kernels=settings.compute_sanitizer_max_kernels,
             max_issues=settings.compute_sanitizer_max_issues,
             input_seed=metadata.get("correctness_failed_trial_seed"),
+            input_perturbation=metadata.get("correctness_failed_input_perturbation"),
             model_seed=seed_num,
             generate_inputs_on_gpu=bool(metadata.get("correctness_inputs_generated_on_gpu", True)),
         )

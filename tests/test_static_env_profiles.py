@@ -38,6 +38,7 @@ def test_functional_reward_profile_matches_runtime_constants() -> None:
     assert values["COMPUTE_SANITIZER_MAX_KERNELS"] == "16"
     assert values["COMPUTE_SANITIZER_MAX_ISSUES"] == "4"
     assert values["COMPUTE_SANITIZER_PROFILE_VERSION"] == "v1"
+    assert values["ENABLE_CORRECTNESS_INPUT_PERTURBATIONS"] == "false"
     assert values["LOG_DIR"] == "logs/v1"
     assert values["PY_LOG_DIR"] == "py_logs/v1"
     assert "GPU_MEMORY_LIMIT" not in values

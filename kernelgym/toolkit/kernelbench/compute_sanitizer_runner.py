@@ -44,6 +44,11 @@ def run(payload_path: Path) -> None:
 
     from kernelgym.backend.kernelbench.dispatcher import KernelBenchBackend
     from kernelgym.toolkit.kernelbench.exec_types import set_seed
+    from kernelgym.toolkit.kernelbench.input_perturbation import (
+        PERTURBATION_ORIGINAL,
+        apply_input_perturbation,
+        capture_random_input_origins,
+    )
     from kernelgym.toolkit.kernelbench.loading import load_original_model_and_inputs
 
     payload = json.loads(payload_path.read_text(encoding="utf-8"))
@@ -92,7 +97,13 @@ def run(payload_path: Path) -> None:
                 and os.environ.get("KERNELGYM_COMPUTE_SANITIZER_TOOL") != "initcheck"
             ),
         ):
-            inputs = get_inputs()
+            input_perturbation = payload.get("input_perturbation") or PERTURBATION_ORIGINAL
+            if input_perturbation != PERTURBATION_ORIGINAL:
+                with capture_random_input_origins() as origins:
+                    inputs = get_inputs()
+                inputs, _ = apply_input_perturbation(inputs, origins, input_perturbation)
+            else:
+                inputs = get_inputs()
         inputs = _move_to_device(inputs, device, torch)
         with torch.no_grad():
             set_seed(input_seed)

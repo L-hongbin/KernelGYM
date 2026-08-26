@@ -152,6 +152,7 @@ def _create_paired_tasks(
         enable_ncu=task.enable_ncu,
         enable_compute_sanitizer=task.enable_compute_sanitizer,
         compute_sanitizer_mode=task.compute_sanitizer_mode,
+        enable_correctness_input_perturbations=task.enable_correctness_input_perturbations,
         enable_triton_detection=task.enable_triton_detection,
         detect_decoy_kernel=task.detect_decoy_kernel,
         measure_performance=task.measure_performance,

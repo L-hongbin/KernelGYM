@@ -16,6 +16,12 @@ from kernelgym.toolkit.kernelbench.exec_types import (
     get_error_name,
     set_seed,
 )
+from kernelgym.toolkit.kernelbench.input_perturbation import (
+    CORRECTNESS_INPUT_PERTURBATIONS,
+    PERTURBATION_ORIGINAL,
+    apply_input_perturbation,
+    capture_random_input_origins,
+)
 from kernelgym.toolkit.kernelbench.profiling import (
     aten_operator_profiling_context,
     extract_aten_operator_metrics,
@@ -264,6 +270,13 @@ def _iter_tensors(value: Any):
             yield from _iter_tensors(item)
 
 
+def _outputs_are_finite(value: Any) -> bool:
+    for tensor in _iter_tensors(value):
+        if (tensor.is_floating_point() or tensor.is_complex()) and not bool(torch.isfinite(tensor).all().item()):
+            return False
+    return True
+
+
 def _tensor_storage_id(tensor: torch.Tensor) -> int:
     try:
         return tensor.untyped_storage().data_ptr()
@@ -413,9 +426,17 @@ def run_and_check_correctness(
     budget_min_pass_trials: int | None = None,
     stage_update_fn: Callable[[str], None] | None = None,
     detect_aten_fallback: bool = False,
+    enable_input_perturbations: bool = False,
 ) -> KernelExecResult:
     pass_count = 0
     trials_run = 0
+    skipped_reference_perturbations = 0
+    total_correct_trials = (
+        max(num_correct_trials, len(CORRECTNESS_INPUT_PERTURBATIONS))
+        if enable_input_perturbations and num_correct_trials > 0
+        else num_correct_trials
+    )
+    expected_pass_count = total_correct_trials
     correctness_start = perf_counter()
     trial_durations: list[float] = []
     reference_trial_durations: list[float] = []
@@ -440,7 +461,7 @@ def run_and_check_correctness(
         pass_on_time_budget = _env_flag(_CORRECTNESS_PASS_ON_BUDGET_ENV, default=False)
     if budget_min_pass_trials is None:
         budget_min_pass_trials = _env_positive_int(_CORRECTNESS_BUDGET_MIN_PASS_TRIALS_ENV) or 1
-    budget_min_pass_trials = max(1, min(int(budget_min_pass_trials), num_correct_trials))
+    budget_min_pass_trials = max(1, min(int(budget_min_pass_trials), total_correct_trials))
     generate_inputs_on_gpu = _env_flag(_CORRECTNESS_GPU_INPUTS_ENV, default=True)
 
     metadata["correctness_early_stop_enabled"] = bool(stop_on_first_failure)
@@ -453,12 +474,18 @@ def run_and_check_correctness(
     metadata["correctness_tolerance_source"] = "kernelbench_precision_or_fp32_integral"
     metadata["aten_detection_enabled"] = bool(detect_aten_fallback)
     metadata["correctness_inputs_generated_on_gpu"] = bool(generate_inputs_on_gpu)
+    metadata["correctness_input_perturbations_enabled"] = bool(enable_input_perturbations)
+    metadata["correctness_requested_trials"] = int(num_correct_trials)
+    metadata["correctness_effective_trials"] = int(total_correct_trials)
+    metadata["correctness_input_perturbation_trials"] = []
+    metadata["correctness_reference_skipped_perturbations"] = []
     if max_wall_time_s is not None:
         metadata["correctness_max_wall_s"] = max_wall_time_s
 
     def _record_trial_metadata() -> None:
-        metadata["correctness_trials"] = f"({pass_count} / {num_correct_trials})"
+        metadata["correctness_trials"] = f"({pass_count} / {expected_pass_count})"
         metadata["correctness_trials_run"] = trials_run
+        metadata["correctness_reference_skipped_perturbation_count"] = skipped_reference_perturbations
         metadata["correctness_trial_s"] = trial_durations
         metadata["correctness_reference_trial_s"] = reference_trial_durations
         metadata["correctness_custom_trial_s"] = custom_trial_durations
@@ -529,7 +556,7 @@ def run_and_check_correctness(
 
         metadata["correctness_time_budget_exceeded"] = True
         _record_trial_metadata()
-        all_completed_trials_passed = pass_count == trials_run
+        all_completed_trials_passed = pass_count + skipped_reference_perturbations == trials_run
         if pass_on_time_budget and all_completed_trials_passed:
             if pass_count >= budget_min_pass_trials:
                 metadata["correctness_budget_passed_early"] = True
@@ -548,12 +575,12 @@ def run_and_check_correctness(
 
         metadata["correctness_issue_name"] = "correctness_time_budget_exceeded"
         metadata["correctness_issue"] = (
-            f"Correctness time budget exceeded after {trials_run} / {num_correct_trials} trials"
+            f"Correctness time budget exceeded after {trials_run} / {total_correct_trials} trials"
         )
         return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
 
     torch.manual_seed(seed)
-    correctness_trial_seeds = [int(torch.randint(0, 2**32 - 1, (1,)).item()) for _ in range(num_correct_trials)]
+    correctness_trial_seeds = [int(torch.randint(0, 2**32 - 1, (1,)).item()) for _ in range(total_correct_trials)]
 
     def _record_runtime_exception(
         exception: Exception,
@@ -561,6 +588,7 @@ def run_and_check_correctness(
         trial: int,
         trial_start: float,
         trial_seed: int,
+        perturbation: str,
     ) -> KernelExecResult:
         nonlocal metadata, trials_run
         trials_run = trial + 1
@@ -572,9 +600,33 @@ def run_and_check_correctness(
         metadata["runtime_error_name"] = get_error_name(exception)
         metadata["correctness_failed_trial"] = trial
         metadata["correctness_failed_trial_seed"] = int(trial_seed)
+        metadata["correctness_failed_input_perturbation"] = perturbation
         metadata["correctness_runtime_error_stage"] = metadata.get("correctness_current_substage")
         _record_trial_metadata()
         return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
+
+    def _record_reference_perturbation_skip(
+        *,
+        trial: int,
+        trial_start: float,
+        trial_seed: int,
+        perturbation: str,
+        reason: str,
+    ) -> None:
+        nonlocal expected_pass_count, skipped_reference_perturbations, trials_run
+        expected_pass_count -= 1
+        skipped_reference_perturbations += 1
+        trials_run = trial + 1
+        trial_durations.append(perf_counter() - trial_start)
+        metadata["correctness_reference_skipped_perturbations"].append(
+            {
+                "trial": trial,
+                "seed": int(trial_seed),
+                "perturbation": perturbation,
+                "reason": reason,
+            }
+        )
+        _record_trial_metadata()
 
     with _true_fp32_correctness_context(metadata), torch.no_grad():
         set_seed(seed)
@@ -582,7 +634,7 @@ def run_and_check_correctness(
         set_seed(seed)
         model_new = new_model_instance.cuda(device=device)
 
-        for trial in range(num_correct_trials):
+        for trial in range(total_correct_trials):
             if trial > 0:
                 budget_result = _maybe_finish_on_time_budget()
                 if budget_result is not None:
@@ -590,14 +642,37 @@ def run_and_check_correctness(
 
             trial_start = perf_counter()
             trial_seed = correctness_trial_seeds[trial]
+            perturbation = (
+                CORRECTNESS_INPUT_PERTURBATIONS[trial % len(CORRECTNESS_INPUT_PERTURBATIONS)]
+                if enable_input_perturbations
+                else PERTURBATION_ORIGINAL
+            )
             if verbose:
-                logger.info("[Eval] Generating Random Input with seed %s", trial_seed)
+                logger.info(
+                    "[Eval] Generating Random Input with seed %s, perturbation=%s",
+                    trial_seed,
+                    perturbation,
+                )
 
             set_seed(trial_seed)
             _set_substage("input_generation", trial=trial)
             input_generation_start = perf_counter()
             with _input_generation_device_context(device, enabled=generate_inputs_on_gpu):
-                inputs = get_inputs_fn()
+                if enable_input_perturbations:
+                    with capture_random_input_origins() as origins:
+                        inputs = get_inputs_fn()
+                    inputs, perturbation_summary = apply_input_perturbation(inputs, origins, perturbation)
+                else:
+                    inputs = get_inputs_fn()
+                    perturbation_summary = {
+                        "name": PERTURBATION_ORIGINAL,
+                        "detected_input_kinds": {},
+                        "transforms": {},
+                        "transformed_tensor_count": 0,
+                    }
+            metadata["correctness_input_perturbation_trials"].append(
+                {"trial": trial, "seed": int(trial_seed), **perturbation_summary}
+            )
             input_generation_durations.append(perf_counter() - input_generation_start)
 
             _set_substage("input_transfer", trial=trial)
@@ -620,9 +695,38 @@ def run_and_check_correctness(
             # are comparable when ModelNew uses the same RNG implementation.
             set_seed(trial_seed)
             reference_start = perf_counter()
-            output = model(*inputs)
-            torch.cuda.synchronize(device=device)
+            try:
+                output = model(*inputs)
+                torch.cuda.synchronize(device=device)
+            except Exception as reference_exc:
+                reference_trial_durations.append(perf_counter() - reference_start)
+                if enable_input_perturbations and perturbation != PERTURBATION_ORIGINAL:
+                    _record_reference_perturbation_skip(
+                        trial=trial,
+                        trial_start=trial_start,
+                        trial_seed=trial_seed,
+                        perturbation=perturbation,
+                        reason=f"{type(reference_exc).__name__}: {reference_exc}",
+                    )
+                    del inputs
+                    continue
+                raise
             reference_trial_durations.append(perf_counter() - reference_start)
+
+            if (
+                enable_input_perturbations
+                and perturbation != PERTURBATION_ORIGINAL
+                and not _outputs_are_finite(output)
+            ):
+                _record_reference_perturbation_skip(
+                    trial=trial,
+                    trial_start=trial_start,
+                    trial_seed=trial_seed,
+                    perturbation=perturbation,
+                    reason="reference output contains NaN or Inf",
+                )
+                del inputs, output
+                continue
 
             _set_substage("reference_alias_clone", trial=trial)
             alias_clone_start = perf_counter()
@@ -660,11 +764,16 @@ def run_and_check_correctness(
                     trial_durations.append(perf_counter() - trial_start)
                     metadata = register_and_format_exception(
                         "correctness_issue",
-                        f"Output shape mismatch: Expected {expected_shape}, got {got_shape}",
+                        (
+                            f"Output shape mismatch under input perturbation {perturbation}: "
+                            f"Expected {expected_shape}, got {got_shape}"
+                        ),
                         metadata,
                     )
-                    metadata["correctness_issue_name"] = "correctness_issue"
+                    metadata["correctness_issue_name"] = "output_structure_mismatch"
                     metadata["correctness_failed_trial"] = trial
+                    metadata["correctness_failed_trial_seed"] = int(trial_seed)
+                    metadata["correctness_failed_input_perturbation"] = perturbation
                     _record_trial_metadata()
                     if verbose:
                         logger.warning(
@@ -689,9 +798,15 @@ def run_and_check_correctness(
                 if not outputs_close:
                     metadata.setdefault("max_difference", []).append(f"{max_diff:.6f}")
                     metadata.setdefault("avg_difference", []).append(f"{avg_diff:.6f}")
-                    metadata["correctness_issue"] = "Output mismatch"
-                    metadata["correctness_issue_name"] = "correctness_issue"
+                    metadata["correctness_issue"] = (
+                        f"Numerical output mismatch under input perturbation {perturbation}: "
+                        f"max_difference={max_diff:.6g}, avg_difference={avg_diff:.6g}, "
+                        f"atol={metadata.get('correctness_atol')}, rtol={metadata.get('correctness_rtol')}"
+                    )
+                    metadata["correctness_issue_name"] = "numerical_mismatch"
                     metadata["correctness_failed_trial"] = trial
+                    metadata["correctness_failed_trial_seed"] = int(trial_seed)
+                    metadata["correctness_failed_input_perturbation"] = perturbation
                     if verbose:
                         logger.warning("[FAIL] trial %s: Output mismatch", trial)
                     if stop_on_first_failure:
@@ -712,14 +827,15 @@ def run_and_check_correctness(
                     trial=trial,
                     trial_start=trial_start,
                     trial_seed=trial_seed,
+                    perturbation=perturbation,
                 )
 
     if verbose:
-        logger.info("[Eval] Pass count: %s, num_correct_trials: %s", pass_count, num_correct_trials)
+        logger.info("[Eval] Pass count: %s, num_correct_trials: %s", pass_count, total_correct_trials)
 
     _record_trial_metadata()
 
-    if pass_count == num_correct_trials:
+    if pass_count == expected_pass_count and expected_pass_count > 0:
         return KernelExecResult(
             compiled=True,
             correctness=True,
