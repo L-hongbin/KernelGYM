@@ -22,7 +22,7 @@ The pool-size settings are in `kernelgym/config/settings.py`; spawn-handshake co
 | --- | --- | --- | --- |
 | `worker_pool_size` | `WORKER_POOL_SIZE` | `2` | Number of persistent subprocess workers created per GPU worker. With the current serial GPU worker loop, this means one active subprocess plus one warm spare. |
 | `max_tasks_per_worker` | `MAX_TASKS_PER_WORKER` | `1` | Number of tasks a subprocess may return before it is marked unavailable and recycled. |
-| — | `KERNELGYM_WORKER_SPAWN_CONCURRENCY` | `2` | Maximum simultaneous spawn/import/CUDA READY handshakes across all GPU workers in one container. |
+| — | `KERNELGYM_WORKER_SPAWN_CONCURRENCY` | `8` | Maximum simultaneous spawn/import/CUDA READY handshakes across all GPU workers in one container. The local-disk runtime removes the shared-venv import bottleneck that required the former conservative value of two. |
 | — | `KERNELGYM_WORKER_SPAWN_SLOT_TIMEOUT` | `600` | Maximum wait for a node-local spawn slot; this wait is outside the handshake clocks. |
 | — | `KERNELGYM_WORKER_CONTAINMENT_TIMEOUT` | `180` | Deadline from `Process.start()` until the child reports its authenticated PGID/SID containment. |
 | — | `KERNELGYM_WORKER_READY_TIMEOUT` | `90` | Independent deadline from confirmed containment until Torch/CUDA initialization reports READY. |
@@ -32,7 +32,7 @@ The default `2 x 1` mode is the important behavior: keep two warm CUDA subproces
 
 ## Startup
 
-Each `GPUWorker` creates one `SubprocessWorkerPool` after API registration and GPU discovery. The pool starts `worker_pool_size` `PersistentWorker` processes immediately. A private `/dev/shm` flock pool admits at most two concurrent constructors across the container. Lock descriptors are non-inheritable/CLOEXEC and the persistent slot inodes are never replaced, so a CUDA child cannot retain or bypass a parent's slot.
+Each `GPUWorker` creates one `SubprocessWorkerPool` after API registration and GPU discovery. The pool starts `worker_pool_size` `PersistentWorker` processes immediately. A private `/dev/shm` flock pool admits at most eight concurrent constructors across the container. Lock descriptors are non-inheritable/CLOEXEC and the persistent slot inodes are never replaced, so a CUDA child cannot retain or bypass a parent's slot.
 
 Each subprocess uses `spawn`, establishes and reports its dedicated PGID inside the outer worker SID, waits for the parent containment acknowledgement, then imports Torch/toolkit/backend code, initializes CUDA on the assigned device, performs a tiny CUDA allocation, synchronizes, and reports `READY`. `kernelgym.worker` exports and `single_worker.GPUWorker` are lazy so multiprocessing can reach the containment target without first importing Torch. Parent logs separate spawn-slot wait, CONTAINED latency, READY-after-CONTAINED latency, and child initialization time.
 

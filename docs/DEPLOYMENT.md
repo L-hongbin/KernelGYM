@@ -4,24 +4,20 @@ KernelGYM reward-only supports two deployment modes. Runtime env values come fro
 `kernelgym/deployment_profiles.py`. GPU clock locking, container startup, and CUDA 12.9 virtualenv bootstrap are bash scripts because they are shell-native operations around
 `nvidia-smi`, Docker, Python, uv, pip, and proxy environment variables.
 
-## Shared Runtime Policy
+## Runtime Storage Policy
 
 - The default reward runtime profile is `v1`; `auto` is an alias for it.
 - Service ports are fixed: API `20111`, Redis `20110`, metrics `20112`.
 - API workers/reload and Redis db/password/key-prefix are fixed.
-- Use a repo-local uv virtual environment: `.venv`.
-- If `redis-server` is missing, `ensure_venv.sh` installs it with apt.
-- If `uv` is missing, `ensure_venv.sh` installs it with `pip install uv`.
+- Use the node-local uv virtual environment `/root/kernelgym-reward-only/.venv`. The repo-local shared `.venv` is deprecated and ignored.
+- Install the versions pinned in `requirements-offline.txt` directly from the absolute wheelhouse `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels`; `ensure_venv.sh` passes `--offline --no-index` and does not fall back to a package index.
+- Keep source, `logs/`, `py_logs/`, core dumps, compile artifacts, and other long-lived evidence under the shared checkout.
+- Redis `5:7.0.15-1ubuntu0.24.04.4` and its Redis-specific libraries are pinned under `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels/redis/ubuntu-24.04-amd64`; `ensure_venv.sh` installs those local `.deb` files with apt downloads disabled and never runs `apt update`.
+- If `uv` is missing, `ensure_venv.sh` bootstraps it from the offline wheelhouse.
 - Use CUDA 12.9 explicitly:
-  - `requirements-cuda129.txt` only pins package versions; pip/uv index or mirror selection must come from the
-    container image, pip config, uv config, or environment, not from the requirements file.
+  - `requirements-cuda129.txt` pins the CUDA-sensitive package versions; all candidates must exist in the offline wheelhouse.
   - `/usr/local/cuda-12.9/bin/nvcc --version` must report CUDA 12.9.
-- If CUDA wheel dependencies cannot be fetched directly, `ensure_venv.sh` retries with
-  `http://192.168.28.186:7897` on external nodes. Override with `KERNELGYM_PROXY` or
-  `KERNELGYM_FALLBACK_PROXY` only when needed.
-- `set_env.sh` repairs the Python interpreter path used by the shared repo-local `.venv`: newer images provide
-  `/usr/bin/python3.12`, while older `.venv/bin/python` links through `/usr/local/bin/python3`. The deploy wrapper
-  runs `set_env.sh` before activating `.venv` so the existing environment remains usable after replacing containers.
+- `set_env.sh` validates and reports the node-local venv and absolute wheelhouse paths. It only reports the deprecated shared `.venv`; it never reads, repairs, deletes, or activates it.
 - Do not reuse older KernelGYM or drkernel virtual environments.
 
 Create the environment in the runtime where reward will execute (run from the repo root):
@@ -29,12 +25,10 @@ Create the environment in the runtime where reward will execute (run from the re
 ```bash
 bash set_env.sh
 bash ensure_venv.sh --recreate
-source .venv/bin/activate
+source /root/kernelgym-reward-only/.venv/bin/activate
 ```
 
-The script validates `redis-server`, `torch.version.cuda == "12.9"`, and `nvcc` from CUDA 12.9. Common overrides are
-not needed: it creates and activates `.venv` with Python 3.12 when missing, then checks `/usr/local/cuda-12.9/bin/nvcc`
-directly.
+The script validates `redis-server`, `torch.version.cuda == "12.9"`, and `nvcc` from CUDA 12.9. Common overrides are not needed: it creates and activates the node-local venv with Python 3.12 when missing, then checks `/usr/local/cuda-12.9/bin/nvcc` directly. `KERNELGYM_LOCAL_VENV_DIR`, `KERNELGYM_OFFLINE_WHEEL_DIR`, and `KERNELGYM_OFFLINE_REDIS_DIR` may override the defaults; all must remain absolute paths and the venv must be on local storage. `bash scripts/ensure_redis.sh --verify-bundle` validates checksums, package metadata, platform compatibility, and offline apt dependency resolution without installing or starting anything.
 
 Use `--profile v1`:
 
@@ -61,7 +55,7 @@ bash stop_node.sh
 
 A typical restart cycle inside the container is `bash stop_node.sh && bash deploy_node.sh`. For a cold restart that also removes local Redis persistence and KernelGym compile/work caches before launching, use `bash deploy_node.sh --clear-cache`.
 
-The deployment convenience script is container-only. It runs `set_env.sh`, ensures `redis-server` is installed, sources `.venv/bin/activate`, and validates the runtime. It does not create or install `.venv`; run `ensure_venv.sh` once when bootstrapping a container or when the environment's packages need repair. It always stops existing KernelGym worker processes before starting worker-only nodes.
+The deployment convenience script is container-only. It runs `set_env.sh`, ensures the pinned Redis packages are present from the offline bundle, sources the node-local venv, and validates the runtime. It does not create or install the venv; run `ensure_venv.sh` once when bootstrapping a container or when packages need repair. It always stops existing KernelGym worker processes before starting worker-only nodes.
 
 ## Mode 1: Physical Host, Then Docker
 
@@ -71,7 +65,7 @@ from the physical host. Host-level duties happen before starting the container:
 1. Stop old reward services if needed.
 2. Lock GPU clocks on the host.
 3. Start or replace the Docker container.
-4. Enter the container and ensure `.venv` plus Redis there with CUDA 12.9.
+4. Enter the container and ensure the node-local venv plus Redis there with CUDA 12.9.
 5. Start the reward API/workers from inside the container.
 
 Host preparation example (run from the repo root):
@@ -99,7 +93,7 @@ Inside the container (run from the repo root):
 ```bash
 bash set_env.sh
 bash ensure_venv.sh --recreate
-source .venv/bin/activate
+source /root/kernelgym-reward-only/.venv/bin/activate
 python -m kernelgym.cli.service start-local --profile v1
 ```
 
@@ -109,21 +103,21 @@ The same startup can be run with:
 bash deploy_node.sh
 ```
 
-Worker-only multi-node deployment uses `deploy_node.sh` from inside each container after `.venv` exists.
+Worker-only multi-node deployment uses `deploy_node.sh` from inside each container after the node-local venv exists.
 
 ## Mode 2: Already Inside A Container
 
 Use this mode when the operator is already in the runtime container. Do not start Docker from inside this
-container. From the repo root, create `.venv` and start services directly:
+container. From the repo root, create the node-local venv and start services directly:
 
 ```bash
 bash set_env.sh
 bash ensure_venv.sh --recreate
-source .venv/bin/activate
+source /root/kernelgym-reward-only/.venv/bin/activate
 python -m kernelgym.cli.service start-local --profile v1
 ```
 
-After `.venv` exists, the single-node convenience entrypoint is:
+After the node-local venv exists, the single-node convenience entrypoint is:
 
 ```bash
 bash deploy_node.sh
@@ -169,7 +163,7 @@ docker exec -it kernelgym-reward bash
 cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
 ```
 
-### 2. Prepare the repo-local environment in each container
+### 2. Prepare the node-local environment in each container
 
 Run this on the primary container and every worker-only container:
 
@@ -178,7 +172,7 @@ bash set_env.sh
 bash ensure_venv.sh --recreate
 ```
 
-`deploy_node.sh` activates `.venv` itself, so you do not need to keep the shell activated after this step.
+`deploy_node.sh` activates `/root/kernelgym-reward-only/.venv` itself, so you do not need to keep the shell activated after this step.
 
 ### 3. Start the primary node first
 
@@ -276,7 +270,7 @@ The primary runs standalone until others join. (`--cluster` simply enables remot
 
 ### Add a worker node
 
-On the new node, inside the container, after `.venv` exists, point it at the primary:
+On the new node, inside the container, after the node-local venv exists, point it at the primary:
 
 ```bash
 bash deploy_node.sh --join 192.168.16.40    # 192.168.16.40 = primary address
@@ -346,10 +340,10 @@ Manual operations:
 
 ## Verification
 
-Run lint and tests from the CUDA 12.9 `.venv`:
+Run lint and tests from the node-local CUDA 12.9 venv:
 
 ```bash
-source .venv/bin/activate
+source /root/kernelgym-reward-only/.venv/bin/activate
 ruff format .
 ruff check .
 pytest

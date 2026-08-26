@@ -28,8 +28,12 @@ This file indexes stable repository docs and evidence locations.
 | Path | Purpose |
 | --- | --- |
 | `deploy_node.sh` | Container-only single/multi-node startup with automatic visible-GPU discovery, per-node correctness/profiling warmup, GPU/CPU worker overrides, `--clear-cache` cold start, and `--block-terminal` foreground lifecycle. |
+| `ensure_venv.sh`, `set_env.sh`, `scripts/runtime_paths.sh`, `scripts/ensure_redis.sh` | Node-local Python bootstrap plus pinned Redis installation from fixed absolute offline bundles; the shared repo-local venv is deprecated. |
+| `requirements-offline.txt` | Exact CPython 3.12/CUDA 12.9 environment lock whose wheels are staged in the absolute shared wheelhouse. |
+| `wheels/redis/ubuntu-24.04-amd64/` | Shared gitignored Redis `.deb` bundle with exact package/platform manifests and SHA-256 checksums. |
 | `scripts/start_container.sh` | Physical-host Docker container startup; defaults to Docker `--init` for subprocess reaping. |
 | `scripts/debug_line451_rmsnorm_nondeterminism.py` | Standalone reproduction for line 451 RMSNorm CUDA-Agent nondeterministic correctness. |
+| `scripts/benchmark_worker_spawn.py` | Isolated staged-import, real worker-constructor, and subprocess-pool replenishment benchmark with JSON evidence output. |
 | `kernelgym/backend/kernelbench/cuda_agent_backend.py` | CUDA-Agent parsing, validation scaffold, compile/load backend. |
 | `kernelgym/backend/kernelbench/tvm_ffi_backend.py` | TVM-FFI compile/load backend and compile artifact cache. |
 | `kernelgym/schema/precision.py` | Canonical FP32/FP16/BF16 aliases and fail-closed internal normalization. |
