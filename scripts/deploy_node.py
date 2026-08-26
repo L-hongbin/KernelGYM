@@ -4,17 +4,29 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import signal
 import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
+import uuid
+from datetime import datetime
 from pathlib import Path
 
+import redis
+
+from kernelgym.deployment_profiles import REDIS_KEY_PREFIX, REDIS_PORT
 
 API_PORT = 20111
+DEFAULT_STARTUP_WARMUP_TIMEOUT = 1800
+NODE_WORKER_READY_TIMEOUT = 600
+NODE_WORKER_HEARTBEAT_MAX_AGE = 120
+WARMUP_CLIENT_TIMEOUT_GRACE = 60
 ROOT_DIR = Path(__file__).resolve().parents[1]
 REDIS_DATA_DIR = Path("/tmp/kernelgym-redis")
 DEFAULT_CACHE_PATHS = (
@@ -51,11 +63,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--master-port", type=int, default=API_PORT)
     parser.add_argument("--cpu-compile-workers", "--cpu-workers", type=int, default=None)
     parser.add_argument(
+        "--gpu-devices",
+        default=None,
+        help="auto (default) or a comma/JSON list of container-logical CUDA device indices",
+    )
+    parser.add_argument(
         "--clear-cache",
         action="store_true",
         help=(
             "after stopping this node, delete local Redis persistence and KernelGym compile/work caches before start"
         ),
+    )
+    parser.add_argument(
+        "--block-terminal",
+        action="store_true",
+        help=(
+            "after startup succeeds, remain in the foreground; Ctrl-C, SIGTERM, or a terminal hangup "
+            "stops this node's KernelGym services"
+        ),
+    )
+    parser.add_argument(
+        "--no-startup-warmup",
+        action="store_true",
+        help="skip the node-affined correctness and CUDA profiling warmup after workers become ready",
+    )
+    parser.add_argument(
+        "--startup-warmup-timeout",
+        type=int,
+        default=DEFAULT_STARTUP_WARMUP_TIMEOUT,
+        help="HTTP wall timeout for the startup warmup, including cold CPU compilation",
     )
     return parser.parse_args()
 
@@ -141,21 +177,213 @@ def wait_api(master_addr: str) -> None:
     raise SystemExit(f"API did not become ready at {url}: {last_error}")
 
 
+def _http_get_json(url: str, timeout: float = 10) -> dict:
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    with opener.open(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _redis_bool(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _worker_registration_is_current(worker: dict[str, object]) -> bool:
+    if str(worker.get("status") or "").strip().lower() != "online":
+        return False
+    try:
+        heartbeat = datetime.fromisoformat(str(worker.get("last_heartbeat") or ""))
+    except ValueError:
+        return False
+    now = datetime.now(tz=heartbeat.tzinfo)
+    return (now - heartbeat).total_seconds() <= NODE_WORKER_HEARTBEAT_MAX_AGE
+
+
+def _decode_redis_hash(data: dict[object, object]) -> dict[str, str]:
+    return {
+        (key.decode(errors="replace") if isinstance(key, bytes) else str(key)): (
+            value.decode(errors="replace") if isinstance(value, bytes) else str(value)
+        )
+        for key, value in data.items()
+    }
+
+
+def _expected_workers_for_host(redis_host: str, target_hostname: str) -> dict[str, dict[str, str]]:
+    """Read the durable local-worker contract written by the service launcher."""
+
+    client = redis.Redis(
+        host=redis_host,
+        port=REDIS_PORT,
+        socket_connect_timeout=5,
+        socket_timeout=5,
+    )
+    expected: dict[str, dict[str, str]] = {}
+    try:
+        for raw_worker_id in client.smembers(f"{REDIS_KEY_PREFIX}:expected_workers"):
+            worker_id = (
+                raw_worker_id.decode(errors="replace") if isinstance(raw_worker_id, bytes) else str(raw_worker_id)
+            )
+            info = _decode_redis_hash(client.hgetall(f"{REDIS_KEY_PREFIX}:expected_worker:{worker_id}"))
+            if info.get("hostname") == target_hostname:
+                expected[worker_id] = info
+    finally:
+        client.close()
+    return expected
+
+
+def wait_node_workers(api_host: str, target_hostname: str, timeout: int = NODE_WORKER_READY_TIMEOUT) -> None:
+    """Wait until every current GPU/CPU worker registration on this host is usable."""
+    url = f"http://{api_host}:{API_PORT}/workers/status"
+    deadline = time.monotonic() + timeout
+    last_state = "no matching workers registered"
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            expected = _expected_workers_for_host(api_host, target_hostname)
+            expected_gpu_ids = {
+                worker_id for worker_id, value in expected.items() if value.get("device", "").startswith("cuda:")
+            }
+            expected_cpu_ids = {worker_id for worker_id, value in expected.items() if value.get("device") == "cpu"}
+            status = _http_get_json(url)
+            matching = {
+                worker_id: value
+                for worker_id, value in status.items()
+                if value.get("hostname") == target_hostname and worker_id in expected
+            }
+            current = {
+                worker_id: value for worker_id, value in matching.items() if _worker_registration_is_current(value)
+            }
+            stale_count = len(expected) - len(current)
+            gpu_workers = {worker_id: current[worker_id] for worker_id in expected_gpu_ids & current.keys()}
+            cpu_workers = {worker_id: current[worker_id] for worker_id in expected_cpu_ids & current.keys()}
+            gpu_ready = [
+                value
+                for value in gpu_workers.values()
+                # degraded_check is a transient post-CUDA-fault state. It may
+                # be scheduler-admissible for one pre-fault spare, but a node
+                # is not deployment-ready until fresh-context validation has
+                # restored every launched GPU worker to fully healthy.
+                if _redis_bool(value.get("online"))
+                and value.get("health_state") == "healthy"
+                and _redis_bool(value.get("accepting_tasks"))
+            ]
+            cpu_ready = [value for value in cpu_workers.values() if _redis_bool(value.get("online"))]
+            last_state = (
+                f"gpu={len(gpu_ready)}/{len(expected_gpu_ids)} ready, "
+                f"cpu={len(cpu_ready)}/{len(expected_cpu_ids)} online, "
+                f"stale_or_offline={stale_count}"
+            )
+            if (
+                expected_gpu_ids
+                and expected_cpu_ids
+                and len(gpu_ready) == len(expected_gpu_ids)
+                and len(cpu_ready) == len(expected_cpu_ids)
+                and stale_count == 0
+            ):
+                print(f"Node workers ready: hostname={target_hostname} {last_state}")
+                return
+        except Exception as exc:  # noqa: BLE001 - surface the last readiness failure
+            last_error = exc
+        time.sleep(3)
+    suffix = f"; last_error={last_error}" if last_error else ""
+    raise SystemExit(f"Node workers did not become ready at {url}: {last_state}{suffix}")
+
+
+def run_startup_warmup(api_host: str, request_timeout: int) -> None:
+    target_hostname = socket.gethostname()
+    section(f"Startup profiling warmup hostname={target_hostname}")
+    wait_node_workers(api_host, target_hostname)
+    safe_hostname = "".join(char if char.isalnum() else "-" for char in target_hostname).strip("-") or "node"
+    task_id = f"startup_warmup_{safe_hostname}_{uuid.uuid4().hex[:12]}"
+    # Leave room for the HTTP response while allowing the configurable wall
+    # timeout to expand the cold compile budget beyond the old fixed 600s cap.
+    task_timeout = max(60, request_timeout - WARMUP_CLIENT_TIMEOUT_GRACE)
+    run(
+        [
+            sys.executable,
+            str(ROOT_DIR / "scripts" / "test_reward.py"),
+            "--host",
+            api_host,
+            "--port",
+            str(API_PORT),
+            "--timeout",
+            str(task_timeout),
+            "--client-timeout",
+            str(request_timeout),
+            "--task-id",
+            task_id,
+            "--target-hostname",
+            target_hostname,
+            "--require-correct",
+        ]
+    )
+
+
 def section(title: str) -> None:
     """Print a visual section break so deploy phases are easy to scan in the log."""
     print()
     print(f"=== {title} ===")
 
 
-def _append_cpu_compile_workers(command: list[str], cpu_compile_workers: int | None) -> list[str]:
-    if cpu_compile_workers is None:
-        return command
-    return [*command, "--cpu-compile-workers", str(cpu_compile_workers)]
+def wait_for_shutdown_signal() -> signal.Signals:
+    """Wait without a signal-delivery race and return the requested shutdown signal."""
+    stop_requested = threading.Event()
+    received_signal = signal.SIGTERM
+    handled_signals = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGHUP"):
+        handled_signals.append(signal.SIGHUP)
+    previous_handlers = {signum: signal.getsignal(signum) for signum in handled_signals}
+
+    def request_shutdown(signum: int, _frame: object) -> None:
+        nonlocal received_signal
+        received_signal = signal.Signals(signum)
+        stop_requested.set()
+
+    for signum in handled_signals:
+        signal.signal(signum, request_shutdown)
+    try:
+        while not stop_requested.wait(timeout=3600):
+            pass
+    finally:
+        for signum, previous_handler in previous_handlers.items():
+            signal.signal(signum, previous_handler)
+    return received_signal
+
+
+def block_terminal() -> None:
+    """Keep the deploy command in the foreground and own local service cleanup."""
+    section("Block terminal")
+    print("KernelGym is ready. Waiting in the foreground; press Ctrl-C to stop this node.", flush=True)
+    received_signal = wait_for_shutdown_signal()
+    print(f"Received {received_signal.name}; stopping this node's KernelGym services.", flush=True)
+    run([sys.executable, "-m", "kernelgym.cli.service", "stop", "--profile", "v1"])
+
+
+def finish_deployment(args: argparse.Namespace, *, api_host: str | None = None) -> int:
+    if api_host and not bool(getattr(args, "no_startup_warmup", False)):
+        run_startup_warmup(api_host, int(getattr(args, "startup_warmup_timeout", DEFAULT_STARTUP_WARMUP_TIMEOUT)))
+    if bool(getattr(args, "block_terminal", False)):
+        block_terminal()
+    return 0
+
+
+def _append_runtime_overrides(
+    command: list[str],
+    cpu_compile_workers: int | None,
+    gpu_devices: str | None,
+) -> list[str]:
+    updated = list(command)
+    if cpu_compile_workers is not None:
+        updated += ["--cpu-compile-workers", str(cpu_compile_workers)]
+    if gpu_devices is not None:
+        updated += ["--gpu-devices", gpu_devices]
+    return updated
 
 
 def start_primary(
     node_rank: int | None,
     cpu_compile_workers: int | None = None,
+    gpu_devices: str | None = None,
     *,
     redis_remote_access: bool = False,
     clear_cache: bool = False,
@@ -171,9 +399,10 @@ def start_primary(
     if clear_cache:
         command.append("--no-stop-first")
     run(
-        _append_cpu_compile_workers(
+        _append_runtime_overrides(
             command,
             cpu_compile_workers,
+            gpu_devices,
         )
     )
     section("Wait for API")
@@ -184,6 +413,7 @@ def start_worker(
     master_addr: str,
     node_rank: int | None,
     cpu_compile_workers: int | None = None,
+    gpu_devices: str | None = None,
     *,
     clear_cache: bool = False,
 ) -> None:
@@ -209,7 +439,7 @@ def start_worker(
     # No rank -> the server auto-allocates a stable per-hostname node id.
     if node_rank is not None:
         command += ["--node-rank", str(node_rank)]
-    run(_append_cpu_compile_workers(command, cpu_compile_workers))
+    run(_append_runtime_overrides(command, cpu_compile_workers, gpu_devices))
 
 
 def validate(args: argparse.Namespace) -> None:
@@ -219,6 +449,11 @@ def validate(args: argparse.Namespace) -> None:
     cpu_compile_workers = getattr(args, "cpu_compile_workers", None)
     if cpu_compile_workers is not None and cpu_compile_workers < 0:
         raise SystemExit("--cpu-compile-workers must be >= 0")
+    if cpu_compile_workers == 0 and not bool(getattr(args, "no_startup_warmup", False)):
+        raise SystemExit("--cpu-compile-workers 0 requires --no-startup-warmup")
+    startup_warmup_timeout = int(getattr(args, "startup_warmup_timeout", DEFAULT_STARTUP_WARMUP_TIMEOUT))
+    if startup_warmup_timeout < 60:
+        raise SystemExit("--startup-warmup-timeout must be >= 60 seconds")
 
     # Preferred count-free interface.
     cluster = bool(getattr(args, "cluster", False))
@@ -254,14 +489,21 @@ def main() -> int:
     cluster = bool(getattr(args, "cluster", False))
     join = str(getattr(args, "join", "") or "")
     clear_cache = bool(getattr(args, "clear_cache", False))
+    gpu_devices = getattr(args, "gpu_devices", None)
 
     # Preferred count-free interface: no nnodes, no node-rank.
     if cluster:
-        start_primary(None, args.cpu_compile_workers, redis_remote_access=True, clear_cache=clear_cache)
-        return 0
+        start_primary(
+            None,
+            args.cpu_compile_workers,
+            gpu_devices,
+            redis_remote_access=True,
+            clear_cache=clear_cache,
+        )
+        return finish_deployment(args, api_host="127.0.0.1")
     if join:
-        start_worker(join, None, args.cpu_compile_workers, clear_cache=clear_cache)
-        return 0
+        start_worker(join, None, args.cpu_compile_workers, gpu_devices, clear_cache=clear_cache)
+        return finish_deployment(args, api_host=join)
 
     # Legacy torchrun-style path (deprecated).
     if args.nnodes != 1 or args.node_rank is not None or args.master_addr:
@@ -269,8 +511,8 @@ def main() -> int:
             "[deploy_node] note: --nnodes/--node-rank are deprecated; prefer --cluster (primary) and --join <addr> (worker)."
         )
     if args.nnodes == 1:
-        start_primary(args.node_rank, args.cpu_compile_workers, clear_cache=clear_cache)
-        return 0
+        start_primary(args.node_rank, args.cpu_compile_workers, gpu_devices, clear_cache=clear_cache)
+        return finish_deployment(args, api_host="127.0.0.1")
 
     # Role is determined by whether this container can see itself as --master-addr.
     is_master = args.master_addr in local_ids()
@@ -279,10 +521,22 @@ def main() -> int:
     if not is_master and args.node_rank == 0:
         raise SystemExit("--node-rank 0 must run on the node matching --master-addr")
     if is_master:
-        start_primary(args.node_rank, args.cpu_compile_workers, redis_remote_access=True, clear_cache=clear_cache)
+        start_primary(
+            args.node_rank,
+            args.cpu_compile_workers,
+            gpu_devices,
+            redis_remote_access=True,
+            clear_cache=clear_cache,
+        )
     else:
-        start_worker(args.master_addr, args.node_rank, args.cpu_compile_workers, clear_cache=clear_cache)
-    return 0
+        start_worker(
+            args.master_addr,
+            args.node_rank,
+            args.cpu_compile_workers,
+            gpu_devices,
+            clear_cache=clear_cache,
+        )
+    return finish_deployment(args, api_host="127.0.0.1" if is_master else args.master_addr)
 
 
 if __name__ == "__main__":

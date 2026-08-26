@@ -6,6 +6,8 @@ import hashlib
 import json
 from typing import Any, Dict
 
+from kernelgym.toolkit.kernelbench.execution_policy import EXECUTION_POLICY_VERSION
+
 
 REQUEST_HASH_IGNORED_KEYS = {
     "assigned_device",
@@ -41,9 +43,12 @@ def canonicalize_for_request_hash(value: Any) -> Any:
 
 
 def request_hash(workflow_name: str, payload: Dict[str, Any]) -> str:
+    workflow = workflow_name or "kernelbench"
     canonical = {
-        "workflow": workflow_name or "kernelbench",
+        "workflow": workflow,
         "payload": canonicalize_for_request_hash(payload),
     }
+    if workflow == "kernelbench":
+        canonical["execution_policy"] = EXECUTION_POLICY_VERSION
     encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return hashlib.sha1(encoded).hexdigest()

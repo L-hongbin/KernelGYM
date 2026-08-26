@@ -38,6 +38,13 @@ _CUDA_AGENT_COMPILE_ARTIFACT_CACHE_ENV = "KERNELGYM_COMPILE_ARTIFACT_CACHE"
 _CUDA_AGENT_DEFAULT_ARTIFACT_CACHE_DIR = "/dev/shm/kernelgym/compile_cache/cuda_agent_artifacts"
 _DETAILED_COMPILE_TIMING_ENV = "KERNELGYM_DETAILED_COMPILE_TIMING"
 _CUDA_AGENT_COMPILE_SOURCE_EXTS = {".cu", ".cpp", ".cc", ".cxx"}
+_CUDA_AGENT_MODULE_BOUND_SOURCE_MARKERS = (
+    b"PYBIND11_MODULE",
+    b"TORCH_EXTENSION_NAME",
+    b"PYBIND11_PLUGIN",
+    b"BOOST_PYTHON_MODULE",
+    b"PyInit_",
+)
 
 
 def _torch_modules() -> tuple[Any, Any]:
@@ -549,9 +556,14 @@ public:
     @staticmethod
     def _source_is_reusable_object(source_path: Path) -> tuple[bool, str | None]:
         try:
-            source_path.read_bytes()
+            source = source_path.read_bytes()
         except OSError as exc:
             return False, f"source read failed: {exc}"
+
+        for marker in _CUDA_AGENT_MODULE_BOUND_SOURCE_MARKERS:
+            if marker in source:
+                symbol = marker.decode("ascii")
+                return False, f"source references module name symbol {symbol}"
         return True, None
 
     @staticmethod
@@ -998,6 +1010,7 @@ public:
     def compile(self, code: str, **kwargs: Any) -> Dict[str, Any]:
         device = self._normalize_device(kwargs.get("device"))
         entry_point = kwargs.get("entry_point", "ModelNew")
+        precision = kwargs.get("precision", "fp32")
         explicit_sources = self._normalize_cuda_sources_input(kwargs.get("cuda_sources"))
         enable_compile_artifact_cache = self._compile_artifact_cache_enabled(kwargs)
 
@@ -1019,6 +1032,7 @@ public:
             model_code,
             cuda_sources,
             entry_point=entry_point,
+            precision=precision,
         )
         if not precheck_info.get("passed", False):
             return {

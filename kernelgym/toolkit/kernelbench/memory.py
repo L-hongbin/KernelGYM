@@ -9,7 +9,6 @@ from typing import Any, Dict, Iterable, Union
 
 import torch
 
-MEMORY_SCHEMA_VERSION = 2
 _DIRECT_CUDA_ALLOCATION_APIS = (
     "cudaMalloc3D",
     "cudaMalloc3DArray",
@@ -188,7 +187,6 @@ def measure_cuda_memory_trial(
         )
 
     result = {
-        "schema_version": MEMORY_SCHEMA_VERSION,
         "method": "torch_cuda_peak_allocated_delta",
         "allocator_scope": "pytorch_cuda_caching_allocator",
         "forward_incremental_peak_allocated_bytes": forward_incremental_peak,

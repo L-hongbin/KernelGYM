@@ -81,11 +81,17 @@ class TaskManagerScheduler(SchedulerAPI):
         *,
         timeout: Optional[float] = None,
         poll_interval: Optional[float] = None,
+        target_node_id: Optional[str] = None,
+        target_hostname: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         start = time.monotonic()
         interval = self._poll_interval if poll_interval is None else poll_interval
         while True:
-            worker = await self._task_manager.select_idle_worker(resource)
+            worker = await self._task_manager.select_idle_worker(
+                resource,
+                target_node_id=target_node_id,
+                target_hostname=target_hostname,
+            )
             if worker:
                 return worker
             if timeout is not None and (time.monotonic() - start) >= timeout:
@@ -96,5 +102,13 @@ class TaskManagerScheduler(SchedulerAPI):
         self,
         resource: str,
         task_id: str,
+        *,
+        target_node_id: Optional[str] = None,
+        target_hostname: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        return await self._task_manager.select_worker_by_task_id(resource, task_id)
+        return await self._task_manager.select_worker_by_task_id(
+            resource,
+            task_id,
+            target_node_id=target_node_id,
+            target_hostname=target_hostname,
+        )

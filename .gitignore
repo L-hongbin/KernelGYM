@@ -1,5 +1,6 @@
 .env
 .env.*
+.secrets/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -30,3 +31,6 @@ gpu_mem_trend.png
 
 # Built native artifacts (CUPTI TSC shim)
 .native/
+
+# Local-only run and review evidence
+/docs/evidence/

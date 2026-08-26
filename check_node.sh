@@ -82,17 +82,30 @@ fi
 
 BASE="http://${API_HOST}:${API_PORT}"
 # --noproxy '*' guards against http_proxy routing LAN probes through a proxy.
-CURL=(curl -sf -m 5 --noproxy '*')
+CURL=(curl -sSf -m 5 --noproxy '*')
 
 # ---------------------------------------------------------------------------
 # Hit /health first. If the API is unreachable, fail fast with a vertical
 # block matching the Python summary layout so callers can grep uniformly.
 # ---------------------------------------------------------------------------
-if ! HEALTH=$("${CURL[@]}" "${BASE}/health"); then
+HEALTH_ERROR_FILE=$(mktemp /tmp/kernelgym-health-error-XXXXXX)
+trap 'rm -f "${HEALTH_ERROR_FILE}"' EXIT
+if HEALTH=$("${CURL[@]}" "${BASE}/health" 2>"${HEALTH_ERROR_FILE}"); then
+    :
+else
+    CURL_STATUS=$?
+    HEALTH_ERROR=$(tr '\n' ' ' <"${HEALTH_ERROR_FILE}" | sed 's/[[:space:]]*$//')
+    if [[ "${CURL_STATUS}" == "28" ]]; then
+        REASON="timeout after 5s"
+    elif [[ -n "${HEALTH_ERROR}" ]]; then
+        REASON="${HEALTH_ERROR} (curl exit ${CURL_STATUS})"
+    else
+        REASON="unreachable (curl exit ${CURL_STATUS})"
+    fi
     cat <<EOF
 status:     DOWN
 url:        ${BASE}/health
-reason:     unreachable (timeout 5s)
+reason:     ${REASON}
 EOF
     exit 1
 fi

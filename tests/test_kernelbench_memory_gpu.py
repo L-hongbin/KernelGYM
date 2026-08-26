@@ -38,7 +38,6 @@ def test_memory_trial_measures_matmul_forward_and_total_task_peak() -> None:
         environment_floor_reserved_bytes=environment_floor["reserved_bytes"],
     )
 
-    assert stats["schema_version"] == 2
     assert stats["measurement_valid"] is True
     assert stats["measurement_complete"] is True
     assert stats["environment_floor_available"] is True

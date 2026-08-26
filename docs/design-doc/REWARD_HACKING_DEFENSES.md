@@ -72,6 +72,14 @@ Any other `aten::*` call is treated as a high-level compute fallback. A candidat
 
 ATen legality is categorical and does not use a CUDA-time percentage threshold. Profiler initialization/extraction failure sets `aten_detection_valid=false` and records the error; it does not create a decoy verdict.
 
+Hard ATen evidence is preserved independently of numerical correctness. Once any completed candidate forward records `policy_violation=true`, every subsequent correctness exit—including shape mismatch, value mismatch, time-budget failure, and a later runtime exception—returns `decoy_kernel=true`. The metadata fields `correctness_candidate_forward_completed`, `correctness_candidate_forward_completed_trials`, and `correctness_output_mismatch` distinguish a successfully completed but incorrect candidate forward from failures where rerunning untrusted code would be unsafe.
+
+### Incorrect-result backend usage probe
+
+For CUDA-Agent and TVM-FFI only, a candidate that completes its forward but returns a shape or value mismatch gets one additional profiling-only forward when no earlier hard decoy verdict exists. This probe performs no warmup and no performance timing. It compares the single CUDA capture with the custom `__global__` kernel names extracted into backend profiling hints.
+
+If the capture is valid, at least one expected custom kernel name exists, and none of those names is observed, the result is returned with `decoy_kernel=true` and `policy_violation_reason=BACKEND_CUSTOM_KERNEL_NOT_OBSERVED`. Missing expected names, an empty profiler capture, or a profiler error fails open. A correctness runtime error, CUDA fault, or candidate forward that never completed is never rerun. Probe evidence is recorded under `incorrect_backend_usage_probe`.
+
 ### CUDA synchronization
 
 Correctness and timing paths call `torch.cuda.synchronize(device=device)` after reference, custom, warmup, timing, and profiling loops. This prevents default-stream timing from returning before queued work is finished.
@@ -123,7 +131,7 @@ NCU collection is diagnostic only and does not change CUDA-event runtime, correc
 
 ## Regression Tests
 
-`tests/test_kernelbench_correctness_gpu.py` contains GPU-only tests for the cache-poison defense:
+`tests/kernelbench/correctness/test_correctness_gpu.py` contains GPU-only tests for the cache-poison defense:
 
 - With poison enabled, a custom model returning `torch.empty_like` after a reference with a same-shaped intermediate fails correctness.
 - With poison monkeypatched off, the same custom model can reproduce the hacking behavior and incorrectly pass by reusing stale reference intermediate memory.
@@ -131,8 +139,9 @@ NCU collection is diagnostic only and does not change CUDA-event runtime, correc
 - Forbidden `aten::mm` is detected on the candidate correctness forward while allowlisted `aten::view` passes.
 - A compiled CUDA extension whose wrapper calls `.float()` is correct and is not rejected; the test verifies the modern `aten::to`/`aten::_to_copy` dispatcher path on GPU.
 - All candidate correctness trials are profiled, so a stateful implementation cannot defer an ATen fallback until a later trial.
+- A forbidden ATen fallback remains a hard decoy when its output is also numerically incorrect.
 
-`tests/test_aten_decoy_detection.py` covers the explicit allowlist, CUDA-device-only coverage extraction, low-coverage suspicion, and profiler-unavailable behavior.
+`tests/kernelbench/profiling/test_aten_decoy_detection.py` covers the explicit allowlist, CUDA-device-only coverage extraction, low-coverage suspicion, profiler-unavailable behavior, single-forward incorrect-result probes for CUDA-Agent/TVM-FFI, and the no-rerun guards for runtime/non-completed failures.
 
 These tests skip on hosts without PyTorch CUDA.
 

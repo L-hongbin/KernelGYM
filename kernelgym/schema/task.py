@@ -14,6 +14,7 @@ class EvaluationTask:
     toolkit: str = "kernelbench"
     backend_adapter: str = "kernelbench"
     backend: str = "triton"
+    precision: str = "fp32"
     num_correct_trials: int = 5
     num_perf_trials: int = 100
     num_warmup: int = 3
@@ -36,6 +37,8 @@ class EvaluationTask:
     assigned_worker: Optional[str] = None
     reference_backend: Optional[str] = None
     device_preference: Optional[str] = None
+    target_node_id: Optional[str] = None
+    target_hostname: Optional[str] = None
     force_refresh: bool = False
     uuid: Optional[str] = None
     use_reference_cache: bool = False
@@ -109,6 +112,7 @@ class KernelEvaluationTask:
     toolkit: str = "kernelbench"
     backend_adapter: str = "kernelbench"
     backend: str = "triton"
+    precision: str = "fp32"
     num_correct_trials: int = 5
     num_perf_trials: int = 100
     num_warmup: int = 3

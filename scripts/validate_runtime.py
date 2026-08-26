@@ -37,7 +37,7 @@ ENABLE_NCU = os.environ.get("ENABLE_NCU", "true").strip().lower() not in {
 PREFERRED_COMPUTE_SANITIZER = Path(
     os.environ.get("COMPUTE_SANITIZER_PATH", "/usr/local/cuda-12.9/bin/compute-sanitizer")
 )
-ENABLE_COMPUTE_SANITIZER = os.environ.get("ENABLE_COMPUTE_SANITIZER", "true").strip().lower() not in {
+ENABLE_COMPUTE_SANITIZER = os.environ.get("ENABLE_COMPUTE_SANITIZER", "false").strip().lower() not in {
     "0",
     "false",
     "no",

@@ -59,7 +59,7 @@ One boundary to respect when single-forward mode activates: one forward only obs
 
 ## Tests
 
-- `tests/test_profiling_trials.py` — version gate, fail-safe on unknown versions, explicit/env overrides, retry uses the resolved count, empty-capture metadata bookkeeping, and empty-capture-never-decoy.
-- `tests/test_profiling_empty_capture_gpu.py` — on a real GPU, consecutive profiler contexts around a slow (~120 ms) kernel must each capture kernel names with positive CUDA durations using the production-resolved trial count; explicit trial counts control the exact number of profiler forwards.
-- `tests/test_cupti_tsc_shim.py` — shim builder produces a loadable artifact with state symbols, service-env injection and fail-open, `kineto_tsc_fix_verified` semantics per shim state, and the retry fallback to legacy trials when the shim did not engage.
-- `tests/test_cupti_tsc_shim_gpu.py` — end-to-end in a subprocess configured like a deployed worker (shim preloaded, fix declared): auto resolution uses 1 forward, three consecutive contexts each capture the slow kernel, profiler durations match CUDA events within 30%, and the shim reports a healthy state.
+- `tests/kernelbench/profiling/test_profiling_trials.py` — version gate, fail-safe on unknown versions, explicit/env overrides, retry uses the resolved count, empty-capture metadata bookkeeping, and empty-capture-never-decoy.
+- `tests/kernelbench/profiling/test_empty_capture_gpu.py` — on a real GPU, consecutive profiler contexts around a slow (~120 ms) kernel must each capture kernel names with positive CUDA durations using the production-resolved trial count; explicit trial counts control the exact number of profiler forwards.
+- `tests/kernelbench/profiling/test_cupti_tsc_shim.py` — shim builder produces a loadable artifact with state symbols, service-env injection and fail-open, `kineto_tsc_fix_verified` semantics per shim state, and the retry fallback to legacy trials when the shim did not engage.
+- `tests/kernelbench/profiling/test_cupti_tsc_shim_gpu.py` — end-to-end in a subprocess configured like a deployed worker (shim preloaded, fix declared): auto resolution uses 1 forward, three consecutive contexts each capture the slow kernel, profiler durations match CUDA events within 30%, and the shim reports a healthy state.

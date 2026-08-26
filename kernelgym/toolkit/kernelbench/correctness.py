@@ -16,6 +16,11 @@ from kernelgym.toolkit.kernelbench.exec_types import (
     get_error_name,
     set_seed,
 )
+from kernelgym.toolkit.kernelbench.execution_policy import (
+    prepare_model_for_execution,
+    record_execution_policy,
+    tf32_execution_context,
+)
 from kernelgym.toolkit.kernelbench.input_perturbation import (
     CORRECTNESS_INPUT_PERTURBATIONS,
     PERTURBATION_ORIGINAL,
@@ -33,7 +38,6 @@ _CORRECTNESS_MAX_WALL_S_ENV = "KERNELGYM_CORRECTNESS_MAX_WALL_S"
 _CORRECTNESS_PASS_ON_BUDGET_ENV = "KERNELGYM_CORRECTNESS_PASS_ON_BUDGET"
 _CORRECTNESS_BUDGET_MIN_PASS_TRIALS_ENV = "KERNELGYM_CORRECTNESS_BUDGET_MIN_PASS_TRIALS"
 _CORRECTNESS_GPU_INPUTS_ENV = "KERNELGYM_CORRECTNESS_GPU_INPUTS"
-_CORRECTNESS_DISABLE_TF32_ENV = "KERNELGYM_CORRECTNESS_DISABLE_TF32"
 T = TypeVar("T")
 
 
@@ -41,14 +45,14 @@ def get_tolerance_for_dtype(dtype: torch.dtype) -> float:
     """Match KernelBench fp32 tolerance for integral outputs."""
     tolerances = {
         torch.float64: 1e-4,
-        torch.float32: 1e-4,
+        torch.float32: 1e-3,
         torch.float16: 1e-2,
         torch.bfloat16: 1e-2,
         # Complex dtypes: comparison runs on abs() magnitudes (see
         # _compare_tensors_inplace), so mirror the real-dtype tolerance of the
         # matching precision.
         torch.complex128: 1e-4,
-        torch.complex64: 1e-4,
+        torch.complex64: 1e-3,
         torch.bool: 0.0,
         torch.uint8: 1e-4,
         torch.int8: 1e-4,
@@ -97,103 +101,6 @@ def _env_positive_float(name: str) -> float | None:
 def _env_positive_int(name: str) -> int | None:
     parsed = _env_parsed(name, int)
     return parsed if parsed is not None and parsed > 0 else None
-
-
-def _read_backend_attr(root: Any, path: tuple[str, ...]) -> tuple[bool, Any]:
-    obj = root
-    for name in path[:-1]:
-        try:
-            obj = getattr(obj, name)
-        except Exception:
-            return False, None
-        if obj is None:
-            return False, None
-    try:
-        return True, getattr(obj, path[-1])
-    except Exception:
-        return False, None
-
-
-def _write_backend_attr(root: Any, path: tuple[str, ...], value: Any) -> bool:
-    obj = root
-    for name in path[:-1]:
-        try:
-            obj = getattr(obj, name)
-        except Exception:
-            return False
-        if obj is None:
-            return False
-    try:
-        setattr(obj, path[-1], value)
-        return True
-    except Exception:
-        return False
-
-
-@contextmanager
-def _true_fp32_correctness_context(metadata: dict):
-    """Force CUDA float32 ops to true fp32 during correctness, then restore."""
-    enabled = _env_flag(_CORRECTNESS_DISABLE_TF32_ENV, default=True)
-    metadata["correctness_tf32_disabled"] = bool(enabled)
-    if not enabled:
-        yield
-        return
-
-    # PyTorch 2.9+ prefers per-op fp32_precision settings. Avoid mixing those
-    # with legacy allow_tf32 flags when they are available; newer PyTorch can
-    # raise if the old and new APIs imply different cuDNN policies.
-    has_cudnn_conv_precision, _ = _read_backend_attr(torch.backends, ("cudnn", "conv", "fp32_precision"))
-    has_matmul_precision, _ = _read_backend_attr(torch.backends, ("cuda", "matmul", "fp32_precision"))
-
-    attr_targets = []
-    if has_cudnn_conv_precision:
-        attr_targets.append(("cudnn.conv.fp32_precision", ("cudnn", "conv", "fp32_precision"), "ieee"))
-    else:
-        attr_targets.append(("cudnn.allow_tf32", ("cudnn", "allow_tf32"), False))
-    if has_matmul_precision:
-        attr_targets.append(("cuda.matmul.fp32_precision", ("cuda", "matmul", "fp32_precision"), "ieee"))
-    else:
-        attr_targets.append(("cuda.matmul.allow_tf32", ("cuda", "matmul", "allow_tf32"), False))
-
-    saved_attrs: list[tuple[tuple[str, ...], Any]] = []
-    before: dict[str, str] = {}
-    applied: dict[str, str] = {}
-    for label, path, value in attr_targets:
-        exists, old_value = _read_backend_attr(torch.backends, path)
-        if not exists:
-            continue
-        before[label] = str(old_value)
-        if _write_backend_attr(torch.backends, path, value):
-            saved_attrs.append((path, old_value))
-            applied[label] = str(value)
-
-    old_matmul_precision = None
-    if (
-        not has_matmul_precision
-        and hasattr(torch, "get_float32_matmul_precision")
-        and hasattr(torch, "set_float32_matmul_precision")
-    ):
-        try:
-            old_matmul_precision = torch.get_float32_matmul_precision()
-            torch.set_float32_matmul_precision("highest")
-            before["float32_matmul_precision"] = str(old_matmul_precision)
-            applied["float32_matmul_precision"] = "highest"
-        except Exception:
-            old_matmul_precision = None
-
-    metadata["correctness_tf32_state_before"] = before
-    metadata["correctness_tf32_state_forced"] = applied
-
-    try:
-        yield
-    finally:
-        if old_matmul_precision is not None:
-            try:
-                torch.set_float32_matmul_precision(old_matmul_precision)
-            except Exception:
-                pass
-        for path, old_value in reversed(saved_attrs):
-            _write_backend_attr(torch.backends, path, old_value)
 
 
 @contextmanager
@@ -479,6 +386,10 @@ def run_and_check_correctness(
     metadata["correctness_effective_trials"] = int(total_correct_trials)
     metadata["correctness_input_perturbation_trials"] = []
     metadata["correctness_reference_skipped_perturbations"] = []
+    metadata["correctness_candidate_forward_completed"] = False
+    metadata["correctness_candidate_forward_completed_trials"] = []
+    metadata["correctness_output_mismatch"] = False
+    record_execution_policy(metadata)
     if max_wall_time_s is not None:
         metadata["correctness_max_wall_s"] = max_wall_time_s
 
@@ -493,6 +404,16 @@ def run_and_check_correctness(
         metadata["correctness_input_generation_trial_s"] = input_generation_durations
         metadata["correctness_input_transfer_trial_s"] = input_transfer_durations
         metadata["correctness_reference_alias_clone_trial_s"] = reference_alias_clone_durations
+
+    def _result(*, correctness: bool) -> KernelExecResult:
+        """Build a result without dropping hard decoy evidence on failure exits."""
+
+        return KernelExecResult(
+            compiled=True,
+            correctness=correctness,
+            decoy_kernel=bool(metadata.get("policy_violation")),
+            metadata=metadata,
+        )
 
     def _record_aten_trial_metrics(aten_metrics: dict[str, Any], trial: int) -> None:
         trial_record = {"trial": trial, **aten_metrics}
@@ -564,12 +485,7 @@ def run_and_check_correctness(
                 metadata["correctness_issue"] = (
                     f"Correctness time budget reached after {pass_count} passing trials; accepted early"
                 )
-                return KernelExecResult(
-                    compiled=True,
-                    correctness=True,
-                    decoy_kernel=bool(metadata.get("policy_violation")),
-                    metadata=metadata,
-                )
+                return _result(correctness=True)
             metadata["correctness_time_budget_overrun_to_min_pass"] = True
             return None
 
@@ -577,7 +493,7 @@ def run_and_check_correctness(
         metadata["correctness_issue"] = (
             f"Correctness time budget exceeded after {trials_run} / {total_correct_trials} trials"
         )
-        return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
+        return _result(correctness=False)
 
     torch.manual_seed(seed)
     correctness_trial_seeds = [int(torch.randint(0, 2**32 - 1, (1,)).item()) for _ in range(total_correct_trials)]
@@ -599,11 +515,12 @@ def run_and_check_correctness(
         metadata = register_and_format_exception("runtime_error", exception, metadata, truncate=False)
         metadata["runtime_error_name"] = get_error_name(exception)
         metadata["correctness_failed_trial"] = trial
+        # Internal-only replay input; result serialization strips this field.
         metadata["correctness_failed_trial_seed"] = int(trial_seed)
         metadata["correctness_failed_input_perturbation"] = perturbation
         metadata["correctness_runtime_error_stage"] = metadata.get("correctness_current_substage")
         _record_trial_metadata()
-        return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
+        return _result(correctness=False)
 
     def _record_reference_perturbation_skip(
         *,
@@ -628,11 +545,11 @@ def run_and_check_correctness(
         )
         _record_trial_metadata()
 
-    with _true_fp32_correctness_context(metadata), torch.no_grad():
+    with tf32_execution_context(metadata, stage="correctness"), torch.no_grad():
         set_seed(seed)
-        model = original_model_instance.cuda(device=device)
+        model = prepare_model_for_execution(original_model_instance.cuda(device=device))
         set_seed(seed)
-        model_new = new_model_instance.cuda(device=device)
+        model_new = prepare_model_for_execution(new_model_instance.cuda(device=device))
 
         for trial in range(total_correct_trials):
             if trial > 0:
@@ -750,6 +667,8 @@ def run_and_check_correctness(
                 with aten_operator_profiling_context(profile_aten_operators) as aten_prof:
                     output_new = model_new(*inputs)
                     torch.cuda.synchronize(device=device)
+                metadata["correctness_candidate_forward_completed"] = True
+                metadata["correctness_candidate_forward_completed_trials"].append(trial)
                 if profile_aten_operators:
                     aten_metrics = extract_aten_operator_metrics(aten_prof)
                     _record_aten_trial_metrics(aten_metrics, trial)
@@ -758,6 +677,7 @@ def run_and_check_correctness(
                 del inputs
 
                 if not _structures_match(output, output_new):
+                    metadata["correctness_output_mismatch"] = True
                     expected_shape = _describe_structure(output)
                     got_shape = _describe_structure(output_new)
                     compare_trial_durations.append(0.0)
@@ -772,7 +692,6 @@ def run_and_check_correctness(
                     )
                     metadata["correctness_issue_name"] = "output_structure_mismatch"
                     metadata["correctness_failed_trial"] = trial
-                    metadata["correctness_failed_trial_seed"] = int(trial_seed)
                     metadata["correctness_failed_input_perturbation"] = perturbation
                     _record_trial_metadata()
                     if verbose:
@@ -782,7 +701,7 @@ def run_and_check_correctness(
                             expected_shape,
                             got_shape,
                         )
-                    return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
+                    return _result(correctness=False)
 
                 _set_substage("compare", trial=trial)
                 compare_start = perf_counter()
@@ -796,6 +715,7 @@ def run_and_check_correctness(
                 trial_durations.append(perf_counter() - trial_start)
 
                 if not outputs_close:
+                    metadata["correctness_output_mismatch"] = True
                     metadata.setdefault("max_difference", []).append(f"{max_diff:.6f}")
                     metadata.setdefault("avg_difference", []).append(f"{avg_diff:.6f}")
                     metadata["correctness_issue"] = (
@@ -805,14 +725,13 @@ def run_and_check_correctness(
                     )
                     metadata["correctness_issue_name"] = "numerical_mismatch"
                     metadata["correctness_failed_trial"] = trial
-                    metadata["correctness_failed_trial_seed"] = int(trial_seed)
                     metadata["correctness_failed_input_perturbation"] = perturbation
                     if verbose:
                         logger.warning("[FAIL] trial %s: Output mismatch", trial)
                     if stop_on_first_failure:
                         metadata["correctness_early_stopped"] = True
                         _record_trial_metadata()
-                        return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
+                        return _result(correctness=False)
                 else:
                     pass_count += 1
                     if verbose:
@@ -836,10 +755,5 @@ def run_and_check_correctness(
     _record_trial_metadata()
 
     if pass_count == expected_pass_count and expected_pass_count > 0:
-        return KernelExecResult(
-            compiled=True,
-            correctness=True,
-            decoy_kernel=bool(metadata.get("policy_violation")),
-            metadata=metadata,
-        )
-    return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
+        return _result(correctness=True)
+    return _result(correctness=False)

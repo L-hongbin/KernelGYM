@@ -11,7 +11,9 @@ set -euo pipefail
 PRIMARY=${1:?usage: restart_worker_node.sh PRIMARY_ADDR [--clear-cache]}
 shift || true
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-PY="$ROOT/.venv/bin/python"
+# shellcheck disable=SC1091
+source "$ROOT/scripts/runtime_paths.sh"
+PY="$KERNELGYM_LOCAL_VENV_DIR/bin/python"
 DRAIN=${KERNELGYM_WORKER_SHUTDOWN_DRAIN_SEC:-120}
 GRACE=$((DRAIN + 30))
 

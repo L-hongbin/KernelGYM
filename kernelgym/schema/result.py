@@ -56,7 +56,6 @@ def _serialize_memory_fields(value: Any) -> Any:
                 else _serialize_memory_fields(item)
             )
             for key, item in value.items()
-            if key != "schema_version"
         }
     if isinstance(value, list):
         return [_serialize_memory_fields(item) for item in value]

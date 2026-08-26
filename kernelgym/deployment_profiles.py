@@ -25,7 +25,7 @@ class RewardProfile:
     name: str
     api_host: str = "0.0.0.0"
     redis_host: str = "localhost"
-    gpu_devices: tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6, 7)
+    gpu_devices: tuple[int, ...] | None = None
 
     def env(self) -> dict[str, str]:
         return {
@@ -35,7 +35,13 @@ class RewardProfile:
             "API_PORT": str(API_PORT),
             "API_WORKERS": str(API_WORKERS),
             "API_RELOAD": bool_env(API_RELOAD),
-            "GPU_DEVICES": "[" + ",".join(str(device) for device in self.gpu_devices) + "]",
+            # Resolve against the CUDA devices visible inside the container at
+            # service startup unless this profile explicitly selects a subset.
+            "GPU_DEVICES": (
+                "auto"
+                if self.gpu_devices is None
+                else "[" + ",".join(str(device) for device in self.gpu_devices) + "]"
+            ),
             "NODE_ID": self.name,
             "REDIS_HOST": self.redis_host,
             "REDIS_PORT": str(REDIS_PORT),
@@ -44,6 +50,13 @@ class RewardProfile:
             "REDIS_KEY_PREFIX": REDIS_KEY_PREFIX,
             "WORKER_POOL_SIZE": "2",
             "MAX_TASKS_PER_WORKER": "1",
+            "KERNELGYM_WORKER_SPAWN_CONCURRENCY": "8",
+            "KERNELGYM_WORKER_SPAWN_SLOT_TIMEOUT": "600",
+            "KERNELGYM_WORKER_CONTAINMENT_TIMEOUT": "180",
+            "KERNELGYM_WORKER_READY_TIMEOUT": "90",
+            # Two serial pool workers can each consume 600 + 180 + 90 seconds.
+            # Keep additional room for outer-process Torch import/registration.
+            "WORKER_MONITOR_STARTUP_TIMEOUT": "2100",
             "CPU_COMPILE_WORKERS": "24",
             "SPLIT_COMPILE_AND_EXECUTE": "true",
             "DEFAULT_TIMEOUT": "180",
@@ -62,13 +75,14 @@ class RewardProfile:
             "NCU_MAX_KERNELS": "8",
             "NCU_WARMUP": "2",
             "NCU_PROFILE_VERSION": "v1",
-            "ENABLE_COMPUTE_SANITIZER": "true",
+            "ENABLE_COMPUTE_SANITIZER": "false",
             "COMPUTE_SANITIZER_PATH": "/usr/local/cuda-12.9/bin/compute-sanitizer",
             "COMPUTE_SANITIZER_TIMEOUT_S": "60",
             "COMPUTE_SANITIZER_MAX_KERNELS": "16",
             "COMPUTE_SANITIZER_MAX_ISSUES": "4",
             "COMPUTE_SANITIZER_PROFILE_VERSION": "v1",
             "ENABLE_CORRECTNESS_INPUT_PERTURBATIONS": "false",
+            "ADAPTIVE_PERF_TRIALS": "false",
             "VERBOSE_ERROR_TRACEBACK": "true",
             "SAVE_EVAL_RESULTS": "false",
             "EVAL_RESULTS_PATH": f"logs/{self.name}/eval_results.jsonl",

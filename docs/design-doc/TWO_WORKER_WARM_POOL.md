@@ -1,7 +1,7 @@
 # Two-Worker Warm Pool
 
 Status: current design
-Date: 2026-05-20
+Date: 2026-08-23
 
 This document describes the current GPU subprocess warm-pool design used by the reward worker. The default configuration is a two-worker pool per GPU: one subprocess can run the current task while one already-initialized subprocess remains available as a warm spare. This is not two-task GPU concurrency; the current `GPUWorker` consumes tasks serially, and the spare exists to hide worker recycle latency.
 
@@ -16,18 +16,25 @@ This document describes the current GPU subprocess warm-pool design used by the 
 
 ## Configuration
 
-The controlling settings are in `kernelgym/config/settings.py`:
+The pool-size settings are in `kernelgym/config/settings.py`; spawn-handshake controls are read by `kernelgym/worker/subprocess_pool.py` and pinned by the `v1` deployment profile:
 
 | Setting | Env var | Default | Meaning |
 | --- | --- | --- | --- |
 | `worker_pool_size` | `WORKER_POOL_SIZE` | `2` | Number of persistent subprocess workers created per GPU worker. With the current serial GPU worker loop, this means one active subprocess plus one warm spare. |
 | `max_tasks_per_worker` | `MAX_TASKS_PER_WORKER` | `1` | Number of tasks a subprocess may return before it is marked unavailable and recycled. |
+| — | `KERNELGYM_WORKER_SPAWN_CONCURRENCY` | `8` | Maximum simultaneous spawn/import/CUDA READY handshakes across all GPU workers in one container. The local-disk runtime removes the shared-venv import bottleneck that required the former conservative value of two. |
+| — | `KERNELGYM_WORKER_SPAWN_SLOT_TIMEOUT` | `600` | Maximum wait for a node-local spawn slot; this wait is outside the handshake clocks. |
+| — | `KERNELGYM_WORKER_CONTAINMENT_TIMEOUT` | `180` | Deadline from `Process.start()` until the child reports its authenticated PGID/SID containment. |
+| — | `KERNELGYM_WORKER_READY_TIMEOUT` | `90` | Independent deadline from confirmed containment until Torch/CUDA initialization reports READY. |
+| `worker_monitor_startup_timeout` | `WORKER_MONITOR_STARTUP_TIMEOUT` | `2100` | Authenticated outer-worker startup grace. It covers two sequential worst-case constructors (`2 × (600 + 180 + 90) = 1740` seconds) plus outer-process import/registration margin. |
 
 The default `2 x 1` mode is the important behavior: keep two warm CUDA subprocesses around, but retire each subprocess after one task.
 
 ## Startup
 
-Each `GPUWorker` creates one `SubprocessWorkerPool` after API registration and GPU discovery. The pool starts `worker_pool_size` `PersistentWorker` processes immediately. Each subprocess uses `spawn`, imports torch/toolkit/backend code, initializes CUDA on the assigned device, performs a tiny CUDA allocation, synchronizes, and then reports `READY` to the parent.
+Each `GPUWorker` creates one `SubprocessWorkerPool` after API registration and GPU discovery. The pool starts `worker_pool_size` `PersistentWorker` processes immediately. A private `/dev/shm` flock pool admits at most eight concurrent constructors across the container. Lock descriptors are non-inheritable/CLOEXEC and the persistent slot inodes are never replaced, so a CUDA child cannot retain or bypass a parent's slot.
+
+Each subprocess uses `spawn`, establishes and reports its dedicated PGID inside the outer worker SID, waits for the parent containment acknowledgement, then imports Torch/toolkit/backend code, initializes CUDA on the assigned device, performs a tiny CUDA allocation, synchronizes, and reports `READY`. `kernelgym.worker` exports and `single_worker.GPUWorker` are lazy so multiprocessing can reach the containment target without first importing Torch. Parent logs separate spawn-slot wait, CONTAINED latency, READY-after-CONTAINED latency, and child initialization time.
 
 The parent only adds a subprocess to `idle_workers` after the ready message arrives. Startup therefore pays the CUDA initialization cost before live traffic reaches the subprocess.
 
@@ -67,7 +74,7 @@ Concretely:
 - The background `_register` decrements `pending_replacements`; if the pool reached `pool_size` while the replacement was in flight, the newly created worker is shut down rather than appended.
 - Emergency recovery in `_get_idle_worker` starts only when `len(workers) == 0` and `pending_replacements == 0`; it reuses the same accounting and discards itself if capacity is no longer needed.
 
-Tests in `tests/test_subprocess_pool.py` pin this invariant under all the recycle interleavings that previously grew the pool.
+Tests in `tests/workers/test_subprocess_pool.py` pin this invariant under all the recycle interleavings that previously grew the pool.
 
 ## Failure Handling
 
@@ -76,6 +83,8 @@ CUDA and profiler errors are treated as subprocess-fatal. The subprocess returns
 Timeouts are not retried. On timeout, the pool restarts the stuck subprocess and returns a timeout failure so the GPU queue is not blocked by repeated attempts.
 
 Non-timeout runtime failures may be retried by `SubprocessWorkerPool.execute_task()` up to its retry limit, after restarting the failed subprocess.
+
+If a replacement fails before CUDA health is implicated and its child is confirmed reaped, the pool retries capacity with 5/10-second backoff. Three consecutive confirmed-reap infrastructure failures close admission with `health_state=bootstrap_failed`, `health_scope=worker`, and no durable quarantine; the outer monitor immediately begins its generation-fenced restart path even if the publishing process is otherwise inside startup grace. The monitor compares the status heartbeat timestamp with the authenticated process-map start time, so an old `bootstrap_failed` hash cannot kill a newly spawned generation before its first `initializing` heartbeat. A successful READY resets the inner counter. Actual CUDA probe failure, post-fault validation failure, or any unconfirmed reap still creates an immediate durable quarantine. Delayed retry bookkeeping is generation-fenced so a stale retry cannot consume a newer recovery epoch's capacity reservation.
 
 If the pool loses all workers, `_get_idle_worker()` has an emergency recovery path that tries to create a new worker after a short delay. This is a last resort; normal operation should keep at least one warm subprocess available.
 
@@ -94,7 +103,7 @@ Pool behavior is visible through result metadata and pool stats:
 - `busy_workers`
 - `total_workers_restarted`
 
-Useful log markers include `PoolTiming`, `Recycling worker`, `Background spare ready`, and `Worker pool initialized`.
+Useful log markers include `PoolTiming`, `Recycling worker`, `Acquired host worker spawn slot`, `Background spare ready`, and `Worker initialized successfully (containment=..., ready_after_containment=..., child_init=...)`.
 
 ## Tradeoffs
 
@@ -105,6 +114,8 @@ Increasing `WORKER_POOL_SIZE` above `2` only helps if the outer scheduling path 
 Increasing `MAX_TASKS_PER_WORKER` reduces recycle overhead but weakens per-task isolation and can allow allocator, extension, profiler, or CUDA state to survive across submissions. The current reward-only default keeps this at `1`.
 
 ## Verification
+
+On 2026-08-23 an isolated two-GPU A800 smoke forced spawn concurrency to one. The first cold constructor reached READY and reaped safely in 53.2 seconds; the second spent about 53 seconds waiting outside the handshake clocks, then initialized in 6.8 seconds and also reaped safely. No CUDA process remained. This validates the slot boundary and leaves roughly 37 seconds of margin inside the production 90-second post-containment deadline for the observed cold import.
 
 The deployed `v1` setup has been verified on the 8x4090 `.40` node:
 

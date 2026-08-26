@@ -8,6 +8,8 @@ import logging
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from kernelgym.toolkit.kernelbench.execution_policy import EXECUTION_POLICY_VERSION
+
 try:
     import redis as redis_sync
 except Exception:  # pragma: no cover - dependency is optional at import time
@@ -43,7 +45,12 @@ _REFERENCE_CODE_PATHS = (
     "reward_model.ground_truth",
     "result.reference_code",
 )
-_REFERENCE_MEMORY_SCHEMA_VERSION = 2
+_EXECUTION_POLICY_PATHS = (
+    "execution_policy",
+    "metadata.execution_policy",
+    "result.execution_policy",
+    "result.metadata.execution_policy",
+)
 
 
 def _code_hash(reference_code: str) -> Optional[str]:
@@ -96,7 +103,7 @@ class ReferenceRuntimeCache:
 
     def _entry_key(self, uuid: str, is_valid: bool) -> str:
         namespace = "val" if is_valid else "train"
-        return f"{namespace}:{uuid}"
+        return f"{namespace}:{EXECUTION_POLICY_VERSION}:{uuid}"
 
     def _redis_key(self, uuid: str, is_valid: bool) -> str:
         return f"{self._redis_prefix}:{self._entry_key(uuid, is_valid)}"
@@ -108,6 +115,8 @@ class ReferenceRuntimeCache:
     ) -> bool:
         expected_hash = _code_hash(reference_code)
         cached_hash = entry.get("code_hash")
+        if entry.get("execution_policy") != EXECUTION_POLICY_VERSION:
+            return False
         if expected_hash and cached_hash and expected_hash != cached_hash:
             return False
         return True
@@ -161,9 +170,13 @@ class ReferenceRuntimeCache:
         memory = entry.get("reference_memory")
         if not isinstance(memory, dict):
             return None
-        if memory.get("schema_version") != _REFERENCE_MEMORY_SCHEMA_VERSION:
+        if not isinstance(memory.get("forward_incremental_peak_allocated_bytes"), int):
             return None
         if not isinstance(memory.get("total_task_peak_allocated_bytes"), int):
+            return None
+        if memory.get("measurement_valid") is not True:
+            return None
+        if not isinstance(memory.get("measurement_complete"), bool):
             return None
         return dict(memory)
 
@@ -190,6 +203,7 @@ class ReferenceRuntimeCache:
         entry = {
             "reference_runtime": runtime_value,
             "code_hash": _code_hash(reference_code),
+            "execution_policy": EXECUTION_POLICY_VERSION,
         }
         if isinstance(reference_memory, dict):
             entry["reference_memory"] = dict(reference_memory)
@@ -215,6 +229,9 @@ class ReferenceRuntimeCache:
                 uuid = _extract_first(record, _UUID_PATHS)
                 runtime = _extract_first(record, _RUNTIME_PATHS)
                 reference_code = _extract_first(record, _REFERENCE_CODE_PATHS) or ""
+                execution_policy = _extract_first(record, _EXECUTION_POLICY_PATHS)
+                if execution_policy != EXECUTION_POLICY_VERSION:
+                    continue
                 before = self.get(str(uuid) if uuid is not None else None, reference_code, is_valid)
                 reference_memory = _extract_first(record, _REFERENCE_MEMORY_PATHS)
                 self.put(

@@ -19,7 +19,6 @@ def _memory(
     floor_reserved: int | None = None,
 ) -> dict:
     memory = {
-        "schema_version": 2,
         "method": "torch_cuda_peak_allocated_delta",
         "allocator_scope": "pytorch_cuda_caching_allocator",
         "forward_incremental_peak_allocated_bytes": peak,
@@ -47,7 +46,6 @@ def _memory(
 
 def _legacy_memory(peak: int) -> dict:
     return {
-        "schema_version": 1,
         "method": "torch_cuda_peak_allocated_delta",
         "allocator_scope": "pytorch_cuda_caching_allocator",
         "peak_allocated_bytes": peak,
@@ -163,8 +161,6 @@ def test_memory_fields_are_serialized_at_feedback_top_level() -> None:
         "kg_kernel_memory_step_s",
         "memory_measurement_error",
     }.isdisjoint(feedback["metadata"])
-    assert reference_memory["schema_version"] == 2
-    assert kernel_memory["schema_version"] == 2
     assert reference_memory["total_task_peak_allocated_bytes"] == 3_000
     assert kernel_memory["total_task_peak_allocated_bytes"] == 2_200
     assert comparison["measurement_status"] == "complete"
@@ -252,7 +248,7 @@ def test_direct_allocation_marks_feedback_comparison_as_lower_bound() -> None:
     }
 
 
-def test_reference_cache_round_trips_v2_memory_and_rejects_legacy_entries() -> None:
+def test_reference_cache_round_trips_current_memory_and_rejects_legacy_entries() -> None:
     cache = ReferenceRuntimeCache()
     reference_code = "class Model: pass"
     reference_memory = _memory(4_096)

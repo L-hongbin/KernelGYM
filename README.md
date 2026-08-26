@@ -16,9 +16,10 @@ bash scripts/start_container.sh
 
 ### 1. Bootstrap the environment
 
-`ensure_venv.sh` is idempotent. It validates CUDA 12.9, installs `redis-server` (via apt when missing), creates the repo-local `.venv` with Python 3.12, and installs torch / torchvision / apache-tvm-ffi (preferring local `./wheels/*.whl` over the configured index).
+`ensure_venv.sh` validates CUDA 12.9, installs the pinned Redis `.deb` bundle when needed, and creates `/root/kernelgym-reward-only/.venv` on the node-local system disk. Python packages are pinned by `requirements-offline.txt` and installed with `--offline --no-index` exclusively from the absolute shared wheelhouse `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels`. Redis is likewise installed without apt indexes or network access from `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels/redis/ubuntu-24.04-amd64`. The old repo-local `.venv` is deprecated and ignored. `set_env.sh` reports and validates these runtime paths.
 
 ```bash
+bash set_env.sh
 bash ensure_venv.sh
 ```
 
@@ -28,7 +29,13 @@ bash ensure_venv.sh
 bash deploy_node.sh --nnodes 1
 ```
 
-`deploy_node.sh` activates `.venv`, scrubs `LD_LIBRARY_PATH` / `PYTHONPATH` of host-Python torch trees, runs `scripts/validate_runtime.py`, then starts the API server (`:20111`), worker monitor, 8 GPU workers, and the profile's CPU compile workers. Override that count with `--cpu-compile-workers N` or `--cpu-workers N`.
+`deploy_node.sh` activates the node-local venv, scrubs `LD_LIBRARY_PATH` / `PYTHONPATH` of host-Python torch trees, runs `scripts/validate_runtime.py`, then starts the API server (`:20111`), worker monitor, one GPU worker per container-visible CUDA device, and the profile's CPU compile workers. Logs, Python logs, core dumps, source, and long-lived artifacts remain under the shared checkout. Once this node's workers are ready, deployment performs one force-refreshed correctness and CUDA-profiling warmup affined to this hostname; cold `/nfs` compilation can keep the startup command busy for several minutes. Override the CPU count with `--cpu-compile-workers N` / `--cpu-workers N`, select a logical GPU subset with `--gpu-devices 0,1`, or use `--no-startup-warmup` only for diagnostics.
+
+Add `--block-terminal` when the deploy command should stay in the foreground (for example, as the container's foreground command). After startup succeeds, Ctrl-C, SIGTERM, or a terminal hangup stops this node's KernelGym services before the command exits:
+
+```bash
+bash deploy_node.sh --cluster --block-terminal
+```
 
 For a cold restart that removes local Redis persistence plus KernelGym compile/work caches before launching:
 
@@ -73,7 +80,7 @@ See [docs/SOURCE_LINEAGE.md](docs/SOURCE_LINEAGE.md), [docs/IMPLEMENTATION_DIFFE
 ## What Is Included
 
 - `kernelgym/`: reward API, scheduler, CPU/GPU workers, workflow, schema, backends, validation, and KernelBench toolkit.
-- `ensure_venv.sh`: idempotent CUDA 12.9 uv environment and `redis-server` bootstrap.
+- `ensure_venv.sh`: idempotent node-local CUDA 12.9 uv environment plus pinned Redis, both assembled from absolute offline bundles.
 - `deploy_node.sh` / `stop_node.sh`: thin wrappers around `kernelgym.cli.service` for single-node start/stop.
 - `check_node.sh` / `test_reward.sh`: operator probes for `/health`, `/workers/status`, and end-to-end `/evaluate`.
 - `scripts/lock_gpu_clocks.sh`: host-level GPU persistence, clock, and power-limit setup.
@@ -102,10 +109,10 @@ See [docs/DEPLOYMENT.md#multi-node-tutorial](docs/DEPLOYMENT.md#multi-node-tutor
 
 ## Development Setup
 
-Install the pre-commit hooks and run the test suite from inside the activated `.venv`:
+Install the pre-commit hooks and run the test suite from inside the activated node-local venv:
 
 ```bash
-source .venv/bin/activate
+source /root/kernelgym-reward-only/.venv/bin/activate
 pre-commit install
 pytest
 ruff format .
@@ -124,6 +131,7 @@ Formatting is done by `ruff format`, not Black. Linting is done by `ruff check`.
 
 ### Design
 
+- [docs/design-doc/SYSTEM_WORKFLOW.md](docs/design-doc/SYSTEM_WORKFLOW.md) — 中文整体流程：系统分层、评测阶段、缓存复用、结果合并与故障处理。
 - [docs/design-doc/COMPILE_ACCELERATION.md](docs/design-doc/COMPILE_ACCELERATION.md) — Manual-ninja compile path, per-object cache, compile artifact cache, split compile/execute.
 - [docs/design-doc/TWO_WORKER_WARM_POOL.md](docs/design-doc/TWO_WORKER_WARM_POOL.md) — GPU subprocess pool architecture (`WORKER_POOL_SIZE=2`, `MAX_TASKS_PER_WORKER=1`) and recycle invariants.
 - [docs/design-doc/REWARD_HACKING_DEFENSES.md](docs/design-doc/REWARD_HACKING_DEFENSES.md) — Decoy-kernel detection and reward-hacking defenses.

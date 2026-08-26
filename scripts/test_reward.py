@@ -141,8 +141,14 @@ def _http_post_json(url: str, body: dict, timeout: float) -> tuple[int, dict]:
         return exc.code, payload
 
 
-def _build_request(task_id: str, timeout: int, run_performance: bool) -> dict:
-    return {
+def _build_request(
+    task_id: str,
+    timeout: int,
+    run_performance: bool,
+    *,
+    target_hostname: str | None = None,
+) -> dict:
+    payload = {
         "task_id": task_id,
         "reference_code": REFERENCE_CODE,
         "kernel_code": KERNEL_CODE,
@@ -159,6 +165,15 @@ def _build_request(task_id: str, timeout: int, run_performance: bool) -> dict:
         "force_refresh": True,
         "run_performance": run_performance,
     }
+    if target_hostname:
+        payload.update(
+            {
+                "target_hostname": target_hostname,
+                "split_compile_and_execute": True,
+                "enable_profiling": True,
+            }
+        )
+    return payload
 
 
 def _disable_proxy_for_host(host: str) -> None:
@@ -189,8 +204,26 @@ def main() -> int:
         help="Override the generated task_id (default: random uuid4 hex)",
     )
     parser.add_argument("--no-perf", action="store_true", help="Skip the performance-timing phase")
+    parser.add_argument(
+        "--target-hostname",
+        default=None,
+        help="Require split compile/execute on this registered worker hostname",
+    )
+    parser.add_argument(
+        "--client-timeout",
+        type=int,
+        default=None,
+        help="HTTP wall timeout in seconds; defaults to task timeout plus 60 seconds",
+    )
+    parser.add_argument(
+        "--require-correct",
+        action="store_true",
+        help="Fail unless compile, correctness, and performance timing all succeed",
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Dump the full JSON response")
     args = parser.parse_args()
+    if args.require_correct and args.no_perf:
+        parser.error("--require-correct cannot be combined with --no-perf")
 
     _disable_proxy_for_host(args.host)
     base = f"http://{args.host}:{args.port}"
@@ -211,18 +244,26 @@ def main() -> int:
         return 1
 
     task_id = args.task_id or f"reward_smoke_{uuid.uuid4().hex[:12]}"
-    payload = _build_request(task_id, timeout=args.timeout, run_performance=not args.no_perf)
+    target_hostname = args.target_hostname.strip() if args.target_hostname else None
+    payload = _build_request(
+        task_id,
+        timeout=args.timeout,
+        run_performance=not args.no_perf,
+        target_hostname=target_hostname,
+    )
 
     print()
     print("=== POST /evaluate ===")
     print(f"task_id: {task_id}")
     print(f"timeout: {args.timeout}s, run_performance: {not args.no_perf}")
+    if target_hostname:
+        print(f"target_hostname: {target_hostname}")
     sent_at = time.time()
     http_status, body = _http_post_json(
         f"{base}/evaluate",
         payload,
         # Allow some headroom over the server-side task timeout for queueing.
-        timeout=args.timeout + 60,
+        timeout=args.client_timeout or args.timeout + 60,
     )
     elapsed = time.time() - sent_at
     print(f"http_status: {http_status}")
@@ -257,6 +298,12 @@ def main() -> int:
         print("=== full response ===")
         print(json.dumps(body, indent=2))
 
+    if args.require_correct:
+        complete = status == "completed"
+        timed = reference_runtime is not None and kernel_runtime is not None
+        if not (complete and compiled is True and correctness is True and timed):
+            print("required warmup outcome was not achieved")
+            return 1
     return 0 if status not in (None, "failed", "?") else 1
 
 

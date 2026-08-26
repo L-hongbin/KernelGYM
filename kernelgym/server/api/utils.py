@@ -1,6 +1,5 @@
 """Utility functions for KernelGym API server."""
 
-import asyncio
 import logging
 import shutil
 import subprocess
@@ -22,19 +21,13 @@ def format_timestamp(dt: datetime) -> str:
 def compute_gpu_info_sync() -> Dict[str, Any]:
     """Synchronous GPU info collection (nvidia-smi, falling back to torch).
 
-    This blocks (subprocess + driver calls), so callers on the event loop must
-    invoke it via a thread (see ``get_gpu_info``) or the cached snapshot in
-    ``system_stats``.
+    This blocks (subprocess + driver calls), so event-loop callers must use the
+    cached snapshot in ``system_stats``.
     """
     nvidia_smi_info = _get_gpu_info_from_nvidia_smi()
     if nvidia_smi_info is not None:
         return nvidia_smi_info
     return _get_gpu_info_from_torch()
-
-
-async def get_gpu_info() -> Dict[str, Any]:
-    # nvidia-smi can take seconds under GPU saturation; keep it off the loop.
-    return await asyncio.to_thread(compute_gpu_info_sync)
 
 
 def _get_gpu_info_from_nvidia_smi() -> Dict[str, Any] | None:
@@ -215,39 +208,3 @@ async def get_system_metrics() -> Dict[str, Any]:
             "queue_metrics": {},
             "error_metrics": {},
         }
-
-
-async def validate_gpu_availability() -> bool:
-    try:
-        if not torch.cuda.is_available():
-            return False
-
-        available_devices = torch.cuda.device_count()
-        required_devices = max(settings.gpu_devices) + 1 if settings.gpu_devices else 1
-        return available_devices >= required_devices
-
-    except Exception as exc:
-        logger.error(f"Error validating GPU availability: {exc}")
-        return False
-
-
-async def cleanup_old_tasks(redis_client, max_age_hours: int = 24) -> int:
-    try:
-        return 0
-    except Exception as exc:
-        logger.error(f"Error cleaning up old tasks: {exc}")
-        return 0
-
-
-async def get_task_statistics(redis_client) -> Dict[str, Any]:
-    try:
-        return {
-            "total_tasks": 0,
-            "completed_tasks": 0,
-            "failed_tasks": 0,
-            "average_processing_time": 0.0,
-            "success_rate": 0.0,
-        }
-    except Exception as exc:
-        logger.error(f"Error getting task statistics: {exc}")
-        return {"error": str(exc)}

@@ -27,6 +27,10 @@ from kernelgym.toolkit.kernelbench.exec_types import (
     get_error_name,
     set_seed,
 )
+from kernelgym.toolkit.kernelbench.execution_policy import (
+    prepare_model_for_execution,
+    record_execution_policy,
+)
 from kernelgym.toolkit.kernelbench.loading import (
     OriginalModelLoadError,
     graceful_eval_cleanup,
@@ -62,6 +66,8 @@ _STAGE_METADATA_PATH_ENV = "KERNELGYM_STAGE_METADATA_PATH"
 _FAST_RW_ROOT = Path("/dev/shm")
 _HARD_DECOY_COVERAGE_THRESHOLD = 0.001
 _SUSPECTED_DECOY_COVERAGE_THRESHOLD = 0.30
+_NAMED_KERNEL_PROBE_BACKENDS = frozenset({"cuda_agent", "tvm_ffi"})
+_BACKEND_KERNEL_NOT_OBSERVED_REASON = "BACKEND_CUSTOM_KERNEL_NOT_OBSERVED"
 
 
 def _path_is_under_fast_rw_root(path: Path) -> bool:
@@ -398,7 +404,133 @@ def _run_correctness_step(
     except Exception as e:
         metadata["runtime_error"] = e
         metadata["runtime_error_name"] = get_error_name(e)
-        return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
+        return KernelExecResult(
+            compiled=True,
+            correctness=False,
+            decoy_kernel=bool(metadata.get("policy_violation")),
+            metadata=metadata,
+        )
+
+
+def _run_incorrect_backend_usage_probe(
+    *,
+    kernel_exec_result: KernelExecResult,
+    custom_model,
+    get_inputs,
+    metadata: Dict[str, Any],
+    seed_num: int,
+    device: Union[torch.device, int],
+    backend: str,
+    backend_profiling_hints: Optional[Dict[str, Any]],
+    detect_decoy_kernel: bool,
+) -> bool:
+    """Profile exactly one safe, completed-but-incorrect CUDA/TVM candidate forward."""
+
+    probe: Dict[str, Any] = {
+        "backend": backend,
+        "attempted": False,
+        "num_forwards": 0,
+    }
+    metadata["incorrect_backend_usage_probe"] = probe
+
+    if not detect_decoy_kernel:
+        probe["skip_reason"] = "DECOY_DETECTION_DISABLED"
+        return False
+    if backend not in _NAMED_KERNEL_PROBE_BACKENDS:
+        probe["skip_reason"] = "UNSUPPORTED_BACKEND"
+        return False
+    if kernel_exec_result.correctness:
+        probe["skip_reason"] = "CORRECTNESS_PASSED"
+        return False
+    if metadata.get("runtime_error"):
+        probe["skip_reason"] = "RUNTIME_ERROR"
+        return False
+    if not metadata.get("correctness_candidate_forward_completed"):
+        probe["skip_reason"] = "CANDIDATE_FORWARD_NOT_COMPLETED"
+        return False
+    if not metadata.get("correctness_output_mismatch"):
+        probe["skip_reason"] = "NO_OUTPUT_MISMATCH"
+        return False
+
+    custom_kernel_names = sorted(
+        {
+            name.strip()
+            for name in (backend_profiling_hints or {}).get("custom_kernel_names", [])
+            if isinstance(name, str) and name.strip()
+        }
+    )
+    probe["expected_kernel_names"] = custom_kernel_names
+    if not custom_kernel_names:
+        probe["skip_reason"] = "NO_EXPECTED_CUSTOM_KERNEL_NAMES"
+        return False
+
+    try:
+        torch.cuda.synchronize(device=device)
+        set_seed(seed_num)
+        inputs = get_inputs()
+        inputs = [x.cuda(device=device) if isinstance(x, torch.Tensor) else x for x in inputs]
+        model_new = prepare_model_for_execution(custom_model.cuda(device=device))
+        torch.cuda.synchronize(device=device)
+
+        probe["attempted"] = True
+        probe["num_forwards"] = 1
+        profiling_metrics = run_profiling_only(
+            model_new,
+            *inputs,
+            num_trials=1,
+            verbose=False,
+            device=device,
+        )
+    except Exception as exc:
+        probe["error"] = str(exc)
+        probe["valid"] = False
+        logger.warning("[Decoy Probe] Failed for backend=%s: %s", backend, exc)
+        return False
+
+    probe["profiling"] = profiling_metrics
+    if profiling_metrics.get("profiling_error"):
+        probe["error"] = str(profiling_metrics["profiling_error"])
+        probe["valid"] = False
+        return False
+    if not profiling_metrics.get("kernels"):
+        probe["valid"] = False
+        probe["skip_reason"] = "EMPTY_PROFILER_CAPTURE"
+        return False
+
+    try:
+        coverage = compute_named_kernel_coverage(custom_kernel_names, profiling_metrics)
+    except Exception as exc:
+        probe["error"] = str(exc)
+        probe["valid"] = False
+        logger.warning("[Decoy Probe] Invalid coverage data for backend=%s: %s", backend, exc)
+        return False
+    matched_kernel_names = list(coverage.get("custom_kernels_in_profiling", []))
+    probe.update(
+        {
+            "valid": True,
+            "num_total_kernels": int(coverage.get("num_total_kernels", 0)),
+            "num_matched_custom_kernels": int(coverage.get("num_custom_kernels", 0)),
+            "matched_kernel_names": matched_kernel_names,
+            "missing_kernel_names": list(coverage.get("custom_kernels_not_in_profiling", [])),
+        }
+    )
+    if matched_kernel_names:
+        probe["custom_kernel_observed"] = True
+        probe["decoy_detected"] = False
+        return False
+
+    probe["custom_kernel_observed"] = False
+    probe["decoy_detected"] = True
+    metadata["policy_violation"] = True
+    metadata["policy_violation_reason"] = _BACKEND_KERNEL_NOT_OBSERVED_REASON
+    metadata["decoy_reason"] = _BACKEND_KERNEL_NOT_OBSERVED_REASON
+    kernel_exec_result.decoy_kernel = True
+    logger.warning(
+        "[Decoy Probe] Candidate output mismatched and none of %s expected %s kernels were observed",
+        len(custom_kernel_names),
+        backend,
+    )
+    return True
 
 
 def _is_candidate_correctness_runtime_failure(metadata: Dict[str, Any]) -> bool:
@@ -445,7 +577,7 @@ def _run_triton_detection_step(
             set_seed(seed_num)
             inputs = get_inputs()
             inputs = [x.cuda(device=device) if isinstance(x, torch.Tensor) else x for x in inputs]
-            model_new = custom_model.cuda(device=device)
+            model_new = prepare_model_for_execution(custom_model.cuda(device=device))
             torch.cuda.synchronize(device=device)
 
             used, matches = detect.detect_triton_usage_for_module(
@@ -516,7 +648,7 @@ def _run_performance_step(
             set_seed(seed_num)
             inputs = get_inputs()
             inputs = [x.cuda(device=device) if isinstance(x, torch.Tensor) else x for x in inputs]
-            model_new = custom_model.cuda(device=device)
+            model_new = prepare_model_for_execution(custom_model.cuda(device=device))
             torch.cuda.synchronize(device=device)
 
             elapsed_times, profiling_metrics, timing_info = time_execution_with_cuda_event(
@@ -743,7 +875,6 @@ def _run_memory_step(
         if verbose:
             logger.warning("[Eval] Error in Measuring CUDA Memory: %s", exc)
         kernel_exec_result.memory = {
-            "schema_version": 2,
             "method": "torch_cuda_peak_allocated_delta",
             "allocator_scope": "pytorch_cuda_caching_allocator",
             "environment_floor_available": bool(environment_floor),
@@ -778,10 +909,11 @@ def eval_kernel_against_ref(
     build_dir: os.PathLike = None,
     device: Union[torch.device, int] = (torch.cuda.current_device() if torch.cuda.is_available() else None),
     backend: str = "cuda",
+    precision: str = "fp32",
     entry_point: str = "Model",
     enable_profiling: bool = True,
     enable_ncu: bool = True,
-    enable_compute_sanitizer: bool = True,
+    enable_compute_sanitizer: bool = False,
     compute_sanitizer_mode: Optional[str] = None,
     enable_correctness_input_perturbations: bool = False,
     enable_triton_detection: bool = True,
@@ -813,6 +945,8 @@ def eval_kernel_against_ref(
     metadata["memory_environment_floor"] = dict(memory_environment_floor)
     metadata["hardware"] = "compile-only" if compile_only else torch.cuda.get_device_name(device=device)
     metadata["device"] = str(device)
+    metadata["precision"] = precision
+    record_execution_policy(metadata)
     overall_start = perf_counter()
 
     if is_triton and not compile_only:
@@ -844,6 +978,7 @@ def eval_kernel_against_ref(
                 custom_model_src,
                 device=device,
                 backend=backend,
+                precision=precision,
                 entry_point=f"{entry_point}New",
                 build_dir=build_dir,
                 enable_compile_artifact_cache=enable_compile_artifact_cache,
@@ -988,6 +1123,7 @@ def eval_kernel_against_ref(
                     custom_model_src,
                     device=device,
                     backend=backend,
+                    precision=precision,
                     entry_point=f"{entry_point}New",
                     build_dir=build_dir,
                     enable_compile_artifact_cache=enable_compile_artifact_cache,
@@ -1129,6 +1265,7 @@ def eval_kernel_against_ref(
             custom_model = _create_custom_model()
 
             assert hasattr(custom_model, "forward")
+            prepare_model_for_execution(custom_model)
             torch.cuda.synchronize(device=device)
         del _create_custom_model
         init_inputs = None
@@ -1277,11 +1414,43 @@ def eval_kernel_against_ref(
     gc.collect()
     torch.cuda.synchronize(device=device)
 
-    if kernel_exec_result.correctness and kernel_exec_result.decoy_kernel:
+    if kernel_exec_result.decoy_kernel:
         logger.warning(
-            "[Eval] Correct candidate used forbidden ATen compute; skipping performance (reason=%s)",
+            "[Eval] Candidate triggered a hard decoy verdict; skipping remaining probes (reason=%s)",
             metadata.get("decoy_reason"),
         )
+        metadata["kg_kernel_total_s"] = perf_counter() - overall_start
+        _sync_exec_result_metadata(kernel_exec_result, metadata)
+        _cleanup()
+        return kernel_exec_result
+
+    if backend in _NAMED_KERNEL_PROBE_BACKENDS and not kernel_exec_result.correctness:
+        backend_probe_start = _begin_stage(
+            metadata,
+            prefix="kg_kernel",
+            stage="kernel.incorrect_backend_usage_probe",
+            overall_start=overall_start,
+        )
+        _run_incorrect_backend_usage_probe(
+            kernel_exec_result=kernel_exec_result,
+            custom_model=custom_model,
+            get_inputs=get_inputs,
+            metadata=metadata,
+            seed_num=seed_num,
+            device=device,
+            backend=backend,
+            backend_profiling_hints=backend_profiling_hints,
+            detect_decoy_kernel=detect_decoy_kernel,
+        )
+        _finish_stage(
+            metadata,
+            stage="kernel.incorrect_backend_usage_probe",
+            timing_key="kg_kernel_incorrect_backend_usage_probe_s",
+            start_time=backend_probe_start,
+        )
+        # Incorrect CUDA-Agent/TVM-FFI samples are terminal here. The helper
+        # either made its single safe usage probe or recorded why no rerun was
+        # allowed; neither Triton detection nor performance timing may follow.
         metadata["kg_kernel_total_s"] = perf_counter() - overall_start
         _sync_exec_result_metadata(kernel_exec_result, metadata)
         _cleanup()
@@ -1449,6 +1618,7 @@ def eval_reference_only(
     metadata["hardware"] = torch.cuda.get_device_name(device=device)
     metadata["device"] = str(device)
     metadata["memory_environment_floor"] = dict(memory_environment_floor)
+    record_execution_policy(metadata)
     overall_start = perf_counter()
 
     context: Dict[str, Any] = {}
@@ -1543,7 +1713,7 @@ def eval_reference_only(
         set_seed(seed_num)
         inputs = get_inputs()
         inputs = [x.cuda(device=device) if isinstance(x, torch.Tensor) else x for x in inputs]
-        model = original_model.cuda(device=device)
+        model = prepare_model_for_execution(original_model.cuda(device=device))
         metadata["kg_reference_backend_compile_s"] = 0.0
         if reference_backend:
             backend_name = reference_backend.lower()

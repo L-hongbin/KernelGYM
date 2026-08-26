@@ -71,6 +71,11 @@ def _short_task_id(task_id: object) -> str:
     return text
 
 
+def _short_reason(reason: object, limit: int = 72) -> str:
+    text = " ".join(str(reason or "").split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
 def _parse_timestamp(value: object) -> datetime | None:
     """Parse service timestamps as naive local datetimes for age checks."""
     if not isinstance(value, str) or not value.strip():
@@ -213,6 +218,33 @@ def _redis_snapshot(redis_host: str, redis_port: int, redis_prefix: str) -> dict
                 info["status"] = "online"
             workers[worker_id] = info
 
+    expected_ids_out = _run_redis_cli(redis_host, redis_port, "smembers", f"{redis_prefix}:expected_workers")
+    expected_workers: dict[str, dict[str, str]] = {}
+    for worker_id in (expected_ids_out or "").splitlines():
+        info = _parse_hgetall(
+            _run_redis_cli(redis_host, redis_port, "hgetall", f"{redis_prefix}:expected_worker:{worker_id}")
+        )
+        expected_workers[worker_id] = info
+
+    quarantine_keys_out = _run_redis_cli(
+        redis_host,
+        redis_port,
+        "--scan",
+        "--pattern",
+        f"{redis_prefix}:quarantine:*",
+        timeout_s=REDIS_WORKER_SCAN_TIMEOUT_S,
+    )
+    quarantines: list[dict[str, str]] = []
+    quarantine_checked = quarantine_keys_out is not None
+    for key in (quarantine_keys_out or "").splitlines():
+        record_output = _run_redis_cli(redis_host, redis_port, "hgetall", key)
+        if record_output is None:
+            quarantine_checked = False
+            continue
+        record = _parse_hgetall(record_output)
+        if record.get("state") == "quarantined":
+            quarantines.append(record)
+
     return {
         "queue": {
             "queue_count": gpu_queue + cpu_queue,
@@ -223,6 +255,9 @@ def _redis_snapshot(redis_host: str, redis_port: int, redis_prefix: str) -> dict
             "source": "redis",
         },
         "workers": workers,
+        "expected_workers": expected_workers,
+        "quarantines": quarantines,
+        "quarantine_checked": quarantine_checked,
     }
 
 
@@ -344,6 +379,93 @@ def _merge_workers(api_workers: dict[str, object], redis_workers: dict[str, obje
     return merged
 
 
+def _merge_expected_workers(workers: dict[str, object], expected_workers: dict[str, object]) -> dict[str, object]:
+    """Merge topology metadata and add missing workers so denominators cannot shrink."""
+
+    merged: dict[str, object] = dict(workers)
+    for worker_id, expected_info in expected_workers.items():
+        if not isinstance(expected_info, dict):
+            continue
+        current = merged.get(worker_id)
+        if isinstance(current, dict):
+            combined = dict(current)
+            for field in ("device", "hostname", "node_id"):
+                if not str(combined.get(field) or "").strip() and str(expected_info.get(field) or "").strip():
+                    combined[field] = expected_info[field]
+            merged[worker_id] = combined
+            continue
+        merged[worker_id] = {
+            **expected_info,
+            "status": "missing",
+            "online": "false",
+            "health_state": "missing",
+            "accepting_tasks": "false",
+        }
+    return merged
+
+
+def _merge_quarantines(
+    workers: dict[str, object],
+    quarantine_records: list[dict[str, str]],
+) -> dict[str, object]:
+    """Overlay worker aliases and host/device physical latches without cross-node leakage."""
+
+    worker_records: dict[str, dict[str, str]] = {}
+    physical_records: dict[tuple[str, str], dict[str, str]] = {}
+    for record in quarantine_records:
+        if record.get("state") != "quarantined":
+            continue
+        scope = record.get("scope", "worker_process")
+        worker_id = record.get("worker_id", "")
+        if worker_id:
+            current = worker_records.get(worker_id)
+            if current is None or (scope == "physical_gpu" and current.get("scope") != "physical_gpu"):
+                worker_records[worker_id] = record
+        if scope == "physical_gpu":
+            hostname = record.get("hostname", "")
+            device = record.get("device", "")
+            if hostname and device:
+                physical_records[(hostname, device)] = record
+
+    merged: dict[str, object] = dict(workers)
+    for worker_id, info in workers.items():
+        if not isinstance(info, dict):
+            continue
+        hostname = str(info.get("hostname") or "")
+        device = str(info.get("device") or "")
+        record = physical_records.get((hostname, device)) or worker_records.get(worker_id)
+        if record is None:
+            continue
+        merged[worker_id] = {
+            **info,
+            "quarantine_state": record.get("state", "quarantined"),
+            "quarantine_scope": record.get("scope", "worker_process"),
+            "quarantine_fault_class": record.get("fault_class", ""),
+            "quarantine_reason": record.get("reason", ""),
+            "quarantine_event_id": record.get("event_id", ""),
+        }
+    return merged
+
+
+def _expected_worker_contract_is_valid(expected_workers: dict[str, object]) -> bool:
+    """Require every expected entry to identify one host-owned CPU/GPU slot."""
+
+    if not expected_workers:
+        return False
+    gpu_count = 0
+    for info in expected_workers.values():
+        if not isinstance(info, dict) or not str(info.get("hostname") or "").strip():
+            return False
+        device = str(info.get("device") or "")
+        if device.startswith("cuda:"):
+            gpu_count += 1
+        elif device == "cpu":
+            continue
+        else:
+            return False
+    return gpu_count > 0
+
+
 def _worker_heartbeat_age_s(info: object, now: datetime) -> float | None:
     if not isinstance(info, dict):
         return None
@@ -362,12 +484,32 @@ def _worker_is_fresh(info: object, now: datetime, max_heartbeat_age_s: int) -> b
     return age_s is not None and age_s <= max_heartbeat_age_s
 
 
+def _gpu_worker_is_ready(info: object, now: datetime, max_heartbeat_age_s: int) -> bool:
+    if not _worker_is_fresh(info, now, max_heartbeat_age_s) or not isinstance(info, dict):
+        return False
+    return (
+        str(info.get("health_state") or "").lower() == "healthy"
+        and str(info.get("accepting_tasks") or "").lower() == "true"
+    )
+
+
+def _worker_is_quarantined(info: object) -> bool:
+    if not isinstance(info, dict):
+        return False
+    return (
+        str(info.get("health_state") or "").lower() == "quarantined"
+        or str(info.get("quarantine_state") or "").lower() == "quarantined"
+    )
+
+
 def render_summary(
     base: str,
     health: dict,
     workers: dict,
     max_heartbeat_age_s: int,
     queue_status: dict | None = None,
+    expected_workers: dict[str, object] | None = None,
+    quarantine_checked: bool = True,
 ) -> int:
     """Print vertical key:value summary; return the process exit code."""
     status = health.get("status", "?")
@@ -383,8 +525,28 @@ def render_summary(
     cpu_workers = {worker_id: info for worker_id, info in workers.items() if _is_cpu_worker(worker_id, info)}
     online = sum(1 for w in gpu_workers.values() if isinstance(w, dict) and w.get("status") == "online")
     fresh = sum(1 for w in gpu_workers.values() if _worker_is_fresh(w, now, max_heartbeat_age_s))
+    ready = sum(1 for w in gpu_workers.values() if _gpu_worker_is_ready(w, now, max_heartbeat_age_s))
+    quarantined = sum(1 for w in gpu_workers.values() if _worker_is_quarantined(w))
     stale = len(gpu_workers) - fresh
-    node_ok = status == "healthy" and len(gpu_workers) > 0 and stale == 0
+    cpu_online = sum(1 for w in cpu_workers.values() if isinstance(w, dict) and w.get("status") == "online")
+    cpu_fresh = sum(1 for w in cpu_workers.values() if _worker_is_fresh(w, now, max_heartbeat_age_s))
+    cpu_stale = len(cpu_workers) - cpu_fresh
+    expected_contract_ok = None if expected_workers is None else _expected_worker_contract_is_valid(expected_workers)
+    expected_cpu_ok = expected_workers is None or cpu_stale == 0
+    quarantine_contract_ok = expected_workers is None or quarantine_checked
+    # Readiness is a worker property, not an expected-contract property. Keep
+    # enforcing it when Redis is unavailable and workers came from the API.
+    expected_gpu_ok = ready == len(gpu_workers)
+    node_ok = (
+        status == "healthy"
+        and len(gpu_workers) > 0
+        and stale == 0
+        and expected_contract_ok is not False
+        and expected_cpu_ok
+        and expected_gpu_ok
+        and quarantine_contract_ok
+        and quarantined == 0
+    )
     top = "UP" if node_ok else "WARN"
     processing_by_resource = queue.get("processing_by_resource") or {}
     gpu_busy = _busy_count(gpu_workers)
@@ -398,7 +560,22 @@ def render_summary(
         ("gpus_available", f"{gpus_ok}/{len(gpus)}"),
         ("gpu_workers_online", f"{online}/{len(gpu_workers)}"),
         ("gpu_workers_fresh", f"{fresh}/{len(gpu_workers)}"),
+        ("gpu_workers_ready", f"{ready}/{len(gpu_workers)}"),
+        ("gpu_workers_quarantined", quarantined if quarantine_checked or quarantined else "unknown"),
+        (
+            "quarantine_scan",
+            "not_checked" if expected_workers is None else ("complete" if quarantine_checked else "incomplete"),
+        ),
         ("stale_gpu_workers", stale),
+        ("cpu_workers_online", f"{cpu_online}/{len(cpu_workers)}"),
+        ("cpu_workers_fresh", f"{cpu_fresh}/{len(cpu_workers)}"),
+        ("stale_cpu_workers", cpu_stale),
+        (
+            "expected_worker_contract",
+            "not_checked"
+            if expected_contract_ok is None
+            else ("ok" if expected_contract_ok else "missing_or_invalid"),
+        ),
         ("max_heartbeat_age_s", max_heartbeat_age_s),
         ("queue_processing", queue.get("processing", 0)),
         (
@@ -432,8 +609,9 @@ def render_verbose(health: dict, workers: dict, max_heartbeat_age_s: int) -> Non
         if isinstance(info, dict) and _is_gpu_worker(wid, info) and info.get("device")
     ]
     gpu_rows: list[list[str]] = []
+    quarantine_rows: list[list[str]] = []
 
-    def add_gpu_row(dev: str, worker_info: dict | None = None) -> None:
+    def add_gpu_row(dev: str, worker_id: str = "", worker_info: dict | None = None) -> None:
         raw = gpus.get(dev)
         if isinstance(raw, dict):
             memory_used = raw.get("memory_used")
@@ -451,6 +629,9 @@ def render_verbose(health: dict, workers: dict, max_heartbeat_age_s: int) -> Non
         current_task = ""
         node_id = ""
         hostname = ""
+        health_state = ""
+        accepting_tasks = ""
+        quarantine_scope = ""
         if worker_info:
             age_s = _worker_heartbeat_age_s(worker_info, now)
             worker_status = str(worker_info.get("status", "?"))
@@ -458,6 +639,22 @@ def render_verbose(health: dict, workers: dict, max_heartbeat_age_s: int) -> Non
             current_task = _short_task_id(worker_info.get("current_task", ""))
             node_id = str(worker_info.get("node_id", ""))
             hostname = _short_hostname(worker_info.get("hostname", ""))
+            health_state = str(worker_info.get("health_state", ""))
+            accepting_tasks = str(worker_info.get("accepting_tasks", ""))
+            quarantine_scope = str(worker_info.get("quarantine_scope", ""))
+            if not quarantine_scope and health_state == "quarantined":
+                quarantine_scope = "yes"
+            if _worker_is_quarantined(worker_info):
+                quarantine_rows.append(
+                    [
+                        worker_id,
+                        dev,
+                        str(worker_info.get("quarantine_scope") or "unknown"),
+                        str(worker_info.get("quarantine_fault_class") or ""),
+                        _short_reason(worker_info.get("quarantine_reason") or worker_info.get("health_reason") or ""),
+                        str(worker_info.get("hostname") or ""),
+                    ]
+                )
 
         gpu_rows.append(
             [
@@ -465,6 +662,9 @@ def render_verbose(health: dict, workers: dict, max_heartbeat_age_s: int) -> Non
                 name,
                 memory_display,
                 worker_status,
+                health_state,
+                accepting_tasks,
+                quarantine_scope,
                 worker_age,
                 current_task,
                 node_id,
@@ -481,7 +681,7 @@ def render_verbose(health: dict, workers: dict, max_heartbeat_age_s: int) -> Non
     for worker_id, worker_info in sorted(gpu_workers, key=gpu_worker_sort_key):
         dev = str(worker_info.get("device"))
         worker_devices.add(dev)
-        add_gpu_row(dev, worker_info)
+        add_gpu_row(dev, worker_id, worker_info)
 
     for dev in sorted(set(gpus) - worker_devices, key=_device_key):
         add_gpu_row(dev)
@@ -493,6 +693,9 @@ def render_verbose(health: dict, workers: dict, max_heartbeat_age_s: int) -> Non
             "name",
             "memory_used",
             "status",
+            "health",
+            "admit",
+            "quarantine",
             "age_s",
             "current_task",
             "node_id",
@@ -500,6 +703,12 @@ def render_verbose(health: dict, workers: dict, max_heartbeat_age_s: int) -> Non
         ],
         gpu_rows,
     )
+    if quarantine_rows:
+        render_table(
+            "gpu quarantine",
+            ["worker_id", "device", "scope", "fault_class", "reason", "hostname"],
+            quarantine_rows,
+        )
 
 
 def main() -> int:
@@ -527,6 +736,10 @@ def main() -> int:
     health = payload.get("health") or {}
     queue = payload.get("queue") or None
     workers = payload.get("workers") or {}
+    # When Redis contract checks are enabled, fail closed until a valid
+    # snapshot is read. Only explicit --no-redis permits an unchecked report.
+    expected_workers: dict[str, object] | None = None if args.no_redis else {}
+    quarantine_checked = False
 
     if not args.no_redis:
         redis_status = _redis_snapshot(args.redis_host, args.redis_port, args.redis_prefix)
@@ -534,13 +747,29 @@ def main() -> int:
             redis_workers = redis_status.get("workers")
             if isinstance(redis_workers, dict):
                 workers = _merge_workers(workers, redis_workers)
+            redis_expected_workers = redis_status.get("expected_workers")
+            if isinstance(redis_expected_workers, dict):
+                expected_workers = redis_expected_workers
+                workers = _merge_expected_workers(workers, expected_workers)
+            redis_quarantines = redis_status.get("quarantines")
+            if isinstance(redis_quarantines, list):
+                workers = _merge_quarantines(workers, redis_quarantines)
+            quarantine_checked = redis_status.get("quarantine_checked") is True
             redis_queue = redis_status.get("queue")
             if isinstance(redis_queue, dict):
                 queue = redis_queue
     if not args.no_gpu_smi:
         health = _merge_gpu_status(health, _nvidia_smi_gpu_snapshot())
 
-    exit_code = render_summary(args.base, health, workers, args.max_heartbeat_age, queue_status=queue)
+    exit_code = render_summary(
+        args.base,
+        health,
+        workers,
+        args.max_heartbeat_age,
+        queue_status=queue,
+        expected_workers=expected_workers,
+        quarantine_checked=quarantine_checked,
+    )
     if args.verbose:
         render_verbose(health, workers, args.max_heartbeat_age)
     return exit_code

@@ -12,6 +12,7 @@ import signal
 import sys
 import threading
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -23,15 +24,38 @@ from kernelgym.config import settings
 
 KEY_PREFIX = settings.redis_key_prefix
 from kernelgym.config import setup_logging
-from kernelgym.server.task_manager import TaskManager
+from kernelgym.server.task_manager import FrozenTaskClaimError, StaleTaskClaimError, TaskManager
 from kernelgym.utils.error_classifier import classify_error
+from kernelgym.utils.gpu_quarantine import (
+    UNLATCHED_NOTIFICATION_PROVENANCE,
+    gpu_quarantine_generation,
+    read_gpu_quarantine,
+    update_gpu_quarantine_notification,
+    write_gpu_quarantine,
+)
+from kernelgym.utils.page_user_notifier import send_gpu_quarantine_page, send_gpu_worker_exclusion_page
 from kernelgym.utils.task_status import task_status_from_result_payload
 from aiohttp import ClientConnectorError, ClientResponseError
 
 # Import Worker Pool for persistent subprocess workers
-from kernelgym.worker.subprocess_pool import SubprocessWorkerPool, TaskCancelledError
+from kernelgym.worker.subprocess_pool import (
+    GPUProbeFailedError,
+    GPUQuarantinedError,
+    PoolShutdownContainmentError,
+    SubprocessWorkerPool,
+    TaskCancelledError,
+    UnsafeGPUContainmentError,
+    _complete_despite_cancellation,
+)
 
 logger = logging.getLogger("kernelgym.worker")
+
+_QUARANTINE_PAGE_MAX_ATTEMPTS_PER_PROCESS = 2
+_QUARANTINE_PAGE_RETRY_BACKOFF_SECONDS = 60.0
+
+
+class _TerminalTaskWriteError(RuntimeError):
+    """A terminal result could not be durably committed to Redis."""
 
 
 class GPUWorker:
@@ -42,11 +66,29 @@ class GPUWorker:
         self.device = device
         self.redis = redis_client
         self.task_manager = TaskManager(redis_client)
+        self.worker_instance_id = uuid.uuid4().hex
+        self.task_manager.worker_instance_id = self.worker_instance_id
         self.running = False
         self.current_task: Optional[str] = None
         self._processing_active = False
         self.tasks_processed = 0
         self.last_heartbeat = None
+        self.health_state = "initializing"
+        self.quarantine_reason = ""
+        self.quarantine_physical_scope = True
+        # Worker-process exclusion and physical-GPU quarantine are distinct
+        # notification events.  A later physical escalation must not be hidden
+        # by an earlier successful worker-only page.
+        self._quarantine_page_attempts: Dict[str, int] = {}
+        self._quarantine_page_sent: set[str] = set()
+        self._quarantine_page_retry_not_before: Dict[str, float] = {}
+        self._quarantine_page_lock = asyncio.Lock()
+        self._stopping = False
+        # Once shutdown starts forcefully containing an in-flight task, only
+        # stop() may finalize that claim.  The execution coroutine can be
+        # unwound by the pool reap and must not publish an ordinary failure.
+        self._shutdown_retained_task_id: Optional[str] = None
+        self._shutdown_containment_safe: Optional[bool] = None
 
         # Worker statistics
         self.stats = {
@@ -99,6 +141,7 @@ class GPUWorker:
         # HTTP session for API calls
         self.http_session: Optional[aiohttp.ClientSession] = None
         self.node_id: Optional[str] = None
+        self._stop_task: Optional[asyncio.Task[None]] = None
 
         # Signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -109,6 +152,7 @@ class GPUWorker:
         logger.info(f"Worker {self.worker_id} received signal {signum}")
         # Stop consuming new tasks ASAP and begin shutdown
         self.running = False
+        self._stopping = True
         asyncio.create_task(self.stop())
 
     async def start(self):
@@ -129,6 +173,9 @@ class GPUWorker:
                         "device": self.device,
                         "current_task": "",
                         "tasks_processed": "0",
+                        "worker_instance_id": self.worker_instance_id,
+                        "health_state": "initializing",
+                        "accepting_tasks": "false",
                     },
                 )
                 await self.redis.expire(worker_key, 120)
@@ -164,32 +211,35 @@ class GPUWorker:
                 logger.error(f"Failed to register worker {self.worker_id}")
                 raise RuntimeError("Worker registration failed")
 
-            # Initialize GPU device
-            await self._initialize_gpu()
+            import socket
 
-            # ============================================================
-            # Initialize Worker Pool (NEW!)
-            # ============================================================
-            logger.info(
-                f"Initializing worker pool for {self.worker_id} "
-                f"(device={self.device}, pool_size={self.pool_size}, "
-                f"max_tasks_per_worker={self.max_tasks_per_worker})"
+            existing_quarantine = await read_gpu_quarantine(
+                self.redis,
+                self.worker_id,
+                device=self.device,
+                hostname=socket.gethostname(),
             )
-            try:
-                self.worker_pool = SubprocessWorkerPool(
-                    device_id=self.device_id,
-                    pool_size=self.pool_size,
-                    worker_prefix=f"{self.worker_id}_pool",
-                    max_tasks_per_worker=self.max_tasks_per_worker,
+            if existing_quarantine:
+                self.health_state = "quarantined"
+                self.quarantine_reason = existing_quarantine.get("reason", "persistent GPU quarantine")
+                self.quarantine_physical_scope = existing_quarantine.get("scope", "physical_gpu") == "physical_gpu"
+                await self._ensure_quarantine_notification(existing_quarantine)
+                logger.error(
+                    f"Worker {self.worker_id} remains QUARANTINED; CUDA initialization and task dequeue "
+                    f"are disabled until the Redis latch is manually cleared: {self.quarantine_reason}"
                 )
-                logger.info(
-                    f"Worker pool initialized successfully for {self.worker_id} "
-                    f"with {self.pool_size} subprocess workers "
-                    f"(max {self.max_tasks_per_worker} tasks per worker)"
-                )
-            except Exception as e:
-                logger.error(f"Failed to initialize worker pool for {self.worker_id}: {e}")
-                raise
+            else:
+                await self._initialize_worker_pool()
+                if self.worker_pool is not None and self.health_state == "healthy":
+                    # This is the only release path for claims frozen by an
+                    # unsafe predecessor: the durable quarantine is absent and
+                    # a fresh CUDA context has initialized successfully.  A
+                    # quarantined or failed replacement leaves every retained
+                    # claim token/inflight entry untouched.
+                    await self.task_manager.recover_gpu_inflight(
+                        self.worker_id,
+                        release_frozen_claims=True,
+                    )
 
             # Send initial heartbeat immediately after registration
             await self._update_worker_status(online=True)
@@ -216,16 +266,38 @@ class GPUWorker:
                 self.http_session = None
 
     async def stop(self):
-        """Stop the worker."""
-        # Make stop idempotent and ensure cleanup even if running already False
-        if getattr(self, "_stopping", False):
-            return
+        """Stop once, completing CUDA containment before cancellation escapes."""
+
+        if self._stop_task is None:
+            self._stop_task = asyncio.create_task(self._stop_once())
+        cancellation_requested = False
+        while not self._stop_task.done():
+            try:
+                await asyncio.shield(self._stop_task)
+            except asyncio.CancelledError:
+                cancellation_requested = True
+        self._stop_task.result()
+        if cancellation_requested:
+            raise asyncio.CancelledError
+
+    async def _stop_once(self) -> None:
+        """Perform the non-cancellable, idempotent worker shutdown body."""
+
         self._stopping = True
 
         # Ensure loops observe shutdown
         self.running = False
 
         logger.info(f"Stopping GPU worker {self.worker_id}")
+
+        # Close scheduler admission before draining, but keep the worker
+        # visibly online until every CUDA child has been proven reaped.  The
+        # manual-clear command refuses online workers, so publishing offline
+        # earlier would create a window in which an operator could clear the
+        # physical latch while an unsafe CUDA context still existed.
+        if self.health_state != "quarantined":
+            self.health_state = "stopping"
+        await self._update_worker_status(online=True)
 
         # Drain: give an in-flight task a chance to finish before failing it.
         # After self.running=False the processing loop still completes the task
@@ -248,31 +320,118 @@ class GPUWorker:
             while _draining() and time.monotonic() < deadline:
                 await asyncio.sleep(0.5)
 
-        # Cancel current task if any
-        if self.current_task:
-            logger.warning(f"Worker {self.worker_id} drain expired; failing task {self.current_task}")
+        # From this point on, a pool reap may unwind the task coroutine.  Keep
+        # its claim under stop()'s authority so that cancellation/pipe errors
+        # caused by containment cannot publish an ordinary retryable failure.
+        retained_task_id = self.current_task
+        if retained_task_id:
+            self._shutdown_retained_task_id = retained_task_id
+            logger.warning(
+                f"Worker {self.worker_id} drain expired; containing CUDA before failing task {retained_task_id}"
+            )
             try:
-                await self.task_manager.fail_task(self.current_task, "Worker shutdown")
-            except Exception:
-                pass
+                await self.task_manager.freeze_task_claim(
+                    retained_task_id,
+                    "worker shutdown is containing CUDA; automatic recovery is unsafe until a fresh safe startup",
+                )
+            except Exception as exc:
+                # The physical quarantine below is the second durable fence.
+                # Keep stopping/containing even if this task-scoped write fails.
+                logger.critical(
+                    "Failed to freeze recovery for shutdown task %s; relying on the GPU quarantine latch: %s",
+                    retained_task_id,
+                    exc,
+                )
 
-        # Unregister from API server
-        if not self.shutdown_due_to_error:
-            await self._unregister_from_api()
-
-        # Update worker status
-        await self._update_worker_status(online=False)
-
-        # Shutdown worker pool
+        # No pool means there is no child CUDA context to contain.  Otherwise
+        # safety is established only by an affirmative pool shutdown result.
+        shutdown_safe = self.worker_pool is None
         if self.worker_pool:
+            pool = self.worker_pool
             try:
                 logger.info(f"Shutting down worker pool for {self.worker_id}...")
-                await self.worker_pool.shutdown(timeout=30)
-                logger.info(f"Worker pool shut down successfully for {self.worker_id}")
+                shutdown_safe = await pool.shutdown(timeout=30)
+                if shutdown_safe:
+                    logger.info(f"Worker pool shut down successfully for {self.worker_id}")
+                else:
+                    unsafe_reason = pool.unsafe_shutdown_reason or "CUDA context reap failed"
+                    await self._quarantine_gpu(
+                        reason=f"unsafe worker-pool shutdown: {unsafe_reason}",
+                        fault_class="unsafe_pool_shutdown",
+                        task_id=retained_task_id or "",
+                        physical_scope=True,
+                        update_status=False,
+                    )
+            except asyncio.CancelledError:
+                # _stop_once normally runs behind shield(), but also fail safe
+                # if its pool coroutine reports cancellation itself: a clean
+                # reap was not proven, so retain the claim and quarantine.
+                shutdown_safe = False
+                unsafe_reason = getattr(pool, "unsafe_shutdown_reason", "") or "pool shutdown was cancelled"
+                await self._quarantine_gpu(
+                    reason=f"unsafe worker-pool shutdown: {unsafe_reason}",
+                    fault_class="unsafe_pool_shutdown",
+                    task_id=retained_task_id or "",
+                    physical_scope=True,
+                    update_status=False,
+                )
             except Exception as e:
+                shutdown_safe = False
                 logger.error(f"Error shutting down worker pool: {e}")
+                await self._quarantine_gpu(
+                    reason=f"worker-pool shutdown raised {type(e).__name__}; safe reap was not proven",
+                    fault_class="unsafe_pool_shutdown",
+                    task_id=retained_task_id or "",
+                    physical_scope=True,
+                    update_status=False,
+                )
             finally:
-                self.worker_pool = None
+                # Never discard the last Python handle to a child whose reap
+                # was not proven.  The pool also keeps a process-level orphan
+                # registry; retaining this reference permits another explicit
+                # containment pass while the parent process is still alive.
+                if shutdown_safe:
+                    self.worker_pool = None
+
+        self._shutdown_containment_safe = shutdown_safe
+
+        # Publishing "Worker shutdown" also acknowledges the inflight claim,
+        # so it is legal only after every CUDA child is known to be gone.  Do
+        # not adopt an unknown Redis token: that token may belong to a newer
+        # process instance using the same stable worker_id.
+        if shutdown_safe and retained_task_id and self.current_task == retained_task_id:
+            try:
+                await self.task_manager.fail_task(
+                    retained_task_id,
+                    "Worker shutdown",
+                    adopt_current_claim=False,
+                    allow_frozen_claim=True,
+                )
+            except StaleTaskClaimError:
+                logger.info(
+                    "Shutdown claim for task %s was superseded; a newer owner has already handled it",
+                    retained_task_id,
+                )
+                self.current_task = None
+                self._shutdown_retained_task_id = None
+            except Exception as exc:
+                # A Redis failure must leave the durable inflight entry as the
+                # recovery authority.  The replacement worker will recover it
+                # before opening its GPU gate.
+                logger.critical(
+                    "Failed to finalize safely contained task %s during shutdown; retaining claim for recovery: %s",
+                    retained_task_id,
+                    exc,
+                )
+            else:
+                self.current_task = None
+                self._shutdown_retained_task_id = None
+
+        # Only expose the worker as offline after CUDA containment has
+        # completed (or a persistent physical quarantine has been recorded).
+        if not self.shutdown_due_to_error:
+            await self._unregister_from_api()
+        await self._update_worker_status(online=False)
 
         # Close HTTP session
         if self.http_session and not self.http_session.closed:
@@ -318,76 +477,461 @@ class GPUWorker:
             logger.error(f"Failed to verify GPU {self.device_id}: {e}")
             raise
 
+    async def _initialize_worker_pool(self) -> None:
+        """Run an advisory precheck, then the authoritative fresh CUDA probe."""
+
+        precheck_error = ""
+        try:
+            # nvidia-smi is useful diagnostics but cannot distinguish a missing
+            # binary/transient NVML issue from a broken device.  Never restart
+            # repeatedly on this signal alone; the child READY probe below is
+            # authoritative because it performs CUDA init/alloc/synchronize.
+            await self._initialize_gpu()
+        except Exception as exc:
+            precheck_error = f"{type(exc).__name__}: {exc}"
+            logger.warning(
+                "GPU %s nvidia-smi precheck failed; continuing to one fresh CUDA context probe: %s",
+                self.device,
+                precheck_error,
+            )
+
+        try:
+            logger.info(
+                f"Initializing worker pool for {self.worker_id} "
+                f"(device={self.device}, pool_size={self.pool_size}, "
+                f"max_tasks_per_worker={self.max_tasks_per_worker})"
+            )
+            self.worker_pool = SubprocessWorkerPool(
+                device_id=self.device_id,
+                pool_size=self.pool_size,
+                worker_prefix=f"{self.worker_id}_pool",
+                max_tasks_per_worker=self.max_tasks_per_worker,
+            )
+        except GPUProbeFailedError as exc:
+            # An operator/monitor SIGTERM can interrupt the synchronous READY
+            # handshake while a pool is still starting.  That is not evidence
+            # of a bad physical GPU and must never create a durable quarantine
+            # latch.  The normal stop path still proves subprocess containment.
+            if self._stopping:
+                raise RuntimeError("worker pool initialization interrupted by shutdown") from exc
+            details = f"fresh CUDA context initialization failed: {exc}"
+            if precheck_error:
+                details = f"{details}; nvidia-smi precheck also failed: {precheck_error}"
+            logger.error(f"Failed to initialize worker pool for {self.worker_id}: {details}")
+            await self._quarantine_gpu(
+                reason=details,
+                fault_class="initialization_failure",
+                physical_scope=True,
+            )
+            return
+        except Exception:
+            # Import/queue/fd/PID/bootstrap errors are worker-process failures,
+            # not evidence that the physical GPU is bad.
+            logger.exception(f"Worker infrastructure failed during startup for {self.worker_id}")
+            raise
+
+        self.health_state = "healthy"
+        logger.info(
+            f"Worker pool initialized successfully for {self.worker_id} "
+            f"with {self.pool_size} subprocess workers "
+            f"(max {self.max_tasks_per_worker} tasks per worker)"
+        )
+
+    async def _quarantine_gpu(
+        self,
+        *,
+        reason: str,
+        fault_class: str,
+        task_id: str = "",
+        physical_scope: bool = True,
+        update_status: bool = True,
+    ) -> None:
+        """Finish the full latch/page transaction before cancellation escapes."""
+
+        operation = asyncio.create_task(
+            self._quarantine_gpu_to_completion(
+                reason=reason,
+                fault_class=fault_class,
+                task_id=task_id,
+                physical_scope=physical_scope,
+                update_status=update_status,
+            )
+        )
+        cancellation_requested = False
+        while not operation.done():
+            try:
+                await asyncio.shield(operation)
+            except asyncio.CancelledError:
+                cancellation_requested = True
+        operation.result()
+        if cancellation_requested:
+            raise asyncio.CancelledError
+
+    async def _quarantine_gpu_to_completion(
+        self,
+        *,
+        reason: str,
+        fault_class: str,
+        task_id: str,
+        physical_scope: bool,
+        update_status: bool,
+    ) -> None:
+        """Persist a non-expiring, manually cleared GPU admission latch."""
+
+        import socket
+
+        hostname = socket.gethostname()
+        node_id = self.node_id or settings.node_id or hostname
+        self.health_state = "quarantined"
+        self.quarantine_reason = reason
+        self.quarantine_physical_scope = physical_scope
+        record: Optional[Dict[str, str]] = None
+        try:
+            record = await write_gpu_quarantine(
+                self.redis,
+                self.worker_id,
+                device=self.device,
+                reason=reason,
+                fault_class=fault_class,
+                task_id=task_id,
+                node_id=node_id,
+                hostname=hostname,
+                physical_scope=physical_scope,
+            )
+        except Exception as exc:
+            # Local admission remains closed.  _gpu_admission_allowed retries
+            # persistence once Redis is reachable again.
+            logger.critical(f"Failed to persist GPU quarantine latch for {self.worker_id}: {exc}")
+            try:
+                record = await read_gpu_quarantine(
+                    self.redis,
+                    self.worker_id,
+                    device=self.device,
+                    hostname=hostname,
+                )
+            except Exception:
+                record = None
+        if record is None:
+            # Paging must not depend on Redis/durable-latch availability.
+            # In-memory attempt tracking prevents a retry storm; a worker
+            # restart retries because no durable "sent" marker exists.
+            record = {
+                "state": "quarantined",
+                "scope": "physical_gpu" if physical_scope else "worker_process",
+                "worker_id": self.worker_id,
+                "device": self.device,
+                "reason": reason,
+                "fault_class": fault_class,
+                "task_id": task_id,
+                "node_id": node_id,
+                "hostname": hostname,
+                "page_user_state": "pending",
+                "notification_provenance": UNLATCHED_NOTIFICATION_PROVENANCE,
+            }
+        record_scope = str(record.get("scope") or "worker_process")
+        effective_reason = str(record.get("reason") or reason)
+        self.quarantine_physical_scope = record_scope == "physical_gpu"
+        self.quarantine_reason = effective_reason
+        await self._ensure_quarantine_notification(record)
+        if record_scope == "physical_gpu":
+            logger.error(
+                f"Worker {self.worker_id} GPU is QUARANTINED (manual clear required); "
+                f"new tasks will not be dequeued: {effective_reason}"
+            )
+        else:
+            logger.error(
+                f"Worker {self.worker_id} is QUARANTINED (physical GPU fault not proven; manual clear required); "
+                f"new tasks will not be dequeued: {effective_reason}"
+            )
+        if update_status:
+            await self._update_worker_status(online=True)
+
+    async def _ensure_quarantine_notification(self, record: Dict[str, str]) -> None:
+        """Page any CUDA scheduling exclusion with durable dedupe/backoff."""
+
+        scope = str(record.get("scope") or "")
+        if scope not in {"physical_gpu", "worker_process"} or not self.device.startswith("cuda:"):
+            return
+        notification_key = f"{scope}:{gpu_quarantine_generation(record)}"
+        unlatched_best_effort = record.get("notification_provenance") == UNLATCHED_NOTIFICATION_PROVENANCE
+
+        async def _restore_confirmed_delivery_marker() -> None:
+            """Do not let a repeated worker-scope latch write regress ``sent``."""
+
+            if record.get("page_user_state") == "sent":
+                return
+            if unlatched_best_effort:
+                return
+            try:
+                await update_gpu_quarantine_notification(
+                    self.redis,
+                    self.worker_id,
+                    device=self.device,
+                    hostname=str(record.get("hostname") or ""),
+                    scope=scope,
+                    expected_generation=gpu_quarantine_generation(record),
+                    state="sent",
+                )
+            except Exception as exc:
+                logger.critical(
+                    f"Failed to restore confirmed page-user state for quarantined GPU worker {self.worker_id}: {exc}"
+                )
+
+        if record.get("page_user_state") == "sent":
+            self._quarantine_page_sent.add(notification_key)
+            return
+        if notification_key in self._quarantine_page_sent:
+            await _restore_confirmed_delivery_marker()
+            return
+
+        # A replacement process may read a failure written only moments ago.
+        # Respect that durable timestamp so repeated process starts cannot turn
+        # an MCP outage into a page storm.
+        attempts = self._quarantine_page_attempts.get(notification_key, 0)
+        if record.get("page_user_state") == "failed" and attempts == 0:
+            try:
+                failed_at = datetime.fromisoformat(str(record.get("page_user_updated_at") or ""))
+                now = datetime.now(tz=failed_at.tzinfo)
+                remaining = _QUARANTINE_PAGE_RETRY_BACKOFF_SECONDS - max(
+                    0.0,
+                    (now - failed_at).total_seconds(),
+                )
+                if remaining > 0:
+                    self._quarantine_page_retry_not_before[notification_key] = max(
+                        self._quarantine_page_retry_not_before.get(notification_key, 0.0),
+                        time.monotonic() + remaining,
+                    )
+            except (TypeError, ValueError):
+                pass
+
+        if attempts >= _QUARANTINE_PAGE_MAX_ATTEMPTS_PER_PROCESS:
+            return
+        if time.monotonic() < self._quarantine_page_retry_not_before.get(notification_key, 0.0):
+            return
+
+        # _quarantine_gpu(), the admission loop, and heartbeat-related paths can
+        # all observe the same latch. Serialize their checks so only one attempt
+        # starts and waiters see the outcome/backoff chosen by that attempt.
+        async with self._quarantine_page_lock:
+            if notification_key in self._quarantine_page_sent:
+                await _restore_confirmed_delivery_marker()
+                return
+            attempts = self._quarantine_page_attempts.get(notification_key, 0)
+            if attempts >= _QUARANTINE_PAGE_MAX_ATTEMPTS_PER_PROCESS:
+                return
+            if time.monotonic() < self._quarantine_page_retry_not_before.get(notification_key, 0.0):
+                return
+            self._quarantine_page_attempts[notification_key] = attempts + 1
+
+            async def _deliver_and_record() -> None:
+                try:
+                    if scope == "physical_gpu":
+                        outcome = await send_gpu_quarantine_page(record)
+                    else:
+                        outcome = await send_gpu_worker_exclusion_page(record)
+                    success = outcome.success
+                    protocol_version = outcome.protocol_version or "unknown"
+                    superseded = protocol_version == "superseded"
+                    error = "" if success else f"{outcome.error_kind or 'unknown'}: {outcome.error or ''}"
+                except Exception as exc:  # pragma: no cover - notifier is specified never to raise
+                    success = False
+                    superseded = False
+                    protocol_version = "unknown"
+                    error = f"unexpected_error: {type(exc).__name__}"
+                state = "sent" if success else "failed"
+                if not superseded and not unlatched_best_effort:
+                    try:
+                        await update_gpu_quarantine_notification(
+                            self.redis,
+                            self.worker_id,
+                            device=self.device,
+                            hostname=str(record.get("hostname") or ""),
+                            scope=scope,
+                            expected_generation=gpu_quarantine_generation(record),
+                            state=state,
+                            error=error,
+                        )
+                    except Exception as exc:
+                        logger.critical(
+                            f"Failed to persist page-user delivery state for quarantined GPU {self.worker_id}: {exc}"
+                        )
+                if success:
+                    self._quarantine_page_sent.add(notification_key)
+                    if superseded:
+                        logger.info(
+                            f"Skipped superseded worker-exclusion notification for {self.worker_id}; "
+                            "a physical GPU quarantine now owns the alert"
+                        )
+                    else:
+                        logger.warning(
+                            f"Sent page-user notification for quarantined GPU worker {self.worker_id} "
+                            f"(scope={scope}) via MCP {protocol_version}"
+                        )
+                else:
+                    self._quarantine_page_retry_not_before[notification_key] = (
+                        time.monotonic() + _QUARANTINE_PAGE_RETRY_BACKOFF_SECONDS
+                    )
+                    logger.critical(
+                        f"Failed to send page-user notification for quarantined GPU {self.worker_id}: {error}"
+                    )
+
+            # Once a CUDA worker is removed from scheduling, caller
+            # cancellation must not abandon the page half-sent or lose its
+            # durable dedupe marker.
+            notification_task = asyncio.create_task(_deliver_and_record())
+            cancellation_requested = False
+            while not notification_task.done():
+                try:
+                    await asyncio.shield(notification_task)
+                except asyncio.CancelledError:
+                    cancellation_requested = True
+            notification_task.result()
+            if cancellation_requested:
+                raise asyncio.CancelledError
+
+    async def _gpu_admission_allowed(self) -> bool:
+        """Synchronize local pool health with Redis before any queue pop."""
+
+        # Redis heartbeat state can be stale or temporarily unwritable.  The
+        # in-process lifecycle is therefore the first and last authority at
+        # every admission check.
+        if self._stopping or not self.running:
+            return False
+
+        try:
+            import socket
+
+            quarantine = await read_gpu_quarantine(
+                self.redis,
+                self.worker_id,
+                device=self.device,
+                hostname=socket.gethostname(),
+            )
+        except Exception as exc:
+            logger.error(f"Unable to read GPU quarantine latch for {self.worker_id}; failing closed: {exc}")
+            return False
+
+        if quarantine:
+            self.health_state = "quarantined"
+            self.quarantine_reason = quarantine.get("reason", "persistent GPU quarantine")
+            self.quarantine_physical_scope = quarantine.get("scope", "physical_gpu") == "physical_gpu"
+            await self._ensure_quarantine_notification(quarantine)
+            return False
+
+        if self.health_state == "quarantined":
+            # Clearing the latch does not mutate a live CUDA process.  A
+            # deliberate worker restart is required to create fresh contexts.
+            await self._quarantine_gpu(
+                reason=self.quarantine_reason or "local GPU quarantine",
+                fault_class="local_quarantine",
+                physical_scope=self.quarantine_physical_scope,
+            )
+            return False
+        if self.worker_pool is None:
+            return False
+
+        pool_health = self.worker_pool.get_health_snapshot()
+        self.health_state = str(pool_health["health_state"])
+        if self.health_state == "quarantined":
+            await self._quarantine_gpu(
+                reason=str(pool_health.get("health_reason") or "fresh-context validation failed"),
+                fault_class=str(pool_health.get("health_fault_class") or "pool_validation_failure"),
+                task_id=str(pool_health.get("health_task_id") or ""),
+                physical_scope=str(pool_health.get("health_scope") or "gpu") == "gpu",
+            )
+            return False
+        return bool(pool_health["accepting_tasks"]) and self.running and not self._stopping
+
     async def _processing_loop(self):
         """Main processing loop."""
         logger.info(f"Worker {self.worker_id} processing loop started")
         # Read by stop()'s drain: current_task alone is not enough, because a
         # task may already be popped from its queue before current_task is set.
         self._processing_active = True
+        try:
+            while self.running:
+                try:
+                    # Note: In subprocess isolation architecture, CUDA error count is no longer used
+                    # as errors are contained in subprocesses and don't affect the main worker
 
-        while self.running:
-            try:
-                # Note: In subprocess isolation architecture, CUDA error count is no longer used
-                # as errors are contained in subprocesses and don't affect the main worker
+                    # Gate before RPOP/BRPOP.  This keeps queued tasks untouched
+                    # while the physical GPU is being validated or quarantined.
+                    if not await self._gpu_admission_allowed():
+                        await self._update_worker_status(online=True)
+                        await asyncio.sleep(2)
+                        continue
 
-                # Get next task
-                task_data = await self.task_manager.get_next_task(self.worker_id, resources=["gpu"])
+                    # Get next task
+                    task_data = await self.task_manager.get_next_task(self.worker_id, resources=["gpu"])
 
-                if task_data:
-                    await self._process_task(task_data)
-                else:
-                    # No tasks available. get_next_task 已 BRPOP(1s)，此处仅做极短休眠避免忙等
-                    await asyncio.sleep(0.1)
+                    if task_data:
+                        if not await self._gpu_admission_allowed():
+                            await self.task_manager.requeue_unstarted_task(
+                                task_data,
+                                reason="gpu_admission_closed_after_dequeue",
+                                release_execution_fence=True,
+                            )
+                            logger.warning(
+                                f"Worker {self.worker_id} requeued task {task_data.get('task_id')} "
+                                "because GPU admission closed during dequeue"
+                            )
+                            continue
+                        await self._process_task(task_data)
+                    else:
+                        # No tasks available. get_next_task 已 BRPOP(1s)，此处仅做极短休眠避免忙等
+                        await asyncio.sleep(0.1)
 
-            except Exception as e:
-                logger.error(f"Error in processing loop for worker {self.worker_id}: {e}")
+                except Exception as e:
+                    logger.error(f"Error in processing loop for worker {self.worker_id}: {e}")
 
-                # Distinguish between subprocess errors and main process errors
-                from kernelgym.server.code_retry_manager import CodeRetryManager
+                    # Distinguish between subprocess errors and main process errors
+                    from kernelgym.server.code_retry_manager import CodeRetryManager
 
-                if CodeRetryManager(self.redis)._is_memory_error(str(e)):
-                    # This is likely from a subprocess, no need to restart main worker
-                    logger.info(
-                        f"[SUBPROCESS-ISOLATION] CUDA error detected in loop for worker {self.worker_id}, but isolated in subprocess"
-                    )
-                else:
-                    # This is a main process error, track it
-                    self.main_process_error_count += 1
-                    logger.warning(
-                        f"Main process error in worker {self.worker_id}: {self.main_process_error_count}/{self.max_main_process_errors}"
-                    )
-
-                    # If too many main process errors, shutdown for restart
-                    if self.main_process_error_count >= self.max_main_process_errors:
-                        logger.error(
-                            f"Worker {self.worker_id} main process has too many errors. Shutting down for restart."
+                    if CodeRetryManager(self.redis)._is_memory_error(str(e)):
+                        # This is likely from a subprocess, no need to restart main worker
+                        logger.info(
+                            f"[SUBPROCESS-ISOLATION] CUDA error detected in loop for worker {self.worker_id}, but isolated in subprocess"
                         )
-                        await self.redis.hset(
-                            f"{KEY_PREFIX}:worker:{self.worker_id}",
-                            mapping={
-                                "cuda_error_shutdown": "true",  # Reuse this flag for any critical shutdown
-                                "shutdown_reason": "main_process_errors",
-                                "shutdown_time": datetime.now().isoformat(),
-                            },
+                    else:
+                        # This is a main process error, track it
+                        self.main_process_error_count += 1
+                        logger.warning(
+                            f"Main process error in worker {self.worker_id}: {self.main_process_error_count}/{self.max_main_process_errors}"
                         )
-                        self.running = False
-                        break
 
-                await asyncio.sleep(5)  # Sleep longer on error
+                        # If too many main process errors, shutdown for restart
+                        if self.main_process_error_count >= self.max_main_process_errors:
+                            logger.error(
+                                f"Worker {self.worker_id} main process has too many errors. Shutting down for restart."
+                            )
+                            await self.redis.hset(
+                                f"{KEY_PREFIX}:worker:{self.worker_id}",
+                                mapping={
+                                    "cuda_error_shutdown": "true",  # Reuse this flag for any critical shutdown
+                                    "shutdown_reason": "main_process_errors",
+                                    "shutdown_time": datetime.now().isoformat(),
+                                },
+                            )
+                            self.running = False
+                            break
 
-        self._processing_active = False
-        logger.info(f"Worker {self.worker_id} processing loop exited")
+                    await asyncio.sleep(5)  # Sleep longer on error
+        finally:
+            self._processing_active = False
+            logger.info(f"Worker {self.worker_id} processing loop exited")
 
     async def _process_task(self, task_data: Dict[str, Any]):
         """Process a single task."""
         task_id = task_data["task_id"]
         self.current_task = task_id
         start_time = datetime.now()
+        terminal_resolved = False
 
         try:
             logger.info(f"Worker {self.worker_id} processing task {task_id}")
 
             await self._process_toolkit_task(task_data, start_time)
+            terminal_resolved = True
 
             # Reset CUDA error count on successful completion
             self.cuda_error_count = 0
@@ -398,58 +942,248 @@ class GPUWorker:
                 original_task_id = task_id.rsplit("_retry", 1)[0]
                 await self.task_manager.retry_manager.clear_retry_history(original_task_id)
 
+        except StaleTaskClaimError:
+            # The terminal Lua transaction rejected this process's token.  A
+            # cancellation or newer worker instance now owns the outcome; do
+            # not translate fencing into a second ordinary task failure.
+            terminal_resolved = True
+            logger.info(
+                "Task %s completion was superseded; a newer owner has already handled it",
+                task_id,
+            )
+
+        except UnsafeGPUContainmentError as containment_error:
+            await self._retain_claim_for_unsafe_containment(task_id, containment_error)
+
+        except FrozenTaskClaimError:
+            # A concurrent shutdown/unsafe-containment path atomically
+            # upgraded the normal execution fence before this terminal write.
+            # Preserve the exact token; only that containment owner may ACK.
+            self.running = False
+            self._stopping = True
+            self._shutdown_retained_task_id = task_id
+            logger.critical(
+                "Task %s terminal commit was blocked by its containment fence; retaining claim",
+                task_id,
+            )
+
+        except PoolShutdownContainmentError:
+            # stop() froze this exact execution claim before it closed the
+            # pool. It alone may publish a terminal shutdown outcome after the
+            # shared pool-shutdown proof succeeds.
+            self.running = False
+            self._stopping = True
+            self._shutdown_retained_task_id = task_id
+            logger.warning(
+                "Task %s transferred terminal ownership to worker shutdown containment",
+                task_id,
+            )
+
+        except GPUQuarantinedError:
+            # The pool gate can close in the narrow interval after the outer
+            # post-pop check but before checkout.  No subprocess received this
+            # task, so restore it to pending instead of recording a failure.
+            if self._shutdown_retained_task_id == task_id:
+                logger.warning(
+                    "Task %s hit the GPU gate during shutdown containment; retaining its frozen claim",
+                    task_id,
+                )
+            else:
+                logger.warning(f"Worker {self.worker_id} requeueing unstarted task {task_id}: GPU gate closed")
+                try:
+                    await self.task_manager.requeue_unstarted_task(
+                        task_data,
+                        reason="gpu_admission_closed_before_execution",
+                        release_execution_fence=True,
+                    )
+                except StaleTaskClaimError:
+                    terminal_resolved = True
+                    logger.info(
+                        "Unstarted task %s was superseded; a newer owner has already handled it",
+                        task_id,
+                    )
+                except Exception as commit_err:
+                    self._retain_claim_after_terminal_write_failure(task_id, commit_err)
+                else:
+                    terminal_resolved = True
+
         except TaskCancelledError:
             # Task was cancelled mid-flight: the CUDA subprocess has been killed.
             # Record a terminal cancelled result so any waiter (e.g. the workflow
             # controller blocked in scheduler.wait on this sub-task) returns
             # promptly instead of hanging until the task timeout.
-            from kernelgym.common import ErrorCode
+            if self._shutdown_retained_task_id == task_id:
+                logger.warning(
+                    "Task %s was interrupted by shutdown containment; retaining its claim until reap is proven safe",
+                    task_id,
+                )
+            else:
+                from kernelgym.common import ErrorCode
 
-            logger.info(f"Worker {self.worker_id} task {task_id} cancelled; recording cancelled result")
-            cancelled_result = self._build_failed_result(task_data, "Task cancelled", ErrorCode.SYSTEM_ERROR.value)
-            try:
-                await self.task_manager.complete_task(task_id, cancelled_result)
-            except Exception as record_err:  # pragma: no cover - best effort
-                logger.warning(f"Failed to record cancelled result for {task_id}: {record_err}")
-            self.stats["tasks_failed"] += 1
+                logger.info(f"Worker {self.worker_id} task {task_id} cancelled; recording cancelled result")
+                cancelled_result = self._build_failed_result(
+                    task_data,
+                    "Task cancelled",
+                    ErrorCode.SYSTEM_ERROR.value,
+                )
+                try:
+                    await self.task_manager.complete_task(task_id, cancelled_result)
+                except StaleTaskClaimError:
+                    terminal_resolved = True
+                    logger.info(
+                        "Cancelled task %s was superseded; a newer owner has already handled it",
+                        task_id,
+                    )
+                except Exception as commit_err:
+                    self._retain_claim_after_terminal_write_failure(task_id, commit_err)
+                else:
+                    terminal_resolved = True
+                    self.stats["tasks_failed"] += 1
+
+        except _TerminalTaskWriteError as e:
+            self._retain_claim_after_terminal_write_failure(task_id, e)
 
         except Exception as e:
-            # Task failed
-            error_message = f"Task processing failed: {str(e)}"
-            logger.error(f"Worker {self.worker_id} failed task {task_id}: {error_message}")
-
-            # Track CUDA errors for monitoring, but don't auto-restart in subprocess isolation mode
-            from kernelgym.server.code_retry_manager import CodeRetryManager
-
-            if CodeRetryManager(self.redis)._is_memory_error(str(e)):
-                # Try to print code content from task_data for debugging
-                try:
-                    if task_data.get("reference_code"):
-                        logger.error(
-                            f"[MEMORY-ERROR] Task {task_id} reference_code below:\n{task_data['reference_code']}"
-                        )
-                    if task_data.get("kernel_code"):
-                        logger.error(f"[MEMORY-ERROR] Task {task_id} kernel_code below:\n{task_data['kernel_code']}")
-                except Exception:
-                    pass
-
-                # Track CUDA errors for monitoring
-                self._track_cuda_error()
-                logger.info(
-                    f"[SUBPROCESS-ISOLATION] CUDA error contained in subprocess for task {task_id}, worker continues normally"
+            if terminal_resolved:
+                # Ancillary bookkeeping (for example retry-history cleanup)
+                # failed after the fenced terminal commit already succeeded.
+                logger.warning(f"Post-completion bookkeeping failed for task {task_id}: {e}")
+            elif self._shutdown_retained_task_id == task_id:
+                logger.warning(
+                    "Task %s unwound during shutdown containment (%s); ordinary failure publication is suppressed",
+                    task_id,
+                    e,
                 )
+            else:
+                # Task failed
+                error_message = f"Task processing failed: {str(e)}"
+                logger.error(f"Worker {self.worker_id} failed task {task_id}: {error_message}")
 
-            error_code = classify_error(str(e), "runtime")
-            failed_result = self._build_failed_result(task_data, error_message, error_code)
-            await self.task_manager.complete_task(task_id, failed_result)
+                # Track CUDA errors for monitoring, but don't auto-restart in subprocess isolation mode
+                from kernelgym.server.code_retry_manager import CodeRetryManager
 
-            # Update statistics
-            self.stats["tasks_failed"] += 1
+                if CodeRetryManager(self.redis)._is_memory_error(str(e)):
+                    # Try to print code content from task_data for debugging
+                    try:
+                        if task_data.get("reference_code"):
+                            logger.error(
+                                f"[MEMORY-ERROR] Task {task_id} reference_code below:\n{task_data['reference_code']}"
+                            )
+                        if task_data.get("kernel_code"):
+                            logger.error(
+                                f"[MEMORY-ERROR] Task {task_id} kernel_code below:\n{task_data['kernel_code']}"
+                            )
+                    except Exception:
+                        pass
+
+                    # Track CUDA errors for monitoring
+                    self._track_cuda_error()
+                    logger.info(
+                        f"[SUBPROCESS-ISOLATION] CUDA error contained in subprocess for task {task_id}, worker continues normally"
+                    )
+
+                error_code = classify_error(str(e), "runtime")
+                failed_result = self._build_failed_result(task_data, error_message, error_code)
+                try:
+                    await self.task_manager.complete_task(task_id, failed_result)
+                except StaleTaskClaimError:
+                    terminal_resolved = True
+                    logger.info(
+                        "Failed task %s was superseded; a newer owner has already handled it",
+                        task_id,
+                    )
+                except Exception as commit_err:
+                    self._retain_claim_after_terminal_write_failure(task_id, commit_err)
+                else:
+                    terminal_resolved = True
+                    self.stats["tasks_failed"] += 1
 
         finally:
+            # complete_task/fail_task atomically publish terminal state + result
+            # and acknowledge the Redis inflight claim.  Requeue does the same
+            # conditionally.  Never ACK here: either operation may have failed,
+            # in which case the claim is the only crash-recovery authority.
             # GPU清理由subprocess自动处理
-            self.current_task = None
+            if terminal_resolved:
+                if self.current_task == task_id:
+                    self.current_task = None
+                if self._shutdown_retained_task_id == task_id:
+                    self._shutdown_retained_task_id = None
             self.tasks_processed += 1
+
+    async def _retain_claim_for_unsafe_containment(
+        self,
+        task_id: str,
+        error: UnsafeGPUContainmentError,
+    ) -> None:
+        """Persist physical quarantine and freeze this exact inflight attempt."""
+
+        reason = str(error) or "CUDA context reap could not be proven"
+        # Close every local admission path before the first external await.  A
+        # later stop() retry owns this retained task and may finalize it only if
+        # the full pool eventually reports a safe reap.
+        self.running = False
+        self._stopping = True
+        self.shutdown_due_to_error = True
+        self._shutdown_retained_task_id = task_id
+
+        async def _freeze_and_persist() -> None:
+            try:
+                frozen = await self.task_manager.freeze_task_claim(
+                    task_id,
+                    "CUDA context reap is unproven; automatic recovery and force-refresh are unsafe",
+                )
+            except Exception as freeze_error:
+                frozen = False
+                logger.critical(
+                    "Failed to freeze exact claim for unsafe CUDA task %s; retaining local claim and stopping: %s",
+                    task_id,
+                    freeze_error,
+                )
+            if not frozen:
+                logger.critical(
+                    "Unsafe CUDA task %s was not durably frozen; worker remains stopped and must not ACK it",
+                    task_id,
+                )
+
+            # Paging may block on an external endpoint for tens of seconds.
+            # Freeze the attempt token first so no terminal writer or reclaim
+            # path can race that notification latency.
+            try:
+                await self._quarantine_gpu(
+                    reason=reason,
+                    fault_class="pre_fault_reap_failure",
+                    task_id=task_id,
+                    physical_scope=True,
+                )
+            except Exception as quarantine_error:
+                logger.critical(
+                    "Failed to persist/page unsafe GPU containment for task %s: %s",
+                    task_id,
+                    quarantine_error,
+                )
+
+        containment_task = asyncio.create_task(_freeze_and_persist())
+        cancellation_requested = False
+        while not containment_task.done():
+            try:
+                await asyncio.shield(containment_task)
+            except asyncio.CancelledError:
+                cancellation_requested = True
+        containment_task.result()
+        if cancellation_requested:
+            raise asyncio.CancelledError
+
+    def _retain_claim_after_terminal_write_failure(self, task_id: str, error: Exception) -> None:
+        """Stop admission and preserve a claim whose terminal Redis write failed."""
+
+        self.shutdown_due_to_error = True
+        self.running = False
+        logger.critical(
+            "Terminal Redis write failed for task %s; stopping worker and retaining inflight claim: %s",
+            task_id,
+            error,
+        )
 
     async def _process_toolkit_task(self, task_data: Dict[str, Any], start_time: datetime):
         """Process task via toolkit/backend abstractions."""
@@ -465,6 +1199,8 @@ class GPUWorker:
         run_toolkit_start = time.time()
         result_dict = await self._run_toolkit_task(task_data)
         run_toolkit_s = time.time() - run_toolkit_start
+        if self._shutdown_retained_task_id == task_id:
+            raise PoolShutdownContainmentError(f"worker shutdown retained task {task_id} before terminal publication")
 
         status = result_dict.get("status")
         error_message = result_dict.get("error_message") or "Task failed"
@@ -482,7 +1218,12 @@ class GPUWorker:
 
         complete_task_start = time.time()
         complete_task_start_mono_ns = time.monotonic_ns()
-        await self.task_manager.complete_task(task_id, result_dict)
+        try:
+            await self.task_manager.complete_task(task_id, result_dict)
+        except (FrozenTaskClaimError, StaleTaskClaimError):
+            raise
+        except Exception as exc:
+            raise _TerminalTaskWriteError(f"task {task_id}: {exc}") from exc
         complete_task_s = time.time() - complete_task_start
         metadata["wg_complete_task_s"] = complete_task_s
         metadata["wg_total_s"] = time.time() - timing_start
@@ -665,6 +1406,7 @@ class GPUWorker:
         base_task_id = str(task_data.get("base_task_id") or "")
         cancel_event = threading.Event()
         watcher = asyncio.create_task(self._cancellation_watcher(task_id, cancel_event, base_task_id))
+        primary_error: Optional[BaseException] = None
         try:
             result_data = await self.worker_pool.execute_task(
                 task_data,
@@ -672,12 +1414,65 @@ class GPUWorker:
                 max_retries=2,
                 cancel_event=cancel_event,
             )
+        except BaseException as error:
+            primary_error = error
+            raise
         finally:
-            watcher.cancel()
+
+            async def _stop_watcher() -> None:
+                watcher.cancel()
+                try:
+                    await watcher
+                except asyncio.CancelledError:
+                    pass
+
+            watcher_cancellation_requested = False
             try:
-                await watcher
-            except asyncio.CancelledError:
-                pass
+                _, watcher_cancellation_requested = await _complete_despite_cancellation(_stop_watcher())
+            except BaseException as cleanup_error:
+                if isinstance(primary_error, (UnsafeGPUContainmentError, PoolShutdownContainmentError)):
+                    logger.critical(
+                        "Cancellation-watcher cleanup raised %s while containment was propagating; "
+                        "preserving the primary containment signal",
+                        type(cleanup_error).__name__,
+                    )
+                    raise primary_error
+                if primary_error is not None:
+                    logger.error(
+                        "Cancellation-watcher cleanup raised %s; preserving the primary %s",
+                        type(cleanup_error).__name__,
+                        type(primary_error).__name__,
+                    )
+                    raise primary_error
+                if not isinstance(cleanup_error, Exception):
+                    raise
+                logger.exception(
+                    "Cancellation-watcher cleanup failed after the CUDA result was committed; "
+                    "preserving the completed result"
+                )
+            if watcher_cancellation_requested and not isinstance(
+                primary_error,
+                (UnsafeGPUContainmentError, PoolShutdownContainmentError),
+            ):
+                raise asyncio.CancelledError
+
+            # Unsafe containment must reach _process_task immediately: it
+            # closes local admission and reinforces the already-durable
+            # execution fence before any potentially slow quarantine page.
+            # Ordinary paths still mirror pool health before returning.
+            if primary_error is None:
+                try:
+                    await self._gpu_admission_allowed()
+                except Exception as admission_error:
+                    # This post-result check controls only the next dequeue.
+                    # The just-observed child result has already passed the
+                    # CUDA commit barrier and must not be rewritten as a
+                    # failure because Redis/page coordination is unavailable.
+                    logger.error(
+                        "Post-result GPU admission synchronization raised %s; "
+                        "preserving the completed result and leaving the next dequeue gated",
+                        type(admission_error).__name__,
+                    )
 
         if not result_data.get("success", False):
             error_type = result_data.get("error_type", "Unknown")
@@ -753,6 +1548,23 @@ class GPUWorker:
         """Update worker status in Redis."""
         try:
             worker_key = f"{KEY_PREFIX}:worker:{self.worker_id}"
+            pool_health = self.worker_pool.get_health_snapshot() if self.worker_pool is not None else {}
+            if self.health_state == "quarantined":
+                health_state = "quarantined"
+            elif self._stopping:
+                health_state = "stopping"
+            else:
+                health_state = str(pool_health.get("health_state") or self.health_state)
+            accepting_tasks = (
+                online
+                and self.running
+                and not self._stopping
+                and bool(pool_health.get("accepting_tasks", False))
+                and health_state in {"healthy", "degraded_check"}
+            )
+            health_reason = self.quarantine_reason or str(pool_health.get("health_reason") or "")
+            health_fault_class = str(pool_health.get("health_fault_class") or "")
+            health_scope = str(pool_health.get("health_scope") or "")
 
             if online:
                 await self.redis.hset(
@@ -763,7 +1575,13 @@ class GPUWorker:
                         "current_task": self.current_task or "",
                         "tasks_processed": str(self.tasks_processed),
                         "device": self.device,
+                        "worker_instance_id": self.worker_instance_id,
                         "stats": str(self.stats),
+                        "health_state": health_state,
+                        "accepting_tasks": str(accepting_tasks).lower(),
+                        "health_reason": health_reason,
+                        "health_fault_class": health_fault_class,
+                        "health_scope": health_scope,
                     },
                 )
                 # Set expiration for heartbeat (120s). Monitor handles persistence for expected workers.
@@ -777,7 +1595,13 @@ class GPUWorker:
                         "current_task": "",
                         "tasks_processed": str(self.tasks_processed),
                         "device": self.device,
+                        "worker_instance_id": self.worker_instance_id,
                         "stats": str(self.stats),
+                        "health_state": health_state,
+                        "accepting_tasks": "false",
+                        "health_reason": health_reason,
+                        "health_fault_class": health_fault_class,
+                        "health_scope": health_scope,
                     },
                 )
                 # Ensure offline records expire to avoid long-term residue
@@ -790,6 +1614,7 @@ class GPUWorker:
         """Get worker statistics."""
         return {
             "worker_id": self.worker_id,
+            "worker_instance_id": self.worker_instance_id,
             "device": self.device,
             "running": self.running,
             "current_task": self.current_task,
@@ -802,6 +1627,12 @@ class GPUWorker:
                 "memory_allocated": 0,
                 "memory_reserved": 0,
             },
+            "health_state": self.health_state,
+            "accepting_tasks": bool(self.worker_pool and self.worker_pool.accepting_tasks)
+            and self.running
+            and not self._stopping
+            and self.health_state in {"healthy", "degraded_check"},
+            "quarantine_reason": self.quarantine_reason,
         }
 
     async def _register_with_api(self) -> bool:
@@ -907,8 +1738,6 @@ class GPUWorker:
                         pass
                     # 主动停止
                     self.running = False
-                    # Clear current_task to avoid duplicate fail_task in stop()
-                    self.current_task = None
                     await self.stop()
                     return False
                 # 其他状态码（如 500，多为 API 侧 Redis 抖动）视为瞬时故障：

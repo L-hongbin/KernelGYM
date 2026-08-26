@@ -595,7 +595,7 @@ def test_api_defaults_and_workflow_propagate_sanitizer() -> None:
         reference_code="class Model:\n    pass",
         kernel_code="class ModelNew:\n    pass",
     )
-    assert request.enable_compute_sanitizer is None
+    assert request.enable_compute_sanitizer is False
     assert request.compute_sanitizer_mode == "error_based"
     for mode in ("error_based", "full"):
         mode_request = EvaluationRequest(**{**request.model_dump(), "compute_sanitizer_mode": mode})
@@ -615,7 +615,7 @@ def test_api_defaults_and_workflow_propagate_sanitizer() -> None:
             raise AssertionError(f"internal check {internal_mode!r} must be rejected in the payload")
 
     payload = apply_runtime_defaults(
-        request.model_dump(),
+        {**request.model_dump(), "enable_compute_sanitizer": None},
         workflow_name="kernelbench",
         split_compile_and_execute=False,
         enable_ncu=False,

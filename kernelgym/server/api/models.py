@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, root_validator, validator
 
 from kernelgym.common import Backend, ErrorCode, Priority, TaskStatus
+from kernelgym.schema.precision import normalize_precision
 
 MAX_CODE_CHARS = 100000
 
@@ -18,6 +19,10 @@ class EvaluationRequest(BaseModel):
     toolkit: str = Field(default="kernelbench", description="Toolkit adapter name")
     backend_adapter: str = Field(default="kernelbench", description="Backend adapter name")
     backend: Backend = Field(default=Backend.AUTO, description="Backend type")
+    precision: str = Field(
+        default="fp32",
+        description="Reference task precision: fp32, fp16, or bf16",
+    )
     num_correct_trials: int = Field(default=5, ge=1, le=20, description="Number of correctness trials")
     num_perf_trials: int = Field(
         default=100,
@@ -32,8 +37,8 @@ class EvaluationRequest(BaseModel):
         description="Reference perf trials; defaults to num_perf_trials when unset",
     )
     adaptive_perf_trials: Optional[bool] = Field(
-        default=None,
-        description="Adaptively size kernel perf trials (None -> server default)",
+        default=False,
+        description="Adaptively size kernel perf trials (disabled by default)",
     )
     perf_min_trials: Optional[int] = Field(
         default=None,
@@ -65,6 +70,16 @@ class EvaluationRequest(BaseModel):
     timeout: int = Field(default=300, ge=10, le=3600, description="Task timeout in seconds")
     priority: Priority = Field(default=Priority.NORMAL, description="Task priority")
     device_preference: Optional[str] = Field(default=None, description="Preferred GPU device")
+    target_node_id: Optional[str] = Field(
+        default=None,
+        max_length=255,
+        description="Require split compile/execute to run on this registered node id",
+    )
+    target_hostname: Optional[str] = Field(
+        default=None,
+        max_length=255,
+        description="Require split compile/execute to run on this registered hostname",
+    )
     force_refresh: bool = Field(default=False, description="Force refresh, skip cached results")
     entry_point: str = Field(default="Model", description="Entry point class name for model evaluation")
     reference_backend: Optional[str] = Field(
@@ -90,10 +105,10 @@ class EvaluationRequest(BaseModel):
         description="Enable Nsight Compute metrics. None=use server default, True=enable, False=disable",
     )
     enable_compute_sanitizer: Optional[bool] = Field(
-        default=None,
+        default=False,
         description=(
             "Run isolated NVIDIA Compute Sanitizer trials after a correctness runtime failure. "
-            "None uses the server default."
+            "Disabled by default."
         ),
     )
     compute_sanitizer_mode: Literal["error_based", "full"] = Field(
@@ -175,6 +190,19 @@ class EvaluationRequest(BaseModel):
             raise ValueError("Task ID must be between 1 and 100 characters")
         return v
 
+    @validator("precision", pre=True, always=True)
+    def validate_precision(cls, v):
+        return normalize_precision(v, strict=True)
+
+    @validator("target_node_id", "target_hostname")
+    def validate_target_identity(cls, v):
+        if v is None:
+            return v
+        value = v.strip()
+        if not value:
+            raise ValueError("Target node identity cannot be blank")
+        return value
+
     @validator("reference_code", "kernel_code")
     def validate_code(cls, v):
         if v is None:
@@ -191,6 +219,10 @@ class EvaluationRequest(BaseModel):
         reference_code = values.get("reference_code")
         if workflow == "kernelbench" and not reference_code:
             raise ValueError("reference_code is required for kernelbench workflow")
+        if (values.get("target_node_id") or values.get("target_hostname")) and not values.get(
+            "split_compile_and_execute"
+        ):
+            raise ValueError("target_node_id/target_hostname require split_compile_and_execute=true")
         return values
 
     class Config:
@@ -202,8 +234,10 @@ class EvaluationRequest(BaseModel):
                 "toolkit": "kernelbench",
                 "backend_adapter": "kernelbench",
                 "backend": "cuda",
+                "precision": "fp32",
                 "num_correct_trials": 5,
                 "num_perf_trials": 100,
+                "adaptive_perf_trials": False,
                 "timeout": 300,
                 "priority": "normal",
                 "entry_point": "Model",
@@ -211,7 +245,7 @@ class EvaluationRequest(BaseModel):
                 "verbose_errors": None,
                 "enable_profiling": None,
                 "enable_ncu": None,
-                "enable_compute_sanitizer": None,
+                "enable_compute_sanitizer": False,
                 "compute_sanitizer_mode": "error_based",
                 "enable_correctness_input_perturbations": None,
             }

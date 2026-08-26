@@ -316,7 +316,12 @@ class KernelBenchWorkflowController(WorkflowController):
         scheduler: SchedulerAPI,
     ) -> Dict[str, Any]:
         execute_options = self._kernel_execution_options(eval_task, compile_only=False)
-        target_worker = await self._select_split_target_gpu(scheduler, eval_task.task_id)
+        target_worker = await self._select_split_target_gpu(
+            scheduler,
+            eval_task.task_id,
+            target_node_id=eval_task.target_node_id,
+            target_hostname=eval_task.target_hostname,
+        )
         if target_worker is None:
             return self._failed_result(eval_task.task_id, "no fresh GPU worker available for split compile/execute")
         target_node_id = str(target_worker.get("node_id") or target_worker.get("hostname") or "")
@@ -420,13 +425,29 @@ class KernelBenchWorkflowController(WorkflowController):
             execute_result["metadata"] = metadata
         return execute_result
 
-    async def _select_split_target_gpu(self, scheduler: SchedulerAPI, task_id: str) -> Optional[Dict[str, Any]]:
+    async def _select_split_target_gpu(
+        self,
+        scheduler: SchedulerAPI,
+        task_id: str,
+        *,
+        target_node_id: Optional[str] = None,
+        target_hostname: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         selector = getattr(scheduler, "select_idle_worker", None)
         if not callable(selector):
+            if target_node_id or target_hostname:
+                logger.error("Scheduler cannot enforce requested split-task node affinity")
+                return None
             logger.warning("Scheduler does not expose select_idle_worker; split task will run without node affinity")
             return {}
         try:
-            worker = await selector("gpu", timeout=0, poll_interval=0.5)
+            worker = await selector(
+                "gpu",
+                timeout=0,
+                poll_interval=0.5,
+                target_node_id=target_node_id,
+                target_hostname=target_hostname,
+            )
             if worker:
                 worker = dict(worker)
                 worker["selection_strategy"] = "idle"
@@ -434,7 +455,12 @@ class KernelBenchWorkflowController(WorkflowController):
 
             fallback_selector = getattr(scheduler, "select_worker_by_task_id", None)
             if callable(fallback_selector):
-                worker = await fallback_selector("gpu", task_id)
+                worker = await fallback_selector(
+                    "gpu",
+                    task_id,
+                    target_node_id=target_node_id,
+                    target_hostname=target_hostname,
+                )
                 if worker:
                     worker = dict(worker)
                     worker["selection_strategy"] = "task_id_mod"

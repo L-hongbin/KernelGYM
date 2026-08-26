@@ -89,7 +89,7 @@ Step toggles (override service defaults):
 | `run_correctness`, `run_performance`, `run_triton_detection` | Per-call overrides for each evaluation step. |
 | `enable_profiling` | `null` = use server `ENABLE_PROFILING` env, else explicit `true`/`false`. |
 | `enable_ncu` | `null` = use server `ENABLE_NCU` env (default `true`), else explicit `true`/`false`. NCU runs only after correctness and performance gates pass. |
-| `enable_compute_sanitizer` | `null` = use server `ENABLE_COMPUTE_SANITIZER` env (default `true`). A fresh child process is launched only when the candidate forward fails during correctness. |
+| `enable_compute_sanitizer` | `false` by default; `null` uses server `ENABLE_COMPUTE_SANITIZER` (also default `false`). When enabled, a fresh child process is launched only when the candidate forward fails during correctness. |
 | `compute_sanitizer_mode` | Sanitizer strategy: `error_based` (default) selects an internal check from the correctness error and falls back to all checks when ambiguous; `full` always runs all four checks. Individual check names are internal execution modes and are not accepted in the payload. |
 | `enable_correctness_input_perturbations` | `null` = use server `ENABLE_CORRECTNESS_INPUT_PERTURBATIONS` (default `false`). When enabled, correctness cycles through original, scale-up, scale-down, and sign-challenge inputs. Direct `torch.rand` and `torch.randn` inputs use different sign-challenge transforms. |
 | `enable_triton_detection`, `detect_decoy_kernel` | Decoy-kernel checks; see [REWARD_HACKING_DEFENSES](design-doc/REWARD_HACKING_DEFENSES.md). |
