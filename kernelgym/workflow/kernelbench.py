@@ -20,6 +20,7 @@ from ..core.workflow import WorkflowController, WorkflowState
 from .kernelbench_helpers import (
     _combine_results,
     _create_paired_tasks,
+    _get_cached_reference_memory,
     _get_cached_reference_runtime,
     _put_cached_reference_runtime,
     _validate_code,
@@ -167,8 +168,9 @@ class KernelBenchWorkflowController(WorkflowController):
             cached_runtime = _get_cached_reference_runtime(
                 eval_task.uuid, eval_task.reference_code, eval_task.is_valid
             )
-            if cached_runtime is not None:
-                ref_result = self._cached_reference_result(eval_task, cached_runtime)
+            cached_memory = _get_cached_reference_memory(eval_task.uuid, eval_task.reference_code, eval_task.is_valid)
+            if cached_runtime is not None and cached_memory is not None:
+                ref_result = self._cached_reference_result(eval_task, cached_runtime, cached_memory)
             else:
                 ref_task = ReferenceTimingTask(
                     task_id=f"{eval_task.task_id}_ref",
@@ -229,6 +231,7 @@ class KernelBenchWorkflowController(WorkflowController):
                 eval_task.reference_code,
                 eval_task.is_valid,
                 ref_result.reference_runtime,
+                ref_result.reference_memory,
             )
 
         combined = _combine_results(ref_result, kernel_result)
@@ -432,7 +435,9 @@ class KernelBenchWorkflowController(WorkflowController):
             logger.warning("Failed to select split target GPU worker: %s", exc)
             return None
 
-    def _cached_reference_result(self, eval_task: EvaluationTask, runtime: float) -> ReferenceTimingResult:
+    def _cached_reference_result(
+        self, eval_task: EvaluationTask, runtime: float, reference_memory: Dict[str, Any]
+    ) -> ReferenceTimingResult:
         return ReferenceTimingResult(
             task_id=f"{eval_task.task_id}_ref",
             base_task_id=eval_task.task_id,
@@ -444,6 +449,7 @@ class KernelBenchWorkflowController(WorkflowController):
                 "backend": eval_task.backend,
                 "cache_type": "validation" if eval_task.is_valid else "regular",
             },
+            reference_memory=reference_memory,
             status="completed",
         )
 
@@ -459,6 +465,7 @@ class KernelBenchWorkflowController(WorkflowController):
             kernel_runtime=kernel_result.kernel_runtime,
             speedup=0.0,
             metadata=metadata,
+            kernel_memory=kernel_result.kernel_memory,
             status=kernel_result.status,
             error_message=kernel_result.error_message,
             error_code=kernel_result.error_code,

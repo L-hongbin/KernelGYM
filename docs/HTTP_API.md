@@ -123,6 +123,23 @@ Split compile/execute (advanced, see [COMPILE_ACCELERATION](design-doc/COMPILE_A
   "reference_runtime": 0.0264,
   "kernel_runtime": 0.0233,
   "speedup": 1.13,
+  "memory": {
+    "reference": {
+      "absolute_peak_allocated": "35.50 MB",
+      "task_peak_allocated_delta": "35.00 MB",
+      "forward_peak_allocated_delta": "1.00 MB"
+    },
+    "kernel": {
+      "absolute_peak_allocated": "34.50 MB",
+      "task_peak_allocated_delta": "34.00 MB",
+      "forward_peak_allocated_delta": "512.00 KB"
+    },
+    "comparison": {
+      "measurement_status": "complete",
+      "kernel_minus_reference": "-1.00 MB",
+      "kernel_to_reference_ratio": 0.9714
+    }
+  },
   "metadata": { /* see below */ },
   "error_message": null,
   "error_code": null,
@@ -133,6 +150,20 @@ Split compile/execute (advanced, see [COMPILE_ACCELERATION](design-doc/COMPILE_A
 ```
 
 `status` values: `pending`, `processing`, `completed`, `failed`, `timeout`.
+
+Memory feedback is returned for correct kernels:
+
+| Field | Meaning |
+|---|---|
+| `memory` | Contains the reference/kernel absolute allocator peak, task peak delta, and forward peak delta, plus the task-peak comparison. Public values use adaptive B/KB/MB/GB strings; internal arithmetic still uses integer bytes. |
+| `memory.reference.absolute_peak_allocated`, `memory.kernel.absolute_peak_allocated` | Absolute `torch.cuda.max_memory_allocated()` observed during the measured forward. This includes the evaluation environment floor and is not a delta. |
+| `memory.reference.task_peak_allocated_delta`, `memory.kernel.task_peak_allocated_delta` | Peak allocated memory above the environment floor captured before task-owned models and inputs are created. |
+| `memory.reference.forward_peak_allocated_delta`, `memory.kernel.forward_peak_allocated_delta` | Peak allocated-memory increase above the baseline taken after models and inputs are prepared. |
+| `memory.comparison.measurement_status` | `complete` means usable and complete, `partial` means usable but potentially a lower bound, and `invalid` means the measurement cannot be compared. |
+| `memory.comparison.kernel_minus_reference` | Signed difference computed as Kernel minus reference for `task_peak_allocated_delta`. Negative means the Kernel uses less memory; positive means it uses more. |
+| `memory.comparison.kernel_to_reference_ratio` | Kernel divided by reference for `task_peak_allocated_delta`; below 1 means the Kernel uses less memory. |
+| `memory.allocator_check` | Returned only when the Kernel source contains a direct CUDA allocation or another allocator warning. |
+
 
 `metadata` is a large dict of server-side timing + caching diagnostics. Notable keys:
 

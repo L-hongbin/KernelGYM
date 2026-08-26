@@ -28,18 +28,28 @@ def _get_cached_reference_runtime(uuid: Optional[str], reference_code: str, is_v
     return _reference_cache.get(uuid, reference_code, is_valid)
 
 
+def _get_cached_reference_memory(uuid: Optional[str], reference_code: str, is_valid: bool) -> Optional[dict[str, Any]]:
+    if _reference_cache is None:
+        return None
+    get_memory = getattr(_reference_cache, "get_memory", None)
+    if get_memory is None:
+        return None
+    return get_memory(uuid, reference_code, is_valid)
+
+
 def _put_cached_reference_runtime(
     uuid: Optional[str],
     reference_code: str,
     is_valid: bool,
     runtime: Optional[float],
+    reference_memory: Optional[dict[str, Any]] = None,
 ) -> None:
     if _reference_cache is None:
         return
     put = getattr(_reference_cache, "put", None)
     if put is None:
         return
-    put(uuid, reference_code, is_valid, runtime)
+    put(uuid, reference_code, is_valid, runtime, reference_memory)
 
 
 def _validate_code(code: str, entry_point: str = "Model") -> Tuple[bool, str]:
@@ -62,7 +72,8 @@ def _create_paired_tasks(
     reference_task: Optional[ReferenceTimingTask] = None
     if task.use_reference_cache and task.uuid:
         cached_runtime = _get_cached_reference_runtime(task.uuid, task.reference_code, task.is_valid)
-        if cached_runtime is None:
+        cached_memory = _get_cached_reference_memory(task.uuid, task.reference_code, task.is_valid)
+        if cached_runtime is None or cached_memory is None:
             reference_task = ReferenceTimingTask(
                 task_id=f"{task.task_id}_ref",
                 base_task_id=task.task_id,

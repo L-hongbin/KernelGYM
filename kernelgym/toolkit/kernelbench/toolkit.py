@@ -295,6 +295,7 @@ class KernelBenchToolkit(Toolkit):
                 base_task_id=task.base_task_id,
                 reference_runtime=reference_runtime,
                 metadata=metadata,
+                reference_memory=dict(ref_exec_result.memory or {}) or None,
                 status="completed",
             )
 

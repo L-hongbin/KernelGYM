@@ -18,12 +18,202 @@ def _filter_fields(cls, data: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in data.items() if k in valid_fields}
 
 
+_MEMORY_BYTE_UNITS = ("B", "KB", "MB", "GB", "TB", "PB")
+
+
+def _format_memory_bytes(value: Any) -> Any:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return value
+
+    unit_index = 0
+    divisor = 1.0
+    magnitude = abs(float(value))
+    while magnitude >= 1024.0 and unit_index < len(_MEMORY_BYTE_UNITS) - 1:
+        magnitude /= 1024.0
+        divisor *= 1024.0
+        unit_index += 1
+    return f"{float(value) / divisor:.2f} {_MEMORY_BYTE_UNITS[unit_index]}"
+
+
+def _public_memory_field_name(name: str) -> str:
+    return name.removesuffix("_bytes")
+
+
+def _serialize_memory_fields(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            _public_memory_field_name(key): (
+                _format_memory_bytes(item)
+                if key.endswith("_bytes")
+                else _serialize_memory_fields(item)
+            )
+            for key, item in value.items()
+            if key != "schema_version"
+        }
+    if isinstance(value, list):
+        return [_serialize_memory_fields(item) for item in value]
+    return value
+
+
+_PUBLIC_MEMORY_MEASUREMENT_FIELDS = (
+    ("absolute_peak_allocated_bytes", "absolute_peak_allocated_bytes"),
+    ("task_peak_allocated_delta_bytes", "total_task_peak_allocated_bytes"),
+    ("forward_peak_allocated_delta_bytes", "forward_incremental_peak_allocated_bytes"),
+)
+
+
+def _pop_measurement_status(value: Dict[str, Any]) -> Optional[str]:
+    valid = value.pop("measurement_valid", None)
+    complete = value.pop("measurement_complete", None)
+    value.pop("measurement_is_lower_bound", None)
+    if valid is None and complete is None:
+        return None
+    if valid is not True:
+        return "invalid"
+    return "complete" if complete is True else "partial"
+
+
+def _prepare_public_memory_measurement(
+    value: Dict[str, Any],
+) -> Dict[str, Any]:
+    return _serialize_memory_fields(
+        {
+            public_key: value[internal_key]
+            for public_key, internal_key in _PUBLIC_MEMORY_MEASUREMENT_FIELDS
+            if internal_key in value
+        }
+    )
+
+
+def _prepare_public_memory_comparison(value: Dict[str, Any]) -> Dict[str, Any]:
+    comparison = dict(value)
+    measurement_status = _pop_measurement_status(comparison)
+    public_comparison = {
+        "measurement_status": measurement_status,
+        "kernel_minus_reference_bytes": comparison.get(
+            "primary_kernel_minus_reference_bytes"
+        ),
+        "kernel_to_reference_ratio": comparison.get(
+            "primary_kernel_to_reference_ratio"
+        ),
+    }
+    warnings = comparison.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        public_comparison["warnings"] = warnings
+    return _serialize_memory_fields(public_comparison)
+
+
+def _prepare_public_allocator_check(value: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(value, dict):
+        return None
+    detected = value.get("direct_cuda_allocation_detected") is True
+    severity = value.get("severity")
+    if not detected and severity in (None, "none"):
+        return None
+    return {
+        "severity": severity,
+        "measurement_impact": value.get("measurement_impact"),
+        "detected_apis": value.get("direct_cuda_allocation_apis", []),
+        "matches": value.get("direct_cuda_allocation_matches", []),
+    }
+
+
+def _build_memory_comparison(
+    reference_memory: Optional[Dict[str, Any]],
+    kernel_memory: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    reference_memory = reference_memory or {}
+    kernel_memory = kernel_memory or {}
+    reference_forward_peak = reference_memory.get(
+        "forward_incremental_peak_allocated_bytes"
+    )
+    kernel_forward_peak = kernel_memory.get("forward_incremental_peak_allocated_bytes")
+    reference_total_peak = reference_memory.get("total_task_peak_allocated_bytes")
+    kernel_total_peak = kernel_memory.get("total_task_peak_allocated_bytes")
+    reference_persistent = reference_memory.get("persistent_allocated_bytes")
+    kernel_persistent = kernel_memory.get("persistent_allocated_bytes")
+
+    trial_valid = (
+        isinstance(reference_forward_peak, int)
+        and isinstance(kernel_forward_peak, int)
+        and reference_memory.get("measurement_valid") is True
+        and kernel_memory.get("measurement_valid") is True
+    )
+    valid = (
+        trial_valid
+        and isinstance(reference_total_peak, int)
+        and isinstance(kernel_total_peak, int)
+    )
+    complete = (
+        valid
+        and reference_memory.get("measurement_complete") is True
+        and kernel_memory.get("measurement_complete") is True
+    )
+    comparison_metric = "total_task_peak_allocated_bytes"
+    primary_reference = reference_total_peak
+    primary_kernel = kernel_total_peak
+
+    warnings = []
+    if valid and not complete:
+        warnings.append(
+            "Memory comparison is a lower bound because at least one implementation may allocate outside "
+            "PyTorch's CUDA caching allocator."
+        )
+    elif not trial_valid:
+        warnings.append(
+            "Memory comparison is unavailable because one or both memory trials are missing or invalid."
+        )
+    elif not valid:
+        warnings.append(
+            "Memory comparison is unavailable because total-task peak memory is missing or invalid."
+        )
+
+    return {
+        "measurement_valid": valid,
+        "measurement_complete": complete,
+        "total_task_measurement_valid": valid,
+        "comparison_metric": comparison_metric,
+        "primary_reference_bytes": primary_reference if valid else None,
+        "primary_kernel_bytes": primary_kernel if valid else None,
+        "primary_kernel_minus_reference_bytes": (
+            primary_kernel - primary_reference if valid else None
+        ),
+        "primary_memory_savings_bytes": (
+            primary_reference - primary_kernel if valid else None
+        ),
+        "primary_kernel_to_reference_ratio": (
+            primary_kernel / primary_reference
+            if valid and primary_reference > 0
+            else None
+        ),
+        "reference_forward_incremental_peak_allocated_bytes": reference_forward_peak,
+        "kernel_forward_incremental_peak_allocated_bytes": kernel_forward_peak,
+        "reference_persistent_allocated_bytes": reference_persistent,
+        "kernel_persistent_allocated_bytes": kernel_persistent,
+        "reference_total_task_peak_allocated_bytes": reference_total_peak,
+        "kernel_total_task_peak_allocated_bytes": kernel_total_peak,
+        "total_task_kernel_minus_reference_bytes": (
+            kernel_total_peak - reference_total_peak if valid else None
+        ),
+        "total_task_memory_savings_bytes": (
+            reference_total_peak - kernel_total_peak if valid else None
+        ),
+        "total_task_kernel_to_reference_ratio": (
+            kernel_total_peak / reference_total_peak
+            if valid and reference_total_peak > 0
+            else None
+        ),
+        "warnings": warnings,
+    }
+
+
 @dataclass
 class ReferenceTimingResult:
     task_id: str
     base_task_id: str
     reference_runtime: float
     metadata: Dict[str, Any]
+    reference_memory: Optional[Dict[str, Any]] = None
     status: str = "completed"
     error_message: Optional[str] = None
     error_code: Optional[ErrorCode | str] = None
@@ -51,6 +241,7 @@ class KernelEvaluationResult:
     decoy_kernel: bool
     kernel_runtime: float
     metadata: Dict[str, Any]
+    kernel_memory: Optional[Dict[str, Any]] = None
     status: str = "completed"
     error_message: Optional[str] = None
     error_code: Optional[ErrorCode | str] = None
@@ -143,6 +334,7 @@ class KernelEvaluationResult:
             kernel_runtime=result.runtime,
             metadata=metadata,
             status="completed" if result.compiled else "failed",
+            kernel_memory=dict(result.memory or {}) or None,
             error_message=error_message,
             error_code=error_code,
         )
@@ -158,13 +350,49 @@ class EvaluationResult:
     kernel_runtime: float
     speedup: float
     metadata: Dict[str, Any]
+    reference_memory: Optional[Dict[str, Any]] = None
+    kernel_memory: Optional[Dict[str, Any]] = None
+    memory_comparison: Optional[Dict[str, Any]] = None
     status: str = "completed"
     error_message: Optional[str] = None
     error_code: Optional[ErrorCode | str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         result = asdict(self)
-        result["metadata"] = make_json_safe(with_device_info(result.get("metadata")))
+        metadata = make_json_safe(with_device_info(result.get("metadata")))
+        for metadata_key in (
+            "memory_environment_floor",
+            "kg_reference_memory_step_s",
+            "kg_kernel_memory_step_s",
+            "reference_memory_allocator_check",
+        ):
+            metadata.pop(metadata_key, None)
+        memory_measurement_error = metadata.pop("memory_measurement_error", None)
+        kernel_allocator_check = metadata.pop("kernel_memory_allocator_check", None)
+        result["metadata"] = metadata
+
+        measurement_sections = {}
+        for result_key, memory_key in (
+            ("reference_memory", "reference"),
+            ("kernel_memory", "kernel"),
+        ):
+            value = result.pop(result_key, None)
+            if not isinstance(value, dict):
+                continue
+            measurement_sections[memory_key] = _prepare_public_memory_measurement(value)
+
+        comparison = result.pop("memory_comparison", None)
+        memory = dict(measurement_sections)
+        if isinstance(comparison, dict):
+            memory["comparison"] = _prepare_public_memory_comparison(comparison)
+
+        allocator_check = _prepare_public_allocator_check(kernel_allocator_check)
+        if allocator_check is not None:
+            memory["allocator_check"] = allocator_check
+        if memory_measurement_error is not None:
+            memory["measurement_error"] = memory_measurement_error
+        result["memory"] = memory or None
+
         result["error_code"] = serialize_error_code(result.get("error_code"))
         return result
 
@@ -193,6 +421,7 @@ class EvaluationResult:
             speedup=speedup,
             metadata=result.metadata,
             status="completed" if result.compiled else "failed",
+            kernel_memory=dict(result.memory or {}) or None,
         )
 
     @classmethod
@@ -209,6 +438,10 @@ class EvaluationResult:
         combined_metadata["reference_task_id"] = reference_result.task_id
         combined_metadata["kernel_task_id"] = kernel_result.task_id
 
+        memory_comparison = _build_memory_comparison(
+            reference_result.reference_memory,
+            kernel_result.kernel_memory,
+        )
         status = "completed"
         error_message = None
         error_code = None
@@ -231,6 +464,9 @@ class EvaluationResult:
             kernel_runtime=kernel_result.kernel_runtime,
             speedup=speedup,
             metadata=combined_metadata,
+            reference_memory=reference_result.reference_memory,
+            kernel_memory=kernel_result.kernel_memory,
+            memory_comparison=memory_comparison,
             status=status,
             error_message=error_message,
             error_code=error_code,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 import logging
 import os
@@ -21,6 +22,11 @@ from kernelgym.toolkit.kernelbench.loading import (
     load_custom_model,
     load_custom_model_with_tempfile,
     load_original_model_and_inputs,
+)
+from kernelgym.toolkit.kernelbench.memory import (
+    capture_cuda_memory_environment_floor,
+    detect_direct_cuda_allocations,
+    measure_cuda_memory_trial,
 )
 from kernelgym.toolkit.kernelbench.ncu_profiler import (
     run_ncu_profile,
@@ -644,6 +650,95 @@ def _run_performance_step(
         kernel_exec_result.metadata["error_during_performance"] = e
 
 
+def _run_memory_step(
+    *,
+    kernel_exec_result: KernelExecResult,
+    model,
+    get_inputs,
+    source: str,
+    metadata: Dict[str, Any],
+    allocator_check_metadata_key: str,
+    seed_num: int,
+    environment_floor: Dict[str, int],
+    device: Union[torch.device, int],
+    verbose: bool,
+) -> None:
+    """Run one forward in a measurement scope separate from correctness/timing."""
+
+    if not kernel_exec_result or not kernel_exec_result.correctness:
+        return
+    allocation_check = detect_direct_cuda_allocations(source)
+    metadata[allocator_check_metadata_key] = allocation_check
+
+    cpu_rng_state = torch.random.get_rng_state()
+    cuda_rng_state = torch.cuda.get_rng_state(device=device)
+    try:
+        torch.cuda.synchronize(device=device)
+        set_seed(seed_num)
+        inputs = get_inputs()
+        inputs = [
+            x.cuda(device=device) if isinstance(x, torch.Tensor) else x for x in inputs
+        ]
+        model = model.cuda(device=device)
+        torch.cuda.synchronize(device=device)
+        kernel_exec_result.memory = measure_cuda_memory_trial(
+            model,
+            *inputs,
+            device=device,
+            source=source,
+            allocation_check=allocation_check,
+            environment_floor_allocated_bytes=environment_floor.get("allocated_bytes"),
+            environment_floor_reserved_bytes=environment_floor.get("reserved_bytes"),
+        )
+        if verbose:
+            logger.info(
+                "[Eval] Memory peak increment: %s bytes, total task peak: %s bytes (complete=%s)",
+                kernel_exec_result.memory.get(
+                    "forward_incremental_peak_allocated_bytes"
+                ),
+                kernel_exec_result.memory.get("total_task_peak_allocated_bytes"),
+                kernel_exec_result.memory.get("measurement_complete"),
+            )
+    except Exception as exc:
+        if verbose:
+            logger.warning("[Eval] Error in Measuring CUDA Memory: %s", exc)
+        kernel_exec_result.memory = {
+            "schema_version": 2,
+            "method": "torch_cuda_peak_allocated_delta",
+            "allocator_scope": "pytorch_cuda_caching_allocator",
+            "environment_floor_available": bool(environment_floor),
+            "environment_floor_allocated_bytes": environment_floor.get(
+                "allocated_bytes"
+            ),
+            "environment_floor_reserved_bytes": environment_floor.get("reserved_bytes"),
+            "measurement_valid": False,
+            "measurement_complete": False,
+            "measurement_is_lower_bound": allocation_check[
+                "direct_cuda_allocation_detected"
+            ],
+            "direct_cuda_allocation_detected": allocation_check[
+                "direct_cuda_allocation_detected"
+            ],
+            "direct_cuda_allocation_apis": allocation_check[
+                "direct_cuda_allocation_apis"
+            ],
+            "direct_cuda_allocation_matches": allocation_check[
+                "direct_cuda_allocation_matches"
+            ],
+            "warnings": [
+                warning
+                for warning in (allocation_check["warning"], str(exc))
+                if warning
+            ],
+            "error": str(exc),
+        }
+        metadata["memory_measurement_error"] = str(exc)
+
+    finally:
+        torch.random.set_rng_state(cpu_rng_state)
+        torch.cuda.set_rng_state(cuda_rng_state, device=device)
+
+
 def eval_kernel_against_ref(
     original_model_src: str,
     custom_model_src: str,
@@ -680,10 +775,13 @@ def eval_kernel_against_ref(
         linewidth=80,
     )
 
+    memory_environment_floor: Dict[str, int] = {}
     if not compile_only:
         torch.cuda.set_device(device)
+        memory_environment_floor = capture_cuda_memory_environment_floor(device)
     is_triton = backend == "triton"
     metadata: Dict[str, Any] = {}
+    metadata["memory_environment_floor"] = dict(memory_environment_floor)
     metadata["hardware"] = "compile-only" if compile_only else torch.cuda.get_device_name(device=device)
     metadata["device"] = str(device)
     overall_start = perf_counter()
@@ -995,6 +1093,10 @@ def eval_kernel_against_ref(
 
             assert hasattr(custom_model, "forward")
             torch.cuda.synchronize(device=device)
+        del _create_custom_model
+        init_inputs = None
+        gc.collect()
+        torch.cuda.synchronize(device=device)
         _finish_stage(
             metadata,
             stage="kernel.build_custom_model",
@@ -1046,6 +1148,10 @@ def eval_kernel_against_ref(
         timing_key="kg_kernel_correctness_s",
         start_time=correctness_start,
     )
+
+    del original_model
+    gc.collect()
+    torch.cuda.synchronize(device=device)
 
     if kernel_exec_result.correctness and kernel_exec_result.decoy_kernel:
         logger.warning(
@@ -1126,6 +1232,31 @@ def eval_kernel_against_ref(
             start_time=performance_start,
         )
 
+    memory_start = _begin_stage(
+        metadata,
+        prefix="kg_kernel",
+        stage="kernel.memory",
+        overall_start=overall_start,
+    )
+    _run_memory_step(
+        kernel_exec_result=kernel_exec_result,
+        model=custom_model,
+        get_inputs=get_inputs,
+        source=custom_model_src,
+        metadata=metadata,
+        allocator_check_metadata_key="kernel_memory_allocator_check",
+        seed_num=seed_num,
+        environment_floor=memory_environment_floor,
+        device=device,
+        verbose=verbose,
+    )
+    _finish_stage(
+        metadata,
+        stage="kernel.memory",
+        timing_key="kg_kernel_memory_step_s",
+        start_time=memory_start,
+    )
+
     ncu_start = _begin_stage(
         metadata,
         prefix="kg_kernel",
@@ -1189,9 +1320,11 @@ def eval_reference_only(
     )
 
     torch.cuda.set_device(device)
+    memory_environment_floor = capture_cuda_memory_environment_floor(device)
     metadata: Dict[str, Any] = {}
     metadata["hardware"] = torch.cuda.get_device_name(device=device)
     metadata["device"] = str(device)
+    metadata["memory_environment_floor"] = dict(memory_environment_floor)
     overall_start = perf_counter()
 
     context: Dict[str, Any] = {}
@@ -1264,6 +1397,9 @@ def eval_reference_only(
             timing_key="kg_reference_build_model_s",
             start_time=original_model_start,
         )
+        del init_inputs
+        gc.collect()
+        torch.cuda.synchronize(device=device)
         if verbose:
             logger.info("[Eval] Original Model Loaded")
 
@@ -1272,6 +1408,8 @@ def eval_reference_only(
         return _record_model_load_error(metadata, e)
 
     kernel_exec_result = KernelExecResult(compiled=True, correctness=True, metadata=metadata)
+    inputs = None
+    model = original_model
 
     try:
         if verbose:
@@ -1360,6 +1498,35 @@ def eval_reference_only(
         if verbose:
             logger.warning("[Eval] Error in Measuring Performance: %s", e)
         kernel_exec_result.metadata["error_during_performance"] = e
+    finally:
+        inputs = None
+        gc.collect()
+        torch.cuda.synchronize(device=device)
+
+    memory_start = _begin_stage(
+        metadata,
+        prefix="kg_reference",
+        stage="reference.memory",
+        overall_start=overall_start,
+    )
+    _run_memory_step(
+        kernel_exec_result=kernel_exec_result,
+        model=model,
+        get_inputs=get_inputs,
+        source=original_model_src,
+        metadata=metadata,
+        allocator_check_metadata_key="reference_memory_allocator_check",
+        seed_num=seed_num,
+        environment_floor=memory_environment_floor,
+        device=device,
+        verbose=verbose,
+    )
+    _finish_stage(
+        metadata,
+        stage="reference.memory",
+        timing_key="kg_reference_memory_step_s",
+        start_time=memory_start,
+    )
 
     metadata["kg_reference_total_s"] = perf_counter() - overall_start
     _sync_exec_result_metadata(kernel_exec_result, metadata)

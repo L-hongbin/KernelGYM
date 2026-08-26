@@ -188,6 +188,7 @@ class EvaluationResponse(BaseModel):
     reference_runtime: Optional[float] = None
     kernel_runtime: Optional[float] = None
     speedup: Optional[float] = None
+    memory: Optional[Dict[str, Any]] = None
     metadata: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
     error_code: Optional[ErrorCode] = None
@@ -205,6 +206,23 @@ class EvaluationResponse(BaseModel):
                 "reference_runtime": 2.5,
                 "kernel_runtime": 1.2,
                 "speedup": 2.08,
+                "memory": {
+                    "reference": {
+                        "absolute_peak_allocated": "35.50 MB",
+                        "task_peak_allocated_delta": "35.00 MB",
+                        "forward_peak_allocated_delta": "1.00 MB",
+                    },
+                    "kernel": {
+                        "absolute_peak_allocated": "34.50 MB",
+                        "task_peak_allocated_delta": "34.00 MB",
+                        "forward_peak_allocated_delta": "512.00 KB",
+                    },
+                    "comparison": {
+                        "measurement_status": "complete",
+                        "kernel_minus_reference": "-1.00 MB",
+                        "kernel_to_reference_ratio": 0.9714,
+                    },
+                },
                 "metadata": {
                     "device": "cuda:0",
                     "gpu_name": "detected GPU name",

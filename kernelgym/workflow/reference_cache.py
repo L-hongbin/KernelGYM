@@ -33,12 +33,17 @@ _RUNTIME_PATHS = (
     "result.reference_runtime",
     "result.runtime",
 )
+_REFERENCE_MEMORY_PATHS = (
+    "reference_memory",
+    "result.reference_memory",
+)
 _REFERENCE_CODE_PATHS = (
     "reference_code",
     "ground_truth",
     "reward_model.ground_truth",
     "result.reference_code",
 )
+_REFERENCE_MEMORY_SCHEMA_VERSION = 2
 
 
 def _code_hash(reference_code: str) -> Optional[str]:
@@ -144,12 +149,31 @@ class ReferenceRuntimeCache:
             return None
         return runtime if runtime > 0 else None
 
+    def get_memory(
+        self,
+        uuid: Optional[str],
+        reference_code: str,
+        is_valid: bool,
+    ) -> Optional[dict[str, Any]]:
+        if self.get(uuid, reference_code, is_valid) is None or not uuid:
+            return None
+        entry = self._memory.get(self._entry_key(str(uuid), is_valid)) or {}
+        memory = entry.get("reference_memory")
+        if not isinstance(memory, dict):
+            return None
+        if memory.get("schema_version") != _REFERENCE_MEMORY_SCHEMA_VERSION:
+            return None
+        if not isinstance(memory.get("total_task_peak_allocated_bytes"), int):
+            return None
+        return dict(memory)
+
     def put(
         self,
         uuid: Optional[str],
         reference_code: str,
         is_valid: bool,
         runtime: Optional[float],
+        reference_memory: Optional[dict[str, Any]] = None,
     ) -> None:
         if not uuid or runtime is None:
             return
@@ -167,6 +191,8 @@ class ReferenceRuntimeCache:
             "reference_runtime": runtime_value,
             "code_hash": _code_hash(reference_code),
         }
+        if isinstance(reference_memory, dict):
+            entry["reference_memory"] = dict(reference_memory)
         entry_key = self._entry_key(uuid_str, is_valid)
         self._memory[entry_key] = entry
 
@@ -190,7 +216,14 @@ class ReferenceRuntimeCache:
                 runtime = _extract_first(record, _RUNTIME_PATHS)
                 reference_code = _extract_first(record, _REFERENCE_CODE_PATHS) or ""
                 before = self.get(str(uuid) if uuid is not None else None, reference_code, is_valid)
-                self.put(str(uuid) if uuid is not None else None, reference_code, is_valid, runtime)
+                reference_memory = _extract_first(record, _REFERENCE_MEMORY_PATHS)
+                self.put(
+                    str(uuid) if uuid is not None else None,
+                    reference_code,
+                    is_valid,
+                    runtime,
+                    reference_memory,
+                )
                 after = self.get(str(uuid) if uuid is not None else None, reference_code, is_valid)
                 if before is None and after is not None:
                     loaded += 1

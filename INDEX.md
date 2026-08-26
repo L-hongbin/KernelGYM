@@ -58,5 +58,6 @@ Tracked review-evidence files only. Untracked run logs and debug artifacts
 
 | Path | Purpose |
 | --- | --- |
+| `benchmarks/review_evidence/gemm_large_memory_delta_kernel_schema_h100_20260826.json` | Final redeployed 1024x1024 H100 GEMM evidence using reference/kernel role names and a deterministic 64 MB Kernel memory delta. |
 | `benchmarks/review_evidence/official_27b_review_evidence.json` | Adversarial review evidence for official 27B 3-binding c3/c8 runs: pairing, sample IDs, coverage, statuses, queue deltas, residuals, and c3/c8 consistency. |
 | `benchmarks/review_evidence/official_27b_perf_step_correctness_summary.json` | Perf-step breakdown split by completed, correct-only, and incorrect-completed rows for official 27B c3/c8 runs. |
