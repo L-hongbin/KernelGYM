@@ -275,7 +275,10 @@ class EvaluationResponse(BaseModel):
     kernel_runtime: Optional[float] = None
     speedup: Optional[float] = None
     memory: Optional[Dict[str, Any]] = None
-    runtime_sanitizer: Optional[Dict[str, Any]] = None
+    runtime_sanitizer: Optional[Dict[str, Any]] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     metadata: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
     error_code: Optional[ErrorCode] = None

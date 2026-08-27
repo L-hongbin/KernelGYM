@@ -142,6 +142,7 @@ def test_correctness_input_perturbations_are_disabled_by_default() -> None:
     assert result.correctness is True
     assert result.metadata["correctness_input_perturbations_enabled"] is False
     assert result.metadata["correctness_effective_trials"] == 1
+    assert "correctness_input_perturbation_trials" not in result.metadata
 
 
 @pytest.mark.gpu

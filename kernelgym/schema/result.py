@@ -424,6 +424,9 @@ class EvaluationResult:
 
     def to_dict(self) -> Dict[str, Any]:
         result = asdict(self)
+        runtime_sanitizer = result.get("runtime_sanitizer")
+        if not isinstance(runtime_sanitizer, dict) or runtime_sanitizer.get("status") == "skipped":
+            result.pop("runtime_sanitizer", None)
         metadata = _prepare_public_metadata(result.get("metadata"))
         for metadata_key in (
             "memory_environment_floor",

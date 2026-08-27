@@ -384,7 +384,8 @@ def run_and_check_correctness(
     metadata["correctness_input_perturbations_enabled"] = bool(enable_input_perturbations)
     metadata["correctness_requested_trials"] = int(num_correct_trials)
     metadata["correctness_effective_trials"] = int(total_correct_trials)
-    metadata["correctness_input_perturbation_trials"] = []
+    if enable_input_perturbations:
+        metadata["correctness_input_perturbation_trials"] = []
     metadata["correctness_reference_skipped_perturbations"] = []
     metadata["correctness_candidate_forward_completed"] = False
     metadata["correctness_candidate_forward_completed_trials"] = []
@@ -587,9 +588,10 @@ def run_and_check_correctness(
                         "transforms": {},
                         "transformed_tensor_count": 0,
                     }
-            metadata["correctness_input_perturbation_trials"].append(
-                {"trial": trial, "seed": int(trial_seed), **perturbation_summary}
-            )
+            if enable_input_perturbations:
+                metadata["correctness_input_perturbation_trials"].append(
+                    {"trial": trial, "seed": int(trial_seed), **perturbation_summary}
+                )
             input_generation_durations.append(perf_counter() - input_generation_start)
 
             _set_substage("input_transfer", trial=trial)

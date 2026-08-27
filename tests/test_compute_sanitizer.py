@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from kernelgym.config import settings
 from kernelgym.schema.result import EvaluationResult, KernelEvaluationResult
 from kernelgym.schema.task import EvaluationTask
-from kernelgym.server.api.models import EvaluationRequest
+from kernelgym.server.api.models import EvaluationRequest, EvaluationResponse
 from kernelgym.server.request_defaults import apply_runtime_defaults
 from kernelgym.toolkit.kernelbench import compute_sanitizer
 from kernelgym.toolkit.kernelbench import pipeline as kernelbench_pipeline
@@ -587,6 +587,30 @@ def test_kernel_only_workflow_result_preserves_runtime_sanitizer() -> None:
     response = KernelBenchWorkflowController()._kernel_only_result(task, kernel_result)
 
     assert response["runtime_sanitizer"] == sanitizer
+
+
+def test_public_result_omits_runtime_sanitizer_when_not_triggered() -> None:
+    result = EvaluationResult(
+        task_id="sanitizer-skipped",
+        compiled=True,
+        correctness=True,
+        decoy_kernel=False,
+        reference_runtime=1.0,
+        kernel_runtime=1.0,
+        speedup=1.0,
+        metadata={},
+        runtime_sanitizer={
+            "status": "skipped",
+            "reason": "disabled",
+            "measurement_complete": False,
+        },
+    )
+
+    public_result = result.to_dict()
+    response = EvaluationResponse(**public_result)
+
+    assert "runtime_sanitizer" not in public_result
+    assert "runtime_sanitizer" not in response.model_dump()
 
 
 def test_api_defaults_and_workflow_propagate_sanitizer() -> None:
