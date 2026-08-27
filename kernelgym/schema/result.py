@@ -107,6 +107,9 @@ def _prepare_public_memory_comparison(value: Dict[str, Any]) -> Dict[str, Any]:
     warnings = comparison.get("warnings")
     if isinstance(warnings, list) and warnings:
         public_comparison["warnings"] = warnings
+    ratio_warning = comparison.get("ratio_warning")
+    if isinstance(ratio_warning, str) and ratio_warning:
+        public_comparison["warning"] = ratio_warning
     return _serialize_memory_fields(public_comparison)
 
 
@@ -128,6 +131,7 @@ def _prepare_public_allocator_check(value: Any) -> Optional[Dict[str, Any]]:
 def _build_memory_comparison(
     reference_memory: Optional[Dict[str, Any]],
     kernel_memory: Optional[Dict[str, Any]],
+    memory_ratio_warning_threshold: Optional[float] = 1.8,
 ) -> Dict[str, Any]:
     reference_memory = reference_memory or {}
     kernel_memory = kernel_memory or {}
@@ -159,6 +163,26 @@ def _build_memory_comparison(
     comparison_metric = "total_task_peak_allocated_bytes"
     primary_reference = reference_total_peak
     primary_kernel = kernel_total_peak
+    kernel_to_reference_ratio = (
+        primary_kernel / primary_reference
+        if valid and primary_reference > 0
+        else None
+    )
+
+    ratio_warning = None
+    if memory_ratio_warning_threshold is not None:
+        threshold = float(memory_ratio_warning_threshold)
+        if (
+            threshold > 1.0
+            and kernel_to_reference_ratio is not None
+            and kernel_to_reference_ratio >= threshold
+        ):
+            ratio_warning = (
+                "Kernel total-task peak allocated memory is "
+                f"{kernel_to_reference_ratio:.3f}x the reference, meeting or exceeding the configured "
+                f"{threshold:.2f}x warning threshold. This Kernel may be impractical because "
+                "it uses excessive GPU memory."
+            )
 
     warnings = []
     if valid and not complete:
@@ -188,11 +212,8 @@ def _build_memory_comparison(
         "primary_memory_savings_bytes": (
             primary_reference - primary_kernel if valid else None
         ),
-        "primary_kernel_to_reference_ratio": (
-            primary_kernel / primary_reference
-            if valid and primary_reference > 0
-            else None
-        ),
+        "primary_kernel_to_reference_ratio": kernel_to_reference_ratio,
+        "ratio_warning": ratio_warning,
         "reference_forward_incremental_peak_allocated_bytes": reference_forward_peak,
         "kernel_forward_incremental_peak_allocated_bytes": kernel_forward_peak,
         "reference_persistent_allocated_bytes": reference_persistent,
@@ -480,6 +501,7 @@ class EvaluationResult:
         base_task_id: str,
         reference_result: ReferenceTimingResult,
         kernel_result: KernelEvaluationResult,
+        memory_ratio_warning_threshold: Optional[float] = 1.8,
     ) -> "EvaluationResult":
         speedup = 0.0
         if (
@@ -498,6 +520,7 @@ class EvaluationResult:
         memory_comparison = _build_memory_comparison(
             reference_result.reference_memory,
             kernel_result.kernel_memory,
+            memory_ratio_warning_threshold,
         )
         status = "completed"
         error_message = None

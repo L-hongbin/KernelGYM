@@ -234,7 +234,11 @@ class KernelBenchWorkflowController(WorkflowController):
                 ref_result.reference_memory,
             )
 
-        combined = _combine_results(ref_result, kernel_result)
+        combined = _combine_results(
+            ref_result,
+            kernel_result,
+            eval_task.memory_ratio_warning_threshold,
+        )
         result = combined.to_dict()
         self._persist_result(eval_task, result)
         return result

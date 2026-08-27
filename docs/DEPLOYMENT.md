@@ -17,11 +17,11 @@ KernelGYM reward-only supports two deployment modes. Runtime env values come fro
 - Use CUDA 12.9 explicitly:
   - `requirements-cuda129.txt` pins the CUDA-sensitive package versions; all candidates must exist in the offline wheelhouse.
   - `/usr/local/cuda-12.9/bin/nvcc --version` must report CUDA 12.9.
-- Nsight Compute collection is enabled by default at `/usr/local/cuda-12.9/bin/ncu`. The runtime validator checks the executable and version; deployed workers must have permission to access NVIDIA GPU performance counters.
+- Nsight Compute collection is enabled by default at `/usr/local/cuda-12.9/bin/ncu`. The runtime validator checks the executable and version; deployed workers must have permission to access NVIDIA GPU performance counters. The default compact metric set includes L1 throughput (`l1tex__throughput.avg.pct_of_peak_sustained_active`), L1 sector hit rate (`l1tex__t_sector_hit_rate.pct`), L2 throughput (`lts__throughput.avg.pct_of_peak_sustained_elapsed`), and L2 sector hit rate (`lts__t_sector_hit_rate.pct`). It does not currently collect request/sector counts or read/write byte totals.
 - Set `ENABLE_NCU=false` to disable collection globally, or use request field `enable_ncu=false` for one evaluation.
-- Runtime Sanitizer is enabled by default at `/usr/local/cuda-12.9/bin/compute-sanitizer`; deployment validation fails fast if the executable is missing.
+- Runtime Sanitizer is disabled by default. When enabled, it uses `/usr/local/cuda-12.9/bin/compute-sanitizer`; deployment validation then fails fast if the executable is missing.
 - It runs only after a candidate correctness forward raises and regenerates that trial's input in an isolated process. `error_based` runs the check selected from the failure and falls back to all four checks when classification is ambiguous; `full` always runs all four checks.
-- Set `ENABLE_COMPUTE_SANITIZER=false` globally or request field `enable_compute_sanitizer=false` per evaluation to skip its isolated trials.
+- Set `ENABLE_COMPUTE_SANITIZER=true` globally or request field `enable_compute_sanitizer=true` per evaluation to enable its isolated trials. An explicit request value overrides the server default for that evaluation.
 - Hidden correctness input perturbations are disabled by default. Set `ENABLE_CORRECTNESS_INPUT_PERTURBATIONS=true` globally or request field `enable_correctness_input_perturbations=true` per evaluation to enable distribution-aware correctness trials.
 - `set_env.sh` validates and reports the node-local venv and absolute wheelhouse paths. It only reports the deprecated shared `.venv`; it never reads, repairs, deletes, or activates it.
 - Do not reuse older KernelGYM or drkernel virtual environments.
@@ -34,7 +34,7 @@ bash ensure_venv.sh --recreate
 source /root/kernelgym-reward-only/.venv/bin/activate
 ```
 
-The script validates `redis-server`, `torch.version.cuda == "12.9"`, `nvcc`, Nsight Compute, and Compute Sanitizer from CUDA 12.9. Common overrides are not needed: it creates and activates the node-local venv with Python 3.12 when missing, then checks the CUDA tools under `/usr/local/cuda-12.9/bin` directly. `KERNELGYM_LOCAL_VENV_DIR`, `KERNELGYM_OFFLINE_WHEEL_DIR`, and `KERNELGYM_OFFLINE_REDIS_DIR` may override the defaults; all must remain absolute paths and the venv must be on local storage. `bash scripts/ensure_redis.sh --verify-bundle` validates checksums, package metadata, platform compatibility, and offline apt dependency resolution without installing or starting anything.
+The script validates `redis-server`, `torch.version.cuda == "12.9"`, `nvcc`, and Nsight Compute from CUDA 12.9. It also validates Compute Sanitizer when `ENABLE_COMPUTE_SANITIZER=true`; with the default `false`, that check is reported as skipped. Common overrides are not needed: it creates and activates the node-local venv with Python 3.12 when missing, then checks the CUDA tools under `/usr/local/cuda-12.9/bin` directly. `KERNELGYM_LOCAL_VENV_DIR`, `KERNELGYM_OFFLINE_WHEEL_DIR`, and `KERNELGYM_OFFLINE_REDIS_DIR` may override the defaults; all must remain absolute paths and the venv must be on local storage. `bash scripts/ensure_redis.sh --verify-bundle` validates checksums, package metadata, platform compatibility, and offline apt dependency resolution without installing or starting anything.
 
 Use `--profile v1`:
 

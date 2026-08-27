@@ -28,6 +28,9 @@ class EvaluationTask:
     correctness_timeout_enabled: Optional[bool] = None
     # Reference perf trial count; None -> reuse num_perf_trials.
     refer_num_perf_trials: Optional[int] = None
+    # Warn when Kernel total-task peak memory meets or exceeds this multiple of reference.
+    # None disables the warning.
+    memory_ratio_warning_threshold: Optional[float] = 1.8
     timeout: int = 300
     device: str = "cuda:0"
     priority: str = "normal"

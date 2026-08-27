@@ -1,9 +1,12 @@
+import pytest
+from pydantic import ValidationError
+
 from kernelgym.schema.result import (
     EvaluationResult,
     KernelEvaluationResult,
     ReferenceTimingResult,
 )
-from kernelgym.server.api.models import EvaluationResponse
+from kernelgym.server.api.models import EvaluationRequest, EvaluationResponse
 from kernelgym.toolkit.kernelbench import pipeline as kernelbench_pipeline
 from kernelgym.toolkit.kernelbench.exec_types import KernelExecResult
 from kernelgym.toolkit.kernelbench.memory import detect_direct_cuda_allocations
@@ -63,6 +66,32 @@ def _assert_no_bytes_suffix(value) -> None:
     elif isinstance(value, list):
         for item in value:
             _assert_no_bytes_suffix(item)
+
+
+def test_memory_ratio_warning_threshold_request_defaults_and_validation() -> None:
+    request = EvaluationRequest(
+        task_id="memory-ratio-default",
+        reference_code="class Model:\n    pass",
+        kernel_code="class ModelNew:\n    pass",
+    )
+    assert request.memory_ratio_warning_threshold == 1.8
+
+    disabled = EvaluationRequest(
+        task_id="memory-ratio-disabled",
+        reference_code="class Model:\n    pass",
+        kernel_code="class ModelNew:\n    pass",
+        memory_ratio_warning_threshold=None,
+    )
+    assert disabled.memory_ratio_warning_threshold is None
+
+    for invalid_threshold in (1.0, float("nan"), float("inf")):
+        with pytest.raises(ValidationError):
+            EvaluationRequest(
+                task_id="memory-ratio-invalid",
+                reference_code="class Model:\n    pass",
+                kernel_code="class ModelNew:\n    pass",
+                memory_ratio_warning_threshold=invalid_threshold,
+            )
 
 
 def test_direct_cuda_allocation_detection_reports_calls_but_ignores_comments() -> None:
@@ -246,6 +275,105 @@ def test_direct_allocation_marks_feedback_comparison_as_lower_bound() -> None:
         "detected_apis": ["cudaMalloc"],
         "matches": [{"api": "cudaMalloc", "line": 3, "snippet": "cudaMalloc(...)"}],
     }
+
+
+def test_excessive_kernel_memory_adds_ratio_warning() -> None:
+    reference = ReferenceTimingResult(
+        task_id="task_ref",
+        base_task_id="task",
+        reference_runtime=2.0,
+        metadata={},
+        reference_memory=_memory(1_000),
+    )
+    kernel = KernelEvaluationResult(
+        task_id="task_kernel",
+        base_task_id="task",
+        compiled=True,
+        correctness=True,
+        decoy_kernel=False,
+        kernel_runtime=1.0,
+        metadata={},
+        kernel_memory=_memory(2_000),
+    )
+
+    comparison = EvaluationResult.from_paired_results(
+        "task",
+        reference,
+        kernel,
+        memory_ratio_warning_threshold=1.5,
+    ).to_dict()["memory"]["comparison"]
+
+    assert comparison["kernel_to_reference_ratio"] == 2.0
+    assert comparison["warning"] == (
+        "Kernel total-task peak allocated memory is 2.000x the reference, meeting or exceeding the configured "
+        "1.50x warning threshold. This Kernel may be impractical because it uses excessive GPU memory."
+    )
+
+
+def test_memory_ratio_warning_uses_inclusive_threshold_and_can_be_disabled() -> None:
+    reference = ReferenceTimingResult(
+        task_id="task_ref",
+        base_task_id="task",
+        reference_runtime=2.0,
+        metadata={},
+        reference_memory=_memory(1_000),
+    )
+    kernel = KernelEvaluationResult(
+        task_id="task_kernel",
+        base_task_id="task",
+        compiled=True,
+        correctness=True,
+        decoy_kernel=False,
+        kernel_runtime=1.0,
+        metadata={},
+        kernel_memory=_memory(1_500),
+    )
+
+    at_threshold = EvaluationResult.from_paired_results(
+        "task",
+        reference,
+        kernel,
+        memory_ratio_warning_threshold=1.5,
+    ).to_dict()["memory"]["comparison"]
+    assert at_threshold["warning"].startswith(
+        "Kernel total-task peak allocated memory is 1.500x the reference"
+    )
+
+    disabled = EvaluationResult.from_paired_results(
+        "task",
+        reference,
+        kernel,
+        memory_ratio_warning_threshold=None,
+    ).to_dict()["memory"]["comparison"]
+    assert "warning" not in disabled
+
+
+def test_default_memory_ratio_warning_threshold_triggers_at_one_point_eight() -> None:
+    reference = ReferenceTimingResult(
+        task_id="task_ref",
+        base_task_id="task",
+        reference_runtime=2.0,
+        metadata={},
+        reference_memory=_memory(1_000),
+    )
+
+    def comparison_for(kernel_peak: int) -> dict:
+        kernel = KernelEvaluationResult(
+            task_id="task_kernel",
+            base_task_id="task",
+            compiled=True,
+            correctness=True,
+            decoy_kernel=False,
+            kernel_runtime=1.0,
+            metadata={},
+            kernel_memory=_memory(kernel_peak),
+        )
+        return EvaluationResult.from_paired_results("task", reference, kernel).to_dict()["memory"]["comparison"]
+
+    assert "warning" not in comparison_for(1_799)
+    assert comparison_for(1_800)["warning"].startswith(
+        "Kernel total-task peak allocated memory is 1.800x the reference"
+    )
 
 
 def test_reference_cache_round_trips_current_memory_and_rejects_legacy_entries() -> None:

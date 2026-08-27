@@ -67,6 +67,15 @@ class EvaluationRequest(BaseModel):
         le=50,
         description="Number of highest/lowest trials to trim from each end before computing mean",
     )
+    memory_ratio_warning_threshold: Optional[float] = Field(
+        default=1.8,
+        gt=1.0,
+        allow_inf_nan=False,
+        description=(
+            "Warn when Kernel total-task peak allocated memory meets or exceeds this multiple of the reference. "
+            "Set to null to disable the warning."
+        ),
+    )
     timeout: int = Field(default=300, ge=10, le=3600, description="Task timeout in seconds")
     priority: Priority = Field(default=Priority.NORMAL, description="Task priority")
     device_preference: Optional[str] = Field(default=None, description="Preferred GPU device")

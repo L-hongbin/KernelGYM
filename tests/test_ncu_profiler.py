@@ -23,6 +23,17 @@ WIDE_SAMPLE_CSV = """"ID","Process ID","Process Name","Host Name","Kernel Name",
 """
 
 
+def test_default_ncu_metrics_include_l1_l2_hit_rates(monkeypatch) -> None:
+    from kernelgym.config.settings import Settings
+
+    monkeypatch.delenv("NCU_METRICS", raising=False)
+    defaults = Settings(_env_file=None)
+
+    assert "l1tex__t_sector_hit_rate.pct" in defaults.ncu_metrics
+    assert "lts__t_sector_hit_rate.pct" in defaults.ncu_metrics
+    assert defaults.ncu_profile_version == "v1"
+
+
 def test_parse_ncu_csv_groups_metrics_by_kernel() -> None:
     kernels = ncu_profiler.parse_ncu_csv(SAMPLE_CSV)
 

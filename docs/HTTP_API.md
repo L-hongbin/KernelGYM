@@ -70,6 +70,7 @@ Trial budget:
 | `num_perf_trials` | 1–1000 | 100 | Perf trials. With profiler on (default), a subset of these is also profiled. |
 | `num_warmup` | 0–100 | 3 | Warmup iters before timed perf trials. |
 | `perf_trim_count` | 0–50 | 0 | Trim N highest + N lowest perf samples before mean. |
+| `memory_ratio_warning_threshold` | >1 or null | 1.8 | Add `memory.comparison.warning` when Kernel total-task peak allocated memory is greater than or equal to this multiple of the reference. `null` disables the warning. The warning can be used by downstream reward shaping without changing correctness or task status. |
 | `timeout` | 10–3600 s | 300 (model default) / 180 (v1 deployment) | Per-task wall budget. Hard kill once exceeded. |
 
 Caching / dedup:
@@ -166,7 +167,15 @@ Memory feedback is returned for correct kernels:
 | `memory.comparison.measurement_status` | `complete` means usable and complete, `partial` means usable but potentially a lower bound, and `invalid` means the measurement cannot be compared. |
 | `memory.comparison.kernel_minus_reference` | Signed difference computed as Kernel minus reference for `task_peak_allocated_delta`. Negative means the Kernel uses less memory; positive means it uses more. |
 | `memory.comparison.kernel_to_reference_ratio` | Kernel divided by reference for `task_peak_allocated_delta`; below 1 means the Kernel uses less memory. |
+| `memory.comparison.warning` | A single warning string returned when `kernel_to_reference_ratio` is greater than or equal to `memory_ratio_warning_threshold`. The message includes the actual ratio and configured threshold. |
 | `memory.allocator_check` | Returned only when the Kernel source contains a direct CUDA allocation or another allocator warning. |
+
+The default `1.8` memory-ratio warning threshold is an engineering policy, not a threshold prescribed by
+[KernelBench-Verified](https://arxiv.org/abs/2607.16241). The paper treats any Kernel memory increase as reduced
+memory efficiency, shows a `1.81x` duplicate-weight implementation as counter-productive, and notes that a `3x`
+memory footprint can make an otherwise faster Kernel impractical. Because this signal may drive a binary reward
+penalty, the configurable `1.8x` line catches regressions comparable to the paper's `1.81x` counter-productive
+example while avoiding penalties for smaller workspace increases.
 
 Runtime Sanitizer feedback is returned for compiled CUDA candidates. It is normally `skipped`; execution is
 triggered only when the candidate `custom_forward` raises during correctness. Output value/shape mismatch does not
@@ -231,7 +240,7 @@ and memory measurements continue to use the original input distribution.
 | `correctness_early_stop_enabled`, `correctness_trials_run`, `correctness_current_trial` | Correctness loop state |
 | `kg_kernel_perf_mean_ms`, `kg_kernel_perf_std_ms`, `kg_kernel_perf_min_ms`, `kg_kernel_perf_max_ms` | Per-trial perf stats |
 | `custom_kernel_cuda_time_in_profiling_us`, `*_coverage` | Profiler attribution |
-| `ncu.status`, `ncu.kernels`, `kg_kernel_ncu_profile_s` | Nsight Compute status, compact per-kernel metrics, and collection wall time |
+| `ncu.status`, `ncu.kernels`, `kg_kernel_ncu_profile_s` | Nsight Compute status, compact per-kernel metrics, and collection wall time. The default set includes L1/L2 throughput utilization and sector hit rates: `l1tex__throughput.avg.pct_of_peak_sustained_active`, `l1tex__t_sector_hit_rate.pct`, `lts__throughput.avg.pct_of_peak_sustained_elapsed`, and `lts__t_sector_hit_rate.pct`. It does not include request/sector counts or read/write byte totals. |
 
 ### Example
 
