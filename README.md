@@ -48,6 +48,7 @@ bash deploy_node.sh --clear-cache --nnodes 1
 ```bash
 bash check_node.sh                  # GPU + worker health summary (ASCII tables with -v)
 bash test_reward.sh                 # round-trip a hand-written CUDA add kernel
+curl -sS http://127.0.0.1:20111/device-info  # locally detected static GPU capabilities
 ```
 
 ### 4. Control evaluation features through the request payload

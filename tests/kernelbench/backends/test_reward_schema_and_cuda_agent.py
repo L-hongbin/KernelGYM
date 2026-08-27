@@ -78,6 +78,7 @@ def test_result_serialization_includes_detected_device_info(monkeypatch) -> None
     }
     monkeypatch.setenv(device_info.DEVICE_INFO_ENV, device_info.encode_device_info(detected))
     device_info.current_device_info.cache_clear()
+    normalized = device_info.decode_device_info(device_info.encode_device_info(detected))
 
     result = KernelEvaluationResult(
         task_id="t",
@@ -89,7 +90,7 @@ def test_result_serialization_includes_detected_device_info(monkeypatch) -> None
         metadata={"device": "cuda:0"},
     ).to_dict()
 
-    assert result["metadata"]["device_info"] == detected
+    assert result["metadata"]["device_info"] == normalized
     device_info.current_device_info.cache_clear()
 
 
@@ -108,6 +109,7 @@ def test_result_serialization_preserves_existing_device_info(monkeypatch) -> Non
         device_info.encode_device_info({**existing, "gpu_name": "API GPU"}),
     )
     device_info.current_device_info.cache_clear()
+    normalized = device_info.decode_device_info(device_info.encode_device_info(existing))
 
     result = KernelEvaluationResult(
         task_id="t",
@@ -119,7 +121,7 @@ def test_result_serialization_preserves_existing_device_info(monkeypatch) -> Non
         metadata={"device_info": existing},
     ).to_dict()
 
-    assert result["metadata"]["device_info"] == existing
+    assert result["metadata"]["device_info"] == normalized
     device_info.current_device_info.cache_clear()
 
 

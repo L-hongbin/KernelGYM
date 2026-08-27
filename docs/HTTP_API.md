@@ -14,6 +14,7 @@ For a quick end-to-end probe, run `bash test_reward.sh` (single CUDA-Agent add) 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/` | Service identity |
+| GET | `/device-info` | Static capabilities detected from the ENV node's local CUDA device |
 | GET | `/health` | Aggregated GPU + queue + memory health |
 | GET | `/metrics` | Performance / resource / queue / error counters |
 | POST | `/evaluate` | **Submit one kernel evaluation (primary endpoint)** |
@@ -37,6 +38,25 @@ For a quick end-to-end probe, run `bash test_reward.sh` (single CUDA-Agent add) 
 | POST | `/monitoring/clear-error-history/{code_hash}` | Reset error counters for one code hash |
 
 Endpoints marked *(internal)* are used by the in-process worker subprocesses and the deploy scripts; RL clients don't need to call them.
+
+## `GET /device-info` — local static GPU capabilities
+
+Returns the same static `device_info` object attached to evaluation metadata, without submitting a Kernel task. The
+ENV process detects these values locally at deployment time through PyTorch's CUDA device properties, with
+the CUDA Runtime API used for the runtime version and `nvidia-smi` used for the driver version. Counts remain JSON integers, while capacities and bandwidth
+use explicit human-readable units for direct model input. Unsupported properties are returned as `null`;
+`peak_compute_tflops` and dynamic profiling counters are intentionally not included.
+
+```bash
+curl -sS http://127.0.0.1:20111/device-info
+```
+
+The response groups thread and launch-dimension limits, register limits, shared-memory limits, and the locally detected `software.cuda_version`,
+`software.driver_version`, and `software.nvcc_version` values. `cuda_version` is queried with
+`cudaRuntimeGetVersion()` rather than read from the driver compatibility ceiling or PyTorch build, and framework
+build versions are not included. Device memory uses GiB,
+shared memory uses KiB, L2 uses MiB, and theoretical DDR bandwidth uses TB/s or GB/s. Clock and memory-bus source
+values are used locally to derive the bandwidth but are not exposed because they are redundant for model input.
 
 ## `POST /evaluate` — the main endpoint
 

@@ -178,7 +178,9 @@ def test_service_env_detects_device_info(monkeypatch) -> None:
 
     env = service._service_env({})
 
-    assert service.json.loads(env["KERNELGYM_DEVICE_INFO"]) == detected
+    assert service.json.loads(env["KERNELGYM_DEVICE_INFO"]) == service.json.loads(
+        service.encode_device_info(detected)
+    )
     assert env["KERNELGYM_CORE_DUMP_KEEP"] == "10"
     assert env["KERNELGYM_CORE_DUMP_DIR"].endswith("logs/core_dumps/" + service._hostname())
 

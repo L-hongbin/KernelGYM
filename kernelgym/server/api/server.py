@@ -28,6 +28,7 @@ from kernelgym.server.request_hash import request_hash
 from kernelgym.server.scheduler import TaskManagerScheduler
 from kernelgym.server.task_manager import TaskManager
 from kernelgym.utils.error_classifier import classify_error
+from kernelgym.utils.device_info import current_device_info
 from kernelgym.utils.task_status import task_status_from_result_payload
 from kernelgym.workflow import get_workflow_controller
 from kernelgym.workflow.kernelbench_helpers import set_reference_cache
@@ -38,6 +39,7 @@ from .models import (
     MAX_CODE_CHARS,
     BatchEvaluationRequest,
     BatchEvaluationResponse,
+    DeviceInfoResponse,
     ErrorResponse,
     EvaluationRequest,
     EvaluationResponse,
@@ -456,6 +458,12 @@ async def root():
         "description": "GPU Kernel Evaluation Service",
         "timestamp": format_timestamp(datetime.now()),
     }
+
+
+@app.get("/device-info", response_model=DeviceInfoResponse)
+async def get_device_info() -> DeviceInfoResponse:
+    """Return static capabilities detected from this ENV node's local CUDA device."""
+    return DeviceInfoResponse(**current_device_info())
 
 
 @app.post("/debug/validate")

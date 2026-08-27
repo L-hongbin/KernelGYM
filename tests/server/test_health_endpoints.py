@@ -12,7 +12,7 @@ import asyncio
 import time
 
 from kernelgym.server.api import system_stats, utils
-from kernelgym.server.api.models import MetricsResponse, SystemHealthResponse
+from kernelgym.server.api.models import DeviceInfoResponse, MetricsResponse, SystemHealthResponse
 
 
 def _run(coro):
@@ -56,6 +56,48 @@ def test_health_and_liveness_routes_registered():
     paths = {r.path for r in server.app.routes if hasattr(r, "path")}
     assert "/health" in paths
     assert "/health/live" in paths
+    assert "/device-info" in paths
+
+
+def test_device_info_endpoint_returns_the_local_detected_schema(monkeypatch):
+    from kernelgym.server.api import server
+
+    detected = {
+        "gpu_name": "Local GPU",
+        "cuda_arch": "sm_90",
+        "compute_capability": "9.0",
+        "sm_count": 114,
+        "warp_size": 32,
+        "thread_limits": {
+            "max_threads_per_block": 1024,
+            "max_threads_per_sm": 2048,
+            "max_warps_per_sm": 64,
+            "max_blocks_per_sm": 32,
+            "max_block_dimensions": [1024, 1024, 64],
+            "max_grid_dimensions": [2_147_483_647, 65_535, 65_535],
+        },
+        "shared_memory": {
+            "per_block_default": "48 KiB",
+            "per_block_optin": "227 KiB",
+            "per_sm": "228 KiB",
+        },
+        "register_limits": {"per_sm": 65_536, "per_block": 65_536},
+        "l2_cache": "50 MiB",
+        "device_memory": "79.18 GiB",
+        "theoretical_memory_bandwidth": "2.039 TB/s",
+        "software": {"cuda_version": "12.9", "driver_version": "590.1", "nvcc_version": "12.9"},
+    }
+    monkeypatch.setattr(server, "current_device_info", lambda: detected)
+
+    response = _run(server.get_device_info())
+
+    assert isinstance(response, DeviceInfoResponse)
+    assert response.gpu_name == "Local GPU"
+    assert response.sm_count == 114
+    assert response.thread_limits.max_warps_per_sm == 64
+    assert response.register_limits.per_block == 65_536
+    assert response.shared_memory.per_block_optin == "227 KiB"
+    assert "peak_compute_tflops" not in response.model_dump()
 
 
 def test_get_snapshot_is_single_flight(monkeypatch):

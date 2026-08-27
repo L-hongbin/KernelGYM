@@ -316,10 +316,35 @@ class EvaluationResponse(BaseModel):
                     "backend": "cuda",
                     "device_info": {
                         "gpu_name": "detected GPU name",
+                        "cuda_arch": "sm_90",
                         "compute_capability": "detected compute capability list",
-                        "cuda_version": "detected CUDA runtime version",
-                        "driver_version": "detected NVIDIA driver version",
-                        "nvcc_version": "detected nvcc version",
+                        "sm_count": 114,
+                        "warp_size": 32,
+                        "thread_limits": {
+                            "max_threads_per_block": 1024,
+                            "max_threads_per_sm": 2048,
+                            "max_warps_per_sm": 64,
+                            "max_blocks_per_sm": 32,
+                            "max_block_dimensions": [1024, 1024, 64],
+                            "max_grid_dimensions": [2147483647, 65535, 65535],
+                        },
+                        "shared_memory": {
+                            "per_block_default": "48 KiB",
+                            "per_block_optin": "227 KiB",
+                            "per_sm": "228 KiB",
+                        },
+                        "register_limits": {
+                            "per_sm": 65536,
+                            "per_block": 65536,
+                        },
+                        "l2_cache": "50 MiB",
+                        "device_memory": "79.18 GiB",
+                        "theoretical_memory_bandwidth": "2.039 TB/s",
+                        "software": {
+                            "cuda_version": "12.9",
+                            "driver_version": "590.48.01",
+                            "nvcc_version": "12.9",
+                        },
                     },
                 },
                 "submitted_at": "2025-01-16T10:30:00Z",
@@ -422,6 +447,49 @@ class WorkflowResponse(BaseModel):
     error_code: Optional[ErrorCode] = None
     submitted_at: Optional[str] = None
     completed_at: Optional[str] = None
+
+
+class DeviceThreadLimits(BaseModel):
+    max_threads_per_block: Optional[int] = None
+    max_threads_per_sm: Optional[int] = None
+    max_warps_per_sm: Optional[int] = None
+    max_blocks_per_sm: Optional[int] = None
+    max_block_dimensions: Optional[List[int]] = None
+    max_grid_dimensions: Optional[List[int]] = None
+
+
+class DeviceRegisterLimits(BaseModel):
+    per_sm: Optional[int] = None
+    per_block: Optional[int] = None
+
+
+class DeviceSharedMemory(BaseModel):
+    per_block_default: Optional[str] = None
+    per_block_optin: Optional[str] = None
+    per_sm: Optional[str] = None
+
+
+class DeviceSoftwareInfo(BaseModel):
+    cuda_version: str
+    driver_version: str
+    nvcc_version: str
+
+
+class DeviceInfoResponse(BaseModel):
+    """Model-friendly static capabilities detected from the local CUDA device."""
+
+    gpu_name: str
+    cuda_arch: str
+    compute_capability: str
+    sm_count: Optional[int] = None
+    warp_size: Optional[int] = None
+    thread_limits: DeviceThreadLimits
+    shared_memory: DeviceSharedMemory
+    register_limits: DeviceRegisterLimits
+    l2_cache: Optional[str] = None
+    device_memory: Optional[str] = None
+    theoretical_memory_bandwidth: Optional[str] = None
+    software: DeviceSoftwareInfo
 
 
 class SystemHealthResponse(BaseModel):
