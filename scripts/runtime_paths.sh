@@ -4,13 +4,36 @@
 # and repository remain shared so every node installs the same artifacts and
 # continues to write logs to the shared checkout.
 export KERNELGYM_LOCAL_VENV_DIR="${KERNELGYM_LOCAL_VENV_DIR:-/root/kernelgym-reward-only/.venv}"
-export KERNELGYM_OFFLINE_WHEEL_DIR="${KERNELGYM_OFFLINE_WHEEL_DIR:-/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels}"
-export KERNELGYM_OFFLINE_REDIS_DIR="${KERNELGYM_OFFLINE_REDIS_DIR:-/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels/redis/ubuntu-24.04-amd64}"
+
+WHELL_PATH_1="/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels"
+WHELL_PATH_2="/ms/FM/lihongbin/code/Code-Agent/KernelENV/env_wheel"
+if [[ -z "${WHELL_PATH:-}" ]]; then
+    if [[ -d "${WHELL_PATH_1}" ]]; then
+        WHELL_PATH="${WHELL_PATH_1}"
+    elif [[ -d "${WHELL_PATH_2}" ]]; then
+        WHELL_PATH="${WHELL_PATH_2}"
+    else
+        # Preserve the original path so downstream checks report one stable,
+        # actionable location when neither shared wheelhouse is mounted.
+        WHELL_PATH="${WHELL_PATH_1}"
+    fi
+fi
+export WHELL_PATH
+export KERNELGYM_OFFLINE_WHEEL_DIR="${KERNELGYM_OFFLINE_WHEEL_DIR:-${WHELL_PATH}}"
+export KERNELGYM_OFFLINE_REDIS_DIR="${KERNELGYM_OFFLINE_REDIS_DIR:-${WHELL_PATH}/redis/ubuntu-24.04-amd64}"
 
 case "${KERNELGYM_LOCAL_VENV_DIR}" in
     /*) ;;
     *)
         echo "KERNELGYM_LOCAL_VENV_DIR must be an absolute path: ${KERNELGYM_LOCAL_VENV_DIR}" >&2
+        return 2 2>/dev/null || exit 2
+        ;;
+esac
+
+case "${WHELL_PATH}" in
+    /*) ;;
+    *)
+        echo "WHELL_PATH must be an absolute path: ${WHELL_PATH}" >&2
         return 2 2>/dev/null || exit 2
         ;;
 esac

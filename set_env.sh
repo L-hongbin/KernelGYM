@@ -25,8 +25,7 @@ if ! compgen -G "${KERNELGYM_OFFLINE_WHEEL_DIR}/*.whl" >/dev/null; then
 fi
 
 if [[ ! -d "${KERNELGYM_OFFLINE_REDIS_DIR}" ]]; then
-    echo "offline Redis directory not found: ${KERNELGYM_OFFLINE_REDIS_DIR}" >&2
-    exit 1
+    echo "offline Redis directory not found; ensure_redis.sh will use installed Redis or apt: ${KERNELGYM_OFFLINE_REDIS_DIR}" >&2
 fi
 
 mkdir -p "$(dirname "${KERNELGYM_LOCAL_VENV_DIR}")"
@@ -37,6 +36,7 @@ fi
 
 echo "python_target=${PYTHON_TARGET}"
 echo "local_venv=${KERNELGYM_LOCAL_VENV_DIR}"
+echo "wheel_path=${WHELL_PATH}"
 echo "offline_wheels=${KERNELGYM_OFFLINE_WHEEL_DIR}"
 echo "offline_redis=${KERNELGYM_OFFLINE_REDIS_DIR}"
 

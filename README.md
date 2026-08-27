@@ -16,7 +16,7 @@ bash scripts/start_container.sh
 
 ### 1. Bootstrap the environment
 
-`ensure_venv.sh` validates CUDA 12.9, installs the pinned Redis `.deb` bundle when needed, and creates `/root/kernelgym-reward-only/.venv` on the node-local system disk. Python packages are pinned by `requirements-offline.txt` and installed with `--offline --no-index` exclusively from the absolute shared wheelhouse `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels`. Redis is likewise installed without apt indexes or network access from `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels/redis/ubuntu-24.04-amd64`. The old repo-local `.venv` is deprecated and ignored. `set_env.sh` reports and validates these runtime paths.
+`ensure_venv.sh` validates CUDA 12.9, ensures Redis is available, and creates `/root/kernelgym-reward-only/.venv` on the node-local system disk. When `WHELL_PATH` is not set explicitly, `runtime_paths.sh` selects the first existing wheelhouse from `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels` and `/ms/FM/lihongbin/code/Code-Agent/KernelENV/env_wheel`. `KERNELGYM_OFFLINE_WHEEL_DIR` defaults to `${WHELL_PATH}`, while `KERNELGYM_OFFLINE_REDIS_DIR` defaults to `${WHELL_PATH}/redis/ubuntu-24.04-amd64`; either remains independently overridable. Python packages are installed with `--offline --no-index`. When the Redis bundle is unavailable, the script reuses an existing system Redis or falls back to `apt-get update` plus online installation from the configured apt repositories. The old repo-local `.venv` is deprecated and ignored. `set_env.sh` reports and validates these runtime paths.
 
 ```bash
 bash set_env.sh

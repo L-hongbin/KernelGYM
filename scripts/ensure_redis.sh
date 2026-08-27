@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Install the pinned Redis packages exclusively from the shared offline bundle.
-# This script never updates apt metadata, enables an apt source, or starts Redis.
+# Prefer the pinned offline Redis bundle, falling back to the configured apt
+# repositories only when the bundle is unavailable and Redis is not installed.
 
 set -euo pipefail
 
@@ -17,19 +17,69 @@ elif [[ -n "${1:-}" ]]; then
 fi
 
 fail() {
-    echo "offline Redis bootstrap failed: $*" >&2
+    echo "Redis bootstrap failed: $*" >&2
     exit 1
 }
+
+REDIS_DIR="${KERNELGYM_OFFLINE_REDIS_DIR}"
+
+offline_bundle_available() {
+    [[ -d "${REDIS_DIR}" ]] &&
+        [[ -f "${REDIS_DIR}/platform.txt" ]] &&
+        [[ -f "${REDIS_DIR}/packages.txt" ]] &&
+        [[ -f "${REDIS_DIR}/SHA256SUMS" ]] &&
+        compgen -G "${REDIS_DIR}/*.deb" >/dev/null
+}
+
+redis_is_installed() {
+    command -v redis-server >/dev/null 2>&1 && command -v redis-cli >/dev/null 2>&1
+}
+
+require_service_start_policy() {
+    [[ -x /usr/sbin/policy-rc.d ]] || fail "/usr/sbin/policy-rc.d must deny service starts during package installation"
+    set +e
+    /usr/sbin/policy-rc.d redis-server start >/dev/null 2>&1
+    POLICY_RC=$?
+    set -e
+    [[ "${POLICY_RC}" == "101" ]] || fail "/usr/sbin/policy-rc.d returned ${POLICY_RC}, expected deny code 101"
+}
+
+run_apt() {
+    if [[ "$(id -u)" == "0" ]]; then
+        env DEBIAN_FRONTEND=noninteractive "$@"
+    else
+        command -v sudo >/dev/null 2>&1 || fail "root or sudo is required to install Redis"
+        sudo env DEBIAN_FRONTEND=noninteractive "$@"
+    fi
+}
+
+install_redis_online() {
+    command -v apt-get >/dev/null 2>&1 || fail "offline bundle is unavailable and apt-get is not installed"
+    require_service_start_policy
+    echo "WARNING: offline Redis bundle unavailable at ${REDIS_DIR}; installing from configured apt repositories" >&2
+    run_apt apt-get update
+    run_apt apt-get -y --no-install-recommends install redis-server redis-tools
+    redis_is_installed || fail "redis-server or redis-cli is unavailable after online installation"
+    redis-server --version
+    echo "Redis installed from configured apt repositories"
+}
+
+if ! offline_bundle_available; then
+    if [[ "${VERIFY_ONLY}" == "1" ]]; then
+        fail "offline bundle is unavailable or incomplete: ${REDIS_DIR}"
+    fi
+    if redis_is_installed; then
+        redis-server --version
+        echo "Offline Redis bundle unavailable; using the existing system Redis installation"
+        exit 0
+    fi
+    install_redis_online
+    exit 0
+fi
 
 for command_name in dpkg dpkg-deb dpkg-query sha256sum; do
     command -v "${command_name}" >/dev/null 2>&1 || fail "${command_name} is unavailable"
 done
-
-REDIS_DIR="${KERNELGYM_OFFLINE_REDIS_DIR}"
-[[ -d "${REDIS_DIR}" ]] || fail "bundle directory not found: ${REDIS_DIR}"
-[[ -f "${REDIS_DIR}/platform.txt" ]] || fail "missing ${REDIS_DIR}/platform.txt"
-[[ -f "${REDIS_DIR}/packages.txt" ]] || fail "missing ${REDIS_DIR}/packages.txt"
-[[ -f "${REDIS_DIR}/SHA256SUMS" ]] || fail "missing ${REDIS_DIR}/SHA256SUMS"
 
 EXPECTED_OS_ID=""
 EXPECTED_OS_VERSION_ID=""
@@ -165,14 +215,7 @@ if [[ "${ALL_INSTALLED}" == "1" ]]; then
 fi
 
 command -v apt-get >/dev/null 2>&1 || fail "apt-get is unavailable"
-[[ -x /usr/sbin/policy-rc.d ]] || \
-    fail "/usr/sbin/policy-rc.d must deny service starts during package installation"
-set +e
-/usr/sbin/policy-rc.d redis-server start >/dev/null 2>&1
-POLICY_RC=$?
-set -e
-[[ "${POLICY_RC}" == "101" ]] || \
-    fail "/usr/sbin/policy-rc.d returned ${POLICY_RC}, expected deny code 101"
+require_service_start_policy
 
 prepare_offline_apt
 APT_COMMAND=(apt-get "${APT_ARGS[@]}" -y install "${DEB_FILES[@]}")

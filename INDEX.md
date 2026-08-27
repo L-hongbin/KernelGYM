@@ -28,7 +28,7 @@ This file indexes stable repository docs and evidence locations.
 | Path | Purpose |
 | --- | --- |
 | `deploy_node.sh` | Container-only single/multi-node startup with automatic visible-GPU discovery, per-node correctness/profiling warmup, GPU/CPU worker overrides, `--clear-cache` cold start, and `--block-terminal` foreground lifecycle. |
-| `ensure_venv.sh`, `set_env.sh`, `scripts/runtime_paths.sh`, `scripts/ensure_redis.sh` | Node-local Python bootstrap plus pinned Redis installation from fixed absolute offline bundles; the shared repo-local venv is deprecated. |
+| `ensure_venv.sh`, `set_env.sh`, `scripts/runtime_paths.sh`, `scripts/ensure_redis.sh` | Node-local Python bootstrap plus Redis installation from offline paths defaulted from the selected `WHELL_PATH`; the shared repo-local venv is deprecated. |
 | `requirements-offline.txt` | Exact CPython 3.12/CUDA 12.9 environment lock whose wheels are staged in the absolute shared wheelhouse. |
 | `wheels/redis/ubuntu-24.04-amd64/` | Shared gitignored Redis `.deb` bundle with exact package/platform manifests and SHA-256 checksums. |
 | `scripts/start_container.sh` | Physical-host Docker container startup; defaults to Docker `--init` for subprocess reaping. |
