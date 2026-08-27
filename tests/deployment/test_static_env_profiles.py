@@ -32,6 +32,7 @@ def test_functional_reward_profile_matches_runtime_constants() -> None:
     assert values["DEFAULT_BACKEND"] == "auto"
     assert values["SPLIT_COMPILE_AND_EXECUTE"] == "true"
     assert values["KERNELGYM_CORRECTNESS_GPU_INPUTS"] == "true"
+    assert values["ENABLE_NCU"] == "false"
     assert values["ENABLE_COMPUTE_SANITIZER"] == "false"
     assert values["ADAPTIVE_PERF_TRIALS"] == "false"
     assert values["LOG_DIR"] == "logs/v1"

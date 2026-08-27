@@ -70,7 +70,7 @@ Trial budget:
 | `num_perf_trials` | 1–1000 | 100 | Perf trials. With profiler on (default), a subset of these is also profiled. |
 | `num_warmup` | 0–100 | 3 | Warmup iters before timed perf trials. |
 | `perf_trim_count` | 0–50 | 0 | Trim N highest + N lowest perf samples before mean. |
-| `memory_ratio_warning_threshold` | >1 or null | 1.8 | Add `memory.comparison.warning` when Kernel total-task peak allocated memory is greater than or equal to this multiple of the reference. `null` disables the warning. The warning can be used by downstream reward shaping without changing correctness or task status. |
+| `memory_ratio_threshold` | >1 or null | 1.8 | Add `memory.comparison.warning` when Kernel total-task peak allocated memory is greater than or equal to this multiple of the reference. `null` disables the warning. The warning can be used by downstream reward shaping without changing correctness or task status. |
 | `timeout` | 10–3600 s | 300 (model default) / 180 (v1 deployment) | Per-task wall budget. Hard kill once exceeded. |
 
 Caching / dedup:
@@ -89,7 +89,7 @@ Step toggles (override service defaults):
 |---|---|
 | `run_correctness`, `run_performance`, `run_triton_detection` | Per-call overrides for each evaluation step. |
 | `enable_profiling` | `null` = use server `ENABLE_PROFILING` env, else explicit `true`/`false`. |
-| `enable_ncu` | `null` = use server `ENABLE_NCU` env (default `true`), else explicit `true`/`false`. NCU runs only after correctness and performance gates pass. |
+| `enable_ncu` | `false` by default; `null` uses server `ENABLE_NCU` (also default `false`). Set `true` to collect NCU metrics after correctness and performance gates pass. |
 | `enable_compute_sanitizer` | `false` by default; `null` uses server `ENABLE_COMPUTE_SANITIZER` (also default `false`). When enabled, a fresh child process is launched only when the candidate forward fails during correctness. |
 | `compute_sanitizer_mode` | Sanitizer strategy: `error_based` (default) selects an internal check from the correctness error and falls back to all checks when ambiguous; `full` always runs all four checks. Individual check names are internal execution modes and are not accepted in the payload. |
 | `enable_correctness_input_perturbations` | `null` = use server `ENABLE_CORRECTNESS_INPUT_PERTURBATIONS` (default `false`). When enabled, correctness cycles through original, scale-up, scale-down, and sign-challenge inputs. Direct `torch.rand` and `torch.randn` inputs use different sign-challenge transforms. |
@@ -167,7 +167,7 @@ Memory feedback is returned for correct kernels:
 | `memory.comparison.measurement_status` | `complete` means usable and complete, `partial` means usable but potentially a lower bound, and `invalid` means the measurement cannot be compared. |
 | `memory.comparison.kernel_minus_reference` | Signed difference computed as Kernel minus reference for `task_peak_allocated_delta`. Negative means the Kernel uses less memory; positive means it uses more. |
 | `memory.comparison.kernel_to_reference_ratio` | Kernel divided by reference for `task_peak_allocated_delta`; below 1 means the Kernel uses less memory. |
-| `memory.comparison.warning` | A single warning string returned when `kernel_to_reference_ratio` is greater than or equal to `memory_ratio_warning_threshold`. The message includes the actual ratio and configured threshold. |
+| `memory.comparison.warning` | A single warning string returned when `kernel_to_reference_ratio` is greater than or equal to `memory_ratio_threshold`. The message includes the actual ratio and configured threshold. |
 | `memory.allocator_check` | Returned only when the Kernel source contains a direct CUDA allocation or another allocator warning. |
 
 The default `1.8` memory-ratio warning threshold is an engineering policy, not a threshold prescribed by

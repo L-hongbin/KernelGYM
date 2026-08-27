@@ -32,6 +32,7 @@ def test_default_ncu_metrics_include_l1_l2_hit_rates(monkeypatch) -> None:
     assert "l1tex__t_sector_hit_rate.pct" in defaults.ncu_metrics
     assert "lts__t_sector_hit_rate.pct" in defaults.ncu_metrics
     assert defaults.ncu_profile_version == "v1"
+    assert defaults.enable_ncu is False
 
 
 def test_parse_ncu_csv_groups_metrics_by_kernel() -> None:
@@ -177,16 +178,32 @@ def test_run_ncu_profile_timeout_is_fail_open_metadata(monkeypatch, tmp_path: Pa
     assert "timed out" in result["error"]
 
 
-def test_api_and_runtime_defaults_enable_ncu_with_cache_fingerprint() -> None:
+def test_api_defaults_disable_ncu_and_null_inherits_runtime_enablement() -> None:
     request = EvaluationRequest(
         task_id="ncu-default",
         reference_code="class Model:\n    pass",
         kernel_code="class ModelNew:\n    pass",
     )
-    assert request.enable_ncu is None
+    assert request.enable_ncu is False
 
     payload = apply_runtime_defaults(
         request.model_dump(),
+        workflow_name="kernelbench",
+        split_compile_and_execute=False,
+        enable_ncu=True,
+        ncu_profile_version="v1",
+    )
+    assert payload["enable_ncu"] is False
+    assert "_ncu_profile_version" not in payload
+
+    inherit_request = EvaluationRequest(
+        task_id="ncu-inherit",
+        reference_code="class Model:\n    pass",
+        kernel_code="class ModelNew:\n    pass",
+        enable_ncu=None,
+    )
+    payload = apply_runtime_defaults(
+        inherit_request.model_dump(),
         workflow_name="kernelbench",
         split_compile_and_execute=False,
         enable_ncu=True,

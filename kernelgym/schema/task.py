@@ -30,7 +30,7 @@ class EvaluationTask:
     refer_num_perf_trials: Optional[int] = None
     # Warn when Kernel total-task peak memory meets or exceeds this multiple of reference.
     # None disables the warning.
-    memory_ratio_warning_threshold: Optional[float] = 1.8
+    memory_ratio_threshold: Optional[float] = 1.8
     timeout: int = 300
     device: str = "cuda:0"
     priority: str = "normal"

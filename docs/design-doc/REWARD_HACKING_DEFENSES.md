@@ -117,7 +117,7 @@ Correct candidates can additionally run a dedicated Nsight Compute target proces
 
 NCU collection is diagnostic only and does not change CUDA-event runtime, correctness, decoy detection, speedup, or reward. Failures are fail-open and reported under `metadata.ncu.status`, including `unavailable`, `permission_denied`, `unsupported_metrics`, `timeout`, `no_matching_kernel`, and `error`.
 
-`ENABLE_NCU=true` is the deployment default. Requests may override it with `enable_ncu`; compile-only, incorrect, decoy, and performance-disabled tasks skip collection.
+`ENABLE_NCU=false` is the deployment default. Requests may enable it with `enable_ncu=true` or pass `null` to inherit the server setting; compile-only, incorrect, decoy, and performance-disabled tasks skip collection.
 
 ## Static And Compile-Time Defenses
 

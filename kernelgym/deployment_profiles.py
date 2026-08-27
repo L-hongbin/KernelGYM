@@ -69,7 +69,7 @@ class RewardProfile:
             "ENABLE_METRICS": "true",
             "METRICS_PORT": str(METRICS_PORT),
             "ENABLE_PROFILING": "true",
-            "ENABLE_NCU": "true",
+            "ENABLE_NCU": "false",
             "NCU_PATH": "/usr/local/cuda-12.9/bin/ncu",
             "NCU_TIMEOUT_S": "90",
             "NCU_MAX_KERNELS": "8",

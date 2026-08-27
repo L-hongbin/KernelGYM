@@ -50,7 +50,63 @@ bash check_node.sh                  # GPU + worker health summary (ASCII tables 
 bash test_reward.sh                 # round-trip a hand-written CUDA add kernel
 ```
 
-### 4. Stop
+### 4. Control evaluation features through the request payload
+
+The optional evaluation features below can be controlled independently for each `POST /evaluate` request. NCU,
+Compute Sanitizer, correctness input perturbations, and adaptive performance trials are disabled by default. Passing
+`true` enables the corresponding feature for that request; no service restart is required.
+
+| Payload field | Default | Effect |
+|---|---:|---|
+| `adaptive_perf_trials` | `false` | Adaptively stop kernel timing trials after the configured minimum when timing variation is low. |
+| `enable_ncu` | `false` | Collect the compact Nsight Compute metric set, including L1/L2 throughput and hit rates, after correctness and performance pass. `null` inherits the server setting. |
+| `enable_compute_sanitizer` | `false` | Run isolated Compute Sanitizer diagnostics after a correctness forward raises. `null` inherits the server setting. |
+| `compute_sanitizer_mode` | `"error_based"` | `error_based` selects relevant checks from the failure; `full` runs memcheck, synccheck, racecheck, and initcheck. |
+| `enable_correctness_input_perturbations` | `null` → server `false` | Add distribution-aware scale and sign-challenge correctness trials. |
+| `memory_ratio_threshold` | `1.8` | Add `memory.comparison.warning` when Kernel total-task peak memory is greater than or equal to this multiple of reference memory. Use a number greater than `1`, or `null` to disable only this warning. |
+| `enable_profiling` | `null` → v1 server `true` | Enable or disable torch profiler collection for one request. |
+| `run_correctness` / `run_performance` | `null` → KernelBench `true` | Enable or skip the corresponding evaluation stage. |
+
+For example, add these fields alongside the required task, reference, and Kernel source fields in `request.json`:
+
+```json
+{
+  "task_id": "example-task",
+  "reference_code": "<reference PyTorch source>",
+  "kernel_code": "<candidate Kernel source>",
+  "backend": "tvm_ffi",
+  "enable_ncu": true,
+  "enable_compute_sanitizer": true,
+  "compute_sanitizer_mode": "error_based",
+  "enable_correctness_input_perturbations": true,
+  "adaptive_perf_trials": true,
+  "memory_ratio_threshold": 2.0
+}
+```
+
+Submit the payload with:
+
+```bash
+curl -sS -X POST http://127.0.0.1:20111/evaluate \
+  -H 'Content-Type: application/json' \
+  --data @request.json
+```
+
+To keep all optional diagnostics disabled while retaining the default `1.8x` memory warning threshold:
+
+```json
+{
+  "enable_ncu": false,
+  "enable_compute_sanitizer": false,
+  "enable_correctness_input_perturbations": false,
+  "adaptive_perf_trials": false,
+  "memory_ratio_threshold": 1.8
+}
+```
+
+See [docs/HTTP_API.md](docs/HTTP_API.md) for the complete request schema and response fields.
+
+### 5. Stop
 
 ```bash
 bash stop_node.sh

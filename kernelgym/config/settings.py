@@ -147,7 +147,7 @@ class Settings(BaseSettings):
         ),
     )
     enable_ncu: bool = Field(
-        default=True,
+        default=False,
         env="ENABLE_NCU",
         description="Collect a compact Nsight Compute metric set for correct kernels.",
     )

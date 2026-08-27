@@ -174,7 +174,7 @@ def _create_paired_tasks(
 def _combine_results(
     reference_result: ReferenceTimingResult,
     kernel_result: KernelEvaluationResult,
-    memory_ratio_warning_threshold: Optional[float] = 1.8,
+    memory_ratio_threshold: Optional[float] = 1.8,
 ) -> EvaluationResult:
     if reference_result.base_task_id != kernel_result.base_task_id:
         raise ValueError(f"Task ID mismatch: {reference_result.base_task_id} != {kernel_result.base_task_id}")
@@ -182,5 +182,5 @@ def _combine_results(
         reference_result.base_task_id,
         reference_result,
         kernel_result,
-        memory_ratio_warning_threshold,
+        memory_ratio_threshold,
     )

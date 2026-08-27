@@ -912,7 +912,7 @@ def eval_kernel_against_ref(
     precision: str = "fp32",
     entry_point: str = "Model",
     enable_profiling: bool = True,
-    enable_ncu: bool = True,
+    enable_ncu: bool = False,
     enable_compute_sanitizer: bool = False,
     compute_sanitizer_mode: Optional[str] = None,
     enable_correctness_input_perturbations: bool = False,

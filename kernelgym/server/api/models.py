@@ -67,7 +67,7 @@ class EvaluationRequest(BaseModel):
         le=50,
         description="Number of highest/lowest trials to trim from each end before computing mean",
     )
-    memory_ratio_warning_threshold: Optional[float] = Field(
+    memory_ratio_threshold: Optional[float] = Field(
         default=1.8,
         gt=1.0,
         allow_inf_nan=False,
@@ -110,8 +110,10 @@ class EvaluationRequest(BaseModel):
         description="Enable torch.profiler for this request. None=use server default, True=enable, False=disable",
     )
     enable_ncu: Optional[bool] = Field(
-        default=None,
-        description="Enable Nsight Compute metrics. None=use server default, True=enable, False=disable",
+        default=False,
+        description=(
+            "Enable Nsight Compute metrics. Disabled by default; null uses the server default."
+        ),
     )
     enable_compute_sanitizer: Optional[bool] = Field(
         default=False,
@@ -253,7 +255,7 @@ class EvaluationRequest(BaseModel):
                 "is_valid": False,
                 "verbose_errors": None,
                 "enable_profiling": None,
-                "enable_ncu": None,
+                "enable_ncu": False,
                 "enable_compute_sanitizer": False,
                 "compute_sanitizer_mode": "error_based",
                 "enable_correctness_input_perturbations": None,

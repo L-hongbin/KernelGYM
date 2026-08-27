@@ -28,7 +28,7 @@ import torch
 REQUIRED_CUDA = (12, 9)
 PREFERRED_NVCC = Path("/usr/local/cuda-12.9/bin/nvcc")
 PREFERRED_NCU = Path(os.environ.get("NCU_PATH", "/usr/local/cuda-12.9/bin/ncu"))
-ENABLE_NCU = os.environ.get("ENABLE_NCU", "true").strip().lower() not in {
+ENABLE_NCU = os.environ.get("ENABLE_NCU", "false").strip().lower() not in {
     "0",
     "false",
     "no",

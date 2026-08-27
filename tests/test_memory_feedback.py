@@ -68,21 +68,21 @@ def _assert_no_bytes_suffix(value) -> None:
             _assert_no_bytes_suffix(item)
 
 
-def test_memory_ratio_warning_threshold_request_defaults_and_validation() -> None:
+def test_memory_ratio_threshold_request_defaults_and_validation() -> None:
     request = EvaluationRequest(
         task_id="memory-ratio-default",
         reference_code="class Model:\n    pass",
         kernel_code="class ModelNew:\n    pass",
     )
-    assert request.memory_ratio_warning_threshold == 1.8
+    assert request.memory_ratio_threshold == 1.8
 
     disabled = EvaluationRequest(
         task_id="memory-ratio-disabled",
         reference_code="class Model:\n    pass",
         kernel_code="class ModelNew:\n    pass",
-        memory_ratio_warning_threshold=None,
+        memory_ratio_threshold=None,
     )
-    assert disabled.memory_ratio_warning_threshold is None
+    assert disabled.memory_ratio_threshold is None
 
     for invalid_threshold in (1.0, float("nan"), float("inf")):
         with pytest.raises(ValidationError):
@@ -90,7 +90,7 @@ def test_memory_ratio_warning_threshold_request_defaults_and_validation() -> Non
                 task_id="memory-ratio-invalid",
                 reference_code="class Model:\n    pass",
                 kernel_code="class ModelNew:\n    pass",
-                memory_ratio_warning_threshold=invalid_threshold,
+                memory_ratio_threshold=invalid_threshold,
             )
 
 
@@ -300,7 +300,7 @@ def test_excessive_kernel_memory_adds_ratio_warning() -> None:
         "task",
         reference,
         kernel,
-        memory_ratio_warning_threshold=1.5,
+        memory_ratio_threshold=1.5,
     ).to_dict()["memory"]["comparison"]
 
     assert comparison["kernel_to_reference_ratio"] == 2.0
@@ -333,7 +333,7 @@ def test_memory_ratio_warning_uses_inclusive_threshold_and_can_be_disabled() -> 
         "task",
         reference,
         kernel,
-        memory_ratio_warning_threshold=1.5,
+        memory_ratio_threshold=1.5,
     ).to_dict()["memory"]["comparison"]
     assert at_threshold["warning"].startswith(
         "Kernel total-task peak allocated memory is 1.500x the reference"
@@ -343,12 +343,12 @@ def test_memory_ratio_warning_uses_inclusive_threshold_and_can_be_disabled() -> 
         "task",
         reference,
         kernel,
-        memory_ratio_warning_threshold=None,
+        memory_ratio_threshold=None,
     ).to_dict()["memory"]["comparison"]
     assert "warning" not in disabled
 
 
-def test_default_memory_ratio_warning_threshold_triggers_at_one_point_eight() -> None:
+def test_default_memory_ratio_threshold_triggers_at_one_point_eight() -> None:
     reference = ReferenceTimingResult(
         task_id="task_ref",
         base_task_id="task",

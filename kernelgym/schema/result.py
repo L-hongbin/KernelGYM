@@ -131,7 +131,7 @@ def _prepare_public_allocator_check(value: Any) -> Optional[Dict[str, Any]]:
 def _build_memory_comparison(
     reference_memory: Optional[Dict[str, Any]],
     kernel_memory: Optional[Dict[str, Any]],
-    memory_ratio_warning_threshold: Optional[float] = 1.8,
+    memory_ratio_threshold: Optional[float] = 1.8,
 ) -> Dict[str, Any]:
     reference_memory = reference_memory or {}
     kernel_memory = kernel_memory or {}
@@ -170,8 +170,8 @@ def _build_memory_comparison(
     )
 
     ratio_warning = None
-    if memory_ratio_warning_threshold is not None:
-        threshold = float(memory_ratio_warning_threshold)
+    if memory_ratio_threshold is not None:
+        threshold = float(memory_ratio_threshold)
         if (
             threshold > 1.0
             and kernel_to_reference_ratio is not None
@@ -501,7 +501,7 @@ class EvaluationResult:
         base_task_id: str,
         reference_result: ReferenceTimingResult,
         kernel_result: KernelEvaluationResult,
-        memory_ratio_warning_threshold: Optional[float] = 1.8,
+        memory_ratio_threshold: Optional[float] = 1.8,
     ) -> "EvaluationResult":
         speedup = 0.0
         if (
@@ -520,7 +520,7 @@ class EvaluationResult:
         memory_comparison = _build_memory_comparison(
             reference_result.reference_memory,
             kernel_result.kernel_memory,
-            memory_ratio_warning_threshold,
+            memory_ratio_threshold,
         )
         status = "completed"
         error_message = None
