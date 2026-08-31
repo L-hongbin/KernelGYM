@@ -1295,6 +1295,29 @@ def test_wait_for_session_drain_retries_transient_proc_scan_error(monkeypatch) -
     assert asyncio.run(monitor._wait_for_session_drain(1691, {1691}, 1)) is True
 
 
+def test_session_drain_accepts_complete_zombie_only_snapshot(monkeypatch) -> None:
+    worker_monitor = load_worker_monitor()
+    monitor = worker_monitor.WorkerMonitor(FakeRedis(), persistent=True)
+    zombie = worker_monitor.ProcessIdentity(1691, "100", "Z", 1691, 1691)
+    monkeypatch.setattr(monitor, "_live_session_members", lambda session_id: [zombie])
+    monkeypatch.setattr(
+        monitor,
+        "_process_group_is_drained",
+        lambda process_group: (_ for _ in ()).throw(AssertionError("zombie PGID must not block drain")),
+    )
+
+    assert monitor._session_is_drained(1691, {1691}) is True
+
+
+def test_session_drain_rejects_snapshot_with_live_member(monkeypatch) -> None:
+    worker_monitor = load_worker_monitor()
+    monitor = worker_monitor.WorkerMonitor(FakeRedis(), persistent=True)
+    member = worker_monitor.ProcessIdentity(1691, "100", "D", 1691, 1691)
+    monkeypatch.setattr(monitor, "_live_session_members", lambda session_id: [member])
+
+    assert monitor._session_is_drained(1691, {1691}) is False
+
+
 def test_wait_for_session_drain_raises_when_proc_scans_never_complete(monkeypatch) -> None:
     worker_monitor = load_worker_monitor()
     monitor = worker_monitor.WorkerMonitor(FakeRedis(), persistent=True)

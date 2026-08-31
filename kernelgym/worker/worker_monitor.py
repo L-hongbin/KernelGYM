@@ -535,12 +535,19 @@ class WorkerMonitor:
         return sorted(members, key=lambda item: (item.pid, item.start_ticks))
 
     def _session_is_drained(self, session_id: int, observed_process_groups: set[int]) -> bool:
-        """Require an empty SID plus kernel ESRCH for every observed PGID."""
+        """Require no executable SID members and prove empty groups when possible.
+
+        An orphaned zombie can keep its SID and PGID visible indefinitely when
+        the container's PID 1 does not reap children.  A complete snapshot that
+        contains only zombies is nevertheless drained: zombies cannot execute,
+        fork, or retain a CUDA context.  For a fully absent SID, keep requiring
+        kernel ESRCH for every observed PGID.
+        """
 
         members = self._live_session_members(session_id)
         observed_process_groups.update(member.process_group for member in members)
         if members:
-            return False
+            return all(member.state == "Z" for member in members)
         return all(self._process_group_is_drained(group) for group in observed_process_groups)
 
     async def _wait_for_session_drain(

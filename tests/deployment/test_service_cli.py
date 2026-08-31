@@ -804,6 +804,38 @@ def test_session_drain_requires_empty_sid_and_esrch_for_every_observed_group(mon
     assert service._session_is_drained(100, {100, 200}) is False
 
 
+def test_session_drain_accepts_complete_zombie_only_snapshot(monkeypatch) -> None:
+    zombie = service._ProcessIdentity(
+        pid=101,
+        start_ticks="88",
+        state="Z",
+        process_group=100,
+        session_id=100,
+    )
+    monkeypatch.setattr(service, "_live_session_members", lambda session_id: [zombie])
+    monkeypatch.setattr(
+        service,
+        "_process_group_is_drained",
+        lambda process_group: (_ for _ in ()).throw(AssertionError("zombie PGID must not block drain")),
+    )
+
+    observed_groups = {100}
+    assert service._session_is_drained(100, observed_groups) is True
+
+
+def test_session_drain_rejects_snapshot_with_live_member(monkeypatch) -> None:
+    member = service._ProcessIdentity(
+        pid=101,
+        start_ticks="88",
+        state="D",
+        process_group=100,
+        session_id=100,
+    )
+    monkeypatch.setattr(service, "_live_session_members", lambda session_id: [member])
+
+    assert service._session_is_drained(100, {100}) is False
+
+
 def test_discovered_service_root_escalates_its_complete_session(monkeypatch) -> None:
     identity = service._ProcessIdentity(
         pid=4321,

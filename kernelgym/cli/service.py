@@ -836,12 +836,19 @@ def _live_session_members(session_id: int) -> list[_ProcessIdentity]:
 
 
 def _session_is_drained(session_id: int, observed_process_groups: set[int]) -> bool:
-    """Require both an empty SID snapshot and ESRCH for every observed PGID."""
+    """Require no executable SID members and prove empty groups when possible.
+
+    An orphaned zombie can keep its SID and PGID visible indefinitely when the
+    container's PID 1 does not reap children.  Such a process cannot execute,
+    fork, or retain a CUDA context, so a complete snapshot containing only
+    zombies is a valid drain proof.  If the SID is fully absent, retain the
+    stricter kernel ESRCH proof for every observed PGID.
+    """
 
     members = _live_session_members(session_id)
     observed_process_groups.update(member.process_group for member in members)
     if members:
-        return False
+        return all(member.state == "Z" for member in members)
     return all(_process_group_is_drained(process_group) for process_group in observed_process_groups)
 
 
