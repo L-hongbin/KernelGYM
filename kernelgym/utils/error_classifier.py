@@ -12,6 +12,11 @@ TVM_FFI_API_DTYPE = "tvm_ffi_api_dtype"
 TVM_FFI_API_EXPORT_MACRO = "tvm_ffi_api_export_macro"
 TVM_FFI_API_WRONG_BINDING_FRAMEWORK = "tvm_ffi_api_wrong_binding_framework"
 TVM_FFI_API_MISUSE = "tvm_ffi_api_misuse"
+UNDEFINED_IDENTIFIER = "undefined_identifier"
+MISSING_HEADER = "missing_header"
+FUNCTION_ARGUMENT_MISMATCH = "function_argument_mismatch"
+INVALID_TYPE_CONVERSION = "invalid_type_conversion"
+INVALID_DECLARATION = "invalid_declaration"
 OTHER_COMPILE_ERROR = "other"
 FAILURE_PROMPT_OVERLONG = "prompt_overlong"
 FAILURE_TIMEOUT = "timeout"
@@ -48,7 +53,10 @@ _TVM_FFI_SHAPEVIEW_PATTERNS = (
     r"\bshapeview.*operator==",
 )
 _TVM_FFI_DTYPE_PATTERNS = (
-    r"\bstruct dldatatype' has no member named '(?:type_code|type|device_type)'",
+    r"\b(?:struct|class)\s+dldatatype['\"]?\s+has no member named ['\"]"
+    r"(?:type_code|type|device_type|bytes)['\"]",
+    r"\bno member named ['\"](?:type_code|type|device_type|bytes)['\"]\s+in\s+"
+    r"['\"]?(?:(?:struct|class)\s+)?dldatatype\b",
     r"\bdldatatype\b.*\boperator==",
     r"\boperator==.*\bdldatatype\b",
 )
@@ -65,6 +73,64 @@ _TVM_FFI_WRONG_BINDING_PATTERNS = (
     r"\baten/",
     r"\brequest for member 'item' in .*\.size\(",
 )
+_UNDEFINED_IDENTIFIER_PATTERNS = (
+    r"\bidentifier\s+['\"][^'\"]+['\"]\s+is undefined\b",
+    r"\buse of undeclared identifier\s+['\"][^'\"]+['\"]",
+    r"['\"][^'\"]+['\"]\s+was not declared in this scope\b",
+    r"['\"][^'\"]+['\"]\s+has not been declared\b",
+    r"\bunknown type name\s+['\"][^'\"]+['\"]",
+    r"['\"][^'\"]+['\"]\s+does not name a type\b",
+)
+_MISSING_HEADER_PATTERNS = (
+    r"\b(?:fatal|catastrophic) error(?:\s+c1083)?:\s*"
+    r"(?:cannot open include file:\s*)?['\"<]?[^:\n'\">]+['\">]?:\s*no such file or directory\b",
+    r"\b(?:fatal|catastrophic) error:\s*['\"][^'\"]+['\"]\s+file not found\b",
+    r"\bcannot open include file:\s*['\"][^'\"]+['\"]",
+    r"\bcannot open source file\s+['\"][^'\"]+['\"]",
+)
+_FUNCTION_ARGUMENT_MISMATCH_PATTERNS = (
+    r"\btoo (?:few|many) arguments (?:to function|in function call)\b",
+    r"\bno matching (?:member )?function for call to\b",
+    r"\bno instance of overloaded function\b.*\bmatches the argument list\b",
+    r"\bfunction does not take \d+ arguments\b",
+)
+_INVALID_TYPE_CONVERSION_PATTERNS = (
+    r"\binvalid conversion from\s+['\"][^'\"]+['\"]\s+to\s+['\"][^'\"]+['\"]",
+    r"\bcannot convert\s+['\"][^'\"]+['\"]\s+to\s+['\"][^'\"]+['\"]",
+    r"\bno suitable conversion(?: function)? from\s+['\"][^'\"]+['\"]\s+"
+    r"to\s+['\"][^'\"]+['\"](?:\s+exists)?",
+    r"\bargument of type\s+['\"][^'\"]+['\"]\s+is incompatible with parameter of type\s+"
+    r"['\"][^'\"]+['\"]",
+    r"\bcannot initialize a parameter of type\s+['\"][^'\"]+['\"]\s+with an "
+    r"(?:lvalue|rvalue) of type\s+['\"][^'\"]+['\"]",
+    r"\ba value of type\s+['\"][^'\"]+['\"]\s+cannot be used to initialize an entity of type\s+"
+    r"['\"][^'\"]+['\"]",
+)
+_INVALID_DECLARATION_PATTERNS = (
+    r"\bvariable or field\s+['\"][^'\"]+['\"]\s+declared void\b",
+    r"\bthis declaration has no storage class or type specifier\b",
+    r"\bduplicate parameter name(?:\s+['\"][^'\"]+['\"])?\b",
+    r"\bvariable length array cannot have static storage duration\b",
+    r"\bvariable length array declaration cannot have ['\"]?static['\"]? storage duration\b",
+    r"\bvariable length array declaration not allowed at file scope\b",
+    r"\bvariably modified\s+['\"][^'\"]+['\"]\s+at file scope\b",
+    r"\bvariably modified\s+['\"][^'\"]+['\"]\s+must have automatic storage duration\b",
+)
+_COMPILER_ERROR_LINE_RE = re.compile(r"\b(?:(?:fatal|catastrophic)\s+)?error(?:\s+c\d+)?:")
+_COMPILER_SOURCE_GUTTER_RE = re.compile(r"^\s*\d+\s*\|")
+_COMPILE_ERROR_DETAIL_PATTERNS = {
+    TVM_FFI_API_TENSOR_ACCESSOR: _TVM_FFI_TENSOR_ACCESSOR_PATTERNS,
+    TVM_FFI_API_SHAPEVIEW: _TVM_FFI_SHAPEVIEW_PATTERNS,
+    TVM_FFI_API_DTYPE: _TVM_FFI_DTYPE_PATTERNS,
+    TVM_FFI_API_EXPORT_MACRO: _TVM_FFI_EXPORT_MACRO_PATTERNS,
+    TVM_FFI_API_WRONG_BINDING_FRAMEWORK: _TVM_FFI_WRONG_BINDING_PATTERNS,
+    UNDEFINED_IDENTIFIER: _UNDEFINED_IDENTIFIER_PATTERNS,
+    MISSING_HEADER: _MISSING_HEADER_PATTERNS,
+    FUNCTION_ARGUMENT_MISMATCH: _FUNCTION_ARGUMENT_MISMATCH_PATTERNS,
+    INVALID_TYPE_CONVERSION: _INVALID_TYPE_CONVERSION_PATTERNS,
+    INVALID_DECLARATION: _INVALID_DECLARATION_PATTERNS,
+}
+_MAX_COMPILE_ERROR_EXCERPT_CHARS = 1000
 
 
 def _normalize_error_text(error_message: str) -> str:
@@ -80,6 +146,18 @@ def _normalize_error_text(error_message: str) -> str:
 
 def _has_pattern(error_text: str, patterns: tuple[str, ...]) -> bool:
     return any(re.search(pattern, error_text, re.DOTALL) for pattern in patterns)
+
+
+def _is_diagnostic_error_line(line: str) -> bool:
+    return not _COMPILER_SOURCE_GUTTER_RE.match(line) and bool(_COMPILER_ERROR_LINE_RE.search(line))
+
+
+def _diagnostic_error_lines(error_text: str) -> list[str]:
+    return [line for line in error_text.splitlines() if _is_diagnostic_error_line(line)]
+
+
+def _has_diagnostic_pattern(error_text: str, patterns: tuple[str, ...]) -> bool:
+    return any(_has_pattern(line, patterns) for line in _diagnostic_error_lines(error_text))
 
 
 def classify_compile_error_detail(
@@ -116,10 +194,82 @@ def classify_compile_error_detail(
     if _has_pattern(error_text, _TVM_FFI_TENSOR_ACCESSOR_PATTERNS) and (has_tvm_ffi_marker or is_tvm_ffi_backend):
         return TVM_FFI_API_TENSOR_ACCESSOR
 
+    # These compiler diagnostics are shared by CUDA-Agent, TVM-FFI, Triton
+    # native extensions, and other C/C++ compilation paths. Keep them backend
+    # independent and ahead of the generic TVM-FFI misuse fallback.
+    if _has_diagnostic_pattern(error_text, _MISSING_HEADER_PATTERNS):
+        return MISSING_HEADER
+
+    if _has_diagnostic_pattern(error_text, _UNDEFINED_IDENTIFIER_PATTERNS):
+        return UNDEFINED_IDENTIFIER
+
+    if _has_diagnostic_pattern(error_text, _FUNCTION_ARGUMENT_MISMATCH_PATTERNS):
+        return FUNCTION_ARGUMENT_MISMATCH
+
+    if _has_diagnostic_pattern(error_text, _INVALID_TYPE_CONVERSION_PATTERNS):
+        return INVALID_TYPE_CONVERSION
+
+    if _has_diagnostic_pattern(error_text, _INVALID_DECLARATION_PATTERNS):
+        return INVALID_DECLARATION
+
     if has_tvm_ffi_api_marker and " error:" in error_text:
         return TVM_FFI_API_MISUSE
 
     return OTHER_COMPILE_ERROR
+
+
+def extract_compile_error_excerpt(
+    error_message: str,
+    *,
+    backend: Optional[str] = None,
+    detail: Optional[str] = None,
+) -> Optional[str]:
+    """Extract the single compiler diagnostic line responsible for ``detail``.
+
+    Source excerpts, ``note:`` lines, compiler commands, and unrelated warnings
+    are deliberately excluded. The returned text preserves the compiler's
+    original spelling and source location while bounding pathological template
+    diagnostics.
+    """
+    if not error_message:
+        return None
+
+    original_lines = str(error_message).splitlines()
+    normalized_lines = [_normalize_error_text(line) for line in original_lines]
+    resolved_detail = detail or classify_compile_error_detail(str(error_message), backend=backend)
+    if resolved_detail == OTHER_COMPILE_ERROR:
+        return None
+
+    diagnostic_indices = [index for index, line in enumerate(normalized_lines) if _is_diagnostic_error_line(line)]
+    detail_patterns = _COMPILE_ERROR_DETAIL_PATTERNS.get(resolved_detail, ())
+    for index in diagnostic_indices:
+        if detail_patterns and _has_pattern(normalized_lines[index], detail_patterns):
+            excerpt = original_lines[index].strip()
+            break
+    else:
+        if not diagnostic_indices:
+            return None
+        excerpt = original_lines[diagnostic_indices[0]].strip()
+
+    if len(excerpt) <= _MAX_COMPILE_ERROR_EXCERPT_CHARS:
+        return excerpt
+    marker = "...(truncated)..."
+    keep = (_MAX_COMPILE_ERROR_EXCERPT_CHARS - len(marker)) // 2
+    return excerpt[:keep] + marker + excerpt[-keep:]
+
+
+def classify_compile_error_metadata(
+    error_message: str,
+    *,
+    backend: Optional[str] = None,
+) -> dict[str, str]:
+    """Return stable compile-error category plus the matched diagnostic line."""
+    detail = classify_compile_error_detail(error_message, backend=backend)
+    result = {"compilation_error_detail": detail}
+    excerpt = extract_compile_error_excerpt(error_message, backend=backend, detail=detail)
+    if excerpt is not None:
+        result["compilation_error_excerpt"] = excerpt
+    return result
 
 
 def _is_true(value: object) -> bool:

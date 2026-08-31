@@ -60,7 +60,7 @@ from kernelgym.toolkit.kernelbench.timing import (
     run_profiling_only,
     time_execution_with_cuda_event,
 )
-from kernelgym.utils.error_classifier import classify_compile_error_detail
+from kernelgym.utils.error_classifier import classify_compile_error_metadata
 
 logger = logging.getLogger(__name__)
 _STAGE_METADATA_PATH_ENV = "KERNELGYM_STAGE_METADATA_PATH"
@@ -997,13 +997,13 @@ def eval_kernel_against_ref(
                 error = artifact.get("error", "Unknown compile error")
                 metadata["compilation_error_name"] = "compile_error"
                 metadata["compilation_error"] = error
-                metadata["compilation_error_detail"] = classify_compile_error_detail(str(error), backend=backend)
+                metadata.update(classify_compile_error_metadata(str(error), backend=backend))
                 return KernelExecResult(compiled=False, correctness=False, metadata=metadata)
             return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
         except Exception as exc:
             metadata["compilation_error_name"] = get_error_name(exc)
             metadata["compilation_error"] = exc
-            metadata["compilation_error_detail"] = classify_compile_error_detail(str(exc), backend=backend)
+            metadata.update(classify_compile_error_metadata(str(exc), backend=backend))
             return KernelExecResult(compiled=False, correctness=False, metadata=metadata)
 
     if verbose:
@@ -1144,10 +1144,7 @@ def eval_kernel_against_ref(
                     )
                     metadata["compilation_error_name"] = "compile_error"
                     metadata["compilation_error"] = error
-                    metadata["compilation_error_detail"] = classify_compile_error_detail(
-                        str(error),
-                        backend=backend,
-                    )
+                    metadata.update(classify_compile_error_metadata(str(error), backend=backend))
                     _finish_stage(
                         metadata,
                         stage="kernel.compile_and_load",
@@ -1158,10 +1155,7 @@ def eval_kernel_against_ref(
                     return KernelExecResult(compiled=False, correctness=False, metadata=metadata)
                 metadata["compilation_error_name"] = "compile_error"
                 metadata["compilation_error"] = error
-                metadata["compilation_error_detail"] = classify_compile_error_detail(
-                    str(error),
-                    backend=backend,
-                )
+                metadata.update(classify_compile_error_metadata(str(error), backend=backend))
                 _finish_stage(
                     metadata,
                     stage="kernel.compile_and_load",
@@ -1225,18 +1219,12 @@ def eval_kernel_against_ref(
             logger.warning("[Eval] Lock file error during compilation, please retry. Error: %s", e)
             metadata["compilation_error_name"] = get_error_name(e)
             metadata["compilation_error"] = e
-            metadata["compilation_error_detail"] = classify_compile_error_detail(
-                str(e),
-                backend=backend,
-            )
+            metadata.update(classify_compile_error_metadata(str(e), backend=backend))
             _cleanup()
             return KernelExecResult(compiled=False, correctness=False, metadata=metadata)
         metadata["compilation_error_name"] = get_error_name(e)
         metadata["compilation_error"] = e
-        metadata["compilation_error_detail"] = classify_compile_error_detail(
-            str(e),
-            backend=backend,
-        )
+        metadata.update(classify_compile_error_metadata(str(e), backend=backend))
         _cleanup()
         return KernelExecResult(compiled=False, metadata=metadata)
 

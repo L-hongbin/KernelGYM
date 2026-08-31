@@ -254,6 +254,8 @@ and memory measurements continue to use the original input distribution.
 | `kg_reference_total_s` | Reference timing |
 | `wg_pool_total_s`, `wg_pool_idle_wait_s`, `wg_pool_restart_s` | Subprocess pool dispatch metrics |
 | `build_backend` | `manual_ninja` / `tvm_ffi.cpp.build` / cached |
+| `compilation_error_detail` | Stable compile-error category such as `tvm_ffi_api_dtype`, `undefined_identifier`, or `invalid_type_conversion`. |
+| `compilation_error_excerpt` | Present when a compile-error category is recognized; contains the extracted compiler `error:` line with its simplified relative source location. |
 | `compile_artifact_cache_enabled`, `compile_artifact_cache_hit`, `compile_artifact_cache_key` | Artifact-cache state |
 | `compile_timing.manual_ninja_build_wall_sec`, `compile_timing.manual_ninja_import_wall_sec` | Cuda_agent ninja path internals |
 | `compile_timing.manual_ninja_object_cache.{hits,misses,skipped,objects}` | Per-object cache outcome |
