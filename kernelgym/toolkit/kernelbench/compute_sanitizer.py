@@ -71,6 +71,20 @@ _DIAGNOSTIC_STARTS = (
     "Leaked ",
 )
 _TARGET_APPLICATION_ERROR_RE = re.compile(r"Target application (?:returned an error|terminated)", re.IGNORECASE)
+_TVM_FFI_TYPED_SIGNATURE_RE = re.compile(r"\([^\n]*\)\s*->\s*[A-Za-z_][\w:.<>]*")
+_TVM_FFI_EXPECTED_TYPE_RE = re.compile(r"Expected\s+`[^`]+`\s+but\s+got\s+`[^`]+`", re.IGNORECASE)
+_UNSUPPORTED_OPERAND_TYPE_RE = re.compile(r"unsupported operand type\(s\) for\b", re.IGNORECASE)
+_PYTHON_CALL_SIGNATURE_ERROR_RES = (
+    re.compile(r"\bmissing\s+\d+\s+required\s+(?:positional|keyword-only)\s+arguments?\b", re.IGNORECASE),
+    re.compile(r"\bgot\s+an\s+unexpected\s+keyword\s+argument\b", re.IGNORECASE),
+    re.compile(r"\bgot\s+multiple\s+values\s+for\s+argument\b", re.IGNORECASE),
+    re.compile(
+        r"\btakes\s+(?:(?:from\s+)?\d+\s+(?:to\s+\d+\s+)?positional\s+arguments?|no\s+arguments?)\s+"
+        r"but\s+\d+\s+(?:was|were)\s+given\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bgot\s+.+\s+positional-only\s+arguments?\s+passed\s+as\s+keyword\s+arguments?\b", re.IGNORECASE),
+)
 
 
 def _has_explicit_zero_issue_summary(output: str) -> bool:
@@ -120,6 +134,39 @@ def classify_compute_sanitizer_error(
         )
     ):
         return "memcheck"
+    return None
+
+
+def classify_compute_sanitizer_skip_reason(
+    runtime_error: Exception | str,
+    *,
+    runtime_error_name: Optional[str] = None,
+    backend: Optional[str] = None,
+) -> Optional[str]:
+    """Return a skip reason only for host errors not actionable by Compute Sanitizer."""
+
+    error_name = str(runtime_error_name or "")
+    message = str(runtime_error)
+
+    if isinstance(runtime_error, NameError) or error_name == "builtins.NameError":
+        return "python_name_error"
+
+    if isinstance(runtime_error, IndexError) or error_name == "builtins.IndexError":
+        return "python_index_error"
+
+    is_type_error = isinstance(runtime_error, TypeError) or error_name == "builtins.TypeError"
+    if is_type_error and _UNSUPPORTED_OPERAND_TYPE_RE.search(message):
+        return "python_unsupported_operand_type"
+    if is_type_error and any(pattern.search(message) for pattern in _PYTHON_CALL_SIGNATURE_ERROR_RES):
+        return "python_call_signature_mismatch"
+
+    if (
+        str(backend or "").strip().lower() == "tvm_ffi"
+        and _TVM_FFI_TYPED_SIGNATURE_RE.search(message)
+        and _TVM_FFI_EXPECTED_TYPE_RE.search(message)
+    ):
+        return "tvm_ffi_argument_type_mismatch"
+
     return None
 
 

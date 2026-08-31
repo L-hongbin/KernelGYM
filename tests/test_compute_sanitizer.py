@@ -386,6 +386,113 @@ def test_compute_sanitizer_mode_normalization_and_error_classification() -> None
         raise AssertionError("error_based must not be an execution mode")
 
 
+def test_compute_sanitizer_skips_only_explicit_host_errors() -> None:
+    classify_skip = compute_sanitizer.classify_compute_sanitizer_skip_reason
+
+    assert classify_skip(NameError("name 'tvm_ffi_extension' is not defined"), backend="tvm_ffi") == "python_name_error"
+    assert (
+        classify_skip(
+            "name 'tvm_ffi_extension' is not defined",
+            runtime_error_name="builtins.NameError",
+            backend="tvm_ffi",
+        )
+        == "python_name_error"
+    )
+    assert classify_skip(IndexError("list index out of range"), backend="tvm_ffi") == "python_index_error"
+    assert (
+        classify_skip(
+            "tuple index out of range",
+            runtime_error_name="builtins.IndexError",
+            backend="tvm_ffi",
+        )
+        == "python_index_error"
+    )
+    assert (
+        classify_skip(
+            "unsupported operand type(s) for +: 'NoneType' and 'int'",
+            runtime_error_name="builtins.TypeError",
+            backend="tvm_ffi",
+        )
+        == "python_unsupported_operand_type"
+    )
+    for message in (
+        "ModelNew.forward() missing 1 required positional argument: 'weight'",
+        "ModelNew.forward() missing 1 required keyword-only argument: 'weight'",
+        "ModelNew.forward() got an unexpected keyword argument 'weight'",
+        "ModelNew.forward() got multiple values for argument 'weight'",
+        "ModelNew.forward() takes 2 positional arguments but 3 were given",
+        "ModelNew.forward() takes from 2 to 3 positional arguments but 4 were given",
+        "ModelNew.forward() got some positional-only arguments passed as keyword arguments: 'input'",
+    ):
+        assert (
+            classify_skip(
+                message,
+                runtime_error_name="builtins.TypeError",
+                backend="tvm_ffi",
+            )
+            == "python_call_signature_mismatch"
+        )
+    assert (
+        classify_skip(
+            "invoke(arg0: Tensor, arg1: Tensor, arg2: Tensor, arg3: float) -> void. "
+            "Expected `float` but got `None`",
+            runtime_error_name="builtins.TypeError",
+            backend="tvm_ffi",
+        )
+        == "tvm_ffi_argument_type_mismatch"
+    )
+
+    assert classify_skip("RuntimeError: Check failed: CUDA launch failed", backend="tvm_ffi") is None
+    assert (
+        classify_skip(
+            "name 'tvm_ffi_extension' is not defined",
+            runtime_error_name="builtins.RuntimeError",
+            backend="tvm_ffi",
+        )
+        is None
+    )
+    assert (
+        classify_skip(
+            "Expected `float` but got `None`",
+            runtime_error_name="builtins.TypeError",
+            backend="tvm_ffi",
+        )
+        is None
+    )
+    assert (
+        classify_skip(
+            "ModelNew.forward() got an unexpected keyword argument 'weight'",
+            runtime_error_name="builtins.RuntimeError",
+            backend="tvm_ffi",
+        )
+        is None
+    )
+    assert (
+        classify_skip(
+            "invalid argument",
+            runtime_error_name="builtins.TypeError",
+            backend="tvm_ffi",
+        )
+        is None
+    )
+    assert (
+        classify_skip(
+            "invoke(arg0: Tensor, arg1: float) -> void. Expected `float` but got `None`",
+            runtime_error_name="builtins.TypeError",
+            backend="cuda_agent",
+        )
+        is None
+    )
+    assert (
+        classify_skip(
+            "unsupported operand type(s) for +: 'NoneType' and 'int'",
+            runtime_error_name="builtins.RuntimeError",
+            backend="tvm_ffi",
+        )
+        is None
+    )
+
+
 def test_run_compute_sanitizer_runs_selected_mode_for_host_python_error(monkeypatch, tmp_path: Path) -> None:
     fake_tool = tmp_path / "compute-sanitizer"
     fake_tool.write_text("#!/bin/sh\n", encoding="utf-8")

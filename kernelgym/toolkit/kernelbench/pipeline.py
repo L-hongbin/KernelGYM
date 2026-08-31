@@ -18,6 +18,7 @@ from kernelgym.toolkit.kernelbench.compute_sanitizer import (
     FULL_SANITIZER_TOOLS,
     SANITIZER_MODE_FULL,
     classify_compute_sanitizer_error,
+    classify_compute_sanitizer_skip_reason,
     run_compute_sanitizer,
     skipped_compute_sanitizer_result,
 )
@@ -1331,8 +1332,20 @@ def eval_kernel_against_ref(
 
     selection_mode = str(compute_sanitizer_mode or "error_based").strip().lower()
     correctness_runtime_failure = _is_candidate_correctness_runtime_failure(metadata)
+    runtime_error = metadata.get("runtime_error", "")
+    sanitizer_skip_reason = (
+        classify_compute_sanitizer_skip_reason(
+            runtime_error,
+            runtime_error_name=metadata.get("runtime_error_name"),
+            backend=backend,
+        )
+        if correctness_runtime_failure
+        else None
+    )
     if not enable_compute_sanitizer:
         runtime_sanitizer = skipped_compute_sanitizer_result("disabled")
+    elif sanitizer_skip_reason:
+        runtime_sanitizer = skipped_compute_sanitizer_result(sanitizer_skip_reason)
     elif correctness_runtime_failure:
         sanitizer_start = _begin_stage(
             metadata,
@@ -1340,7 +1353,6 @@ def eval_kernel_against_ref(
             stage="kernel.runtime_sanitizer",
             overall_start=overall_start,
         )
-        runtime_error = metadata.get("runtime_error", "")
         execution_mode, preferred_tool = _select_compute_sanitizer_execution_mode(runtime_error, selection_mode)
         sanitizer_tools = list(FULL_SANITIZER_TOOLS) if execution_mode == SANITIZER_MODE_FULL else [execution_mode]
         run_all_checks = execution_mode == SANITIZER_MODE_FULL
