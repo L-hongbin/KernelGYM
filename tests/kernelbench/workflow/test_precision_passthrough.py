@@ -87,6 +87,20 @@ def test_precision_survives_api_task_and_paired_kernel_task() -> None:
     assert kernel_task.to_dict()["precision"] == "bf16"
 
 
+def test_simplify_error_survives_api_task_and_paired_kernel_task() -> None:
+    request = EvaluationRequest(
+        task_id="compile-error-paths",
+        reference_code=REFERENCE_CODE,
+        kernel_code=KERNEL_CODE,
+        simplify_error=False,
+    )
+    task = EvaluationTask.from_dict(request.dict())
+    _reference_task, kernel_task = _create_paired_tasks(task)
+
+    assert task.simplify_error is False
+    assert kernel_task.simplify_error is False
+
+
 def test_request_hash_distinguishes_precision() -> None:
     base = {
         "reference_code": REFERENCE_CODE,
@@ -173,6 +187,7 @@ def test_pipeline_forwards_precision_to_backend_compile() -> None:
         device=torch.device("cpu"),
         backend="cuda_agent",
         precision="bf16",
+        simplify_error=False,
         backend_adapter=backend,
         compile_only=True,
     )
@@ -180,3 +195,4 @@ def test_pipeline_forwards_precision_to_backend_compile() -> None:
     assert result.compiled is True
     assert result.metadata["precision"] == "bf16"
     assert backend.kwargs["precision"] == "bf16"
+    assert backend.kwargs["simplify_error"] is False

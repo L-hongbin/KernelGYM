@@ -61,6 +61,7 @@ class EvaluationTask:
     split_compile_and_execute: bool = False
     pure_compile_task: bool = False
     enable_compile_artifact_cache: bool = False
+    simplify_error: bool = True
     return_internal_compile_artifact: bool = False
     resources: Optional[Dict[str, Any]] = None
 
@@ -151,6 +152,7 @@ class KernelEvaluationTask:
     split_compile_and_execute: bool = False
     pure_compile_task: bool = False
     enable_compile_artifact_cache: bool = False
+    simplify_error: bool = True
     return_internal_compile_artifact: bool = False
     resources: Optional[Dict[str, Any]] = None
 

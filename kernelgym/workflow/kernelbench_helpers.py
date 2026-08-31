@@ -164,6 +164,7 @@ def _create_paired_tasks(
         split_compile_and_execute=task.split_compile_and_execute,
         pure_compile_task=task.pure_compile_task,
         enable_compile_artifact_cache=task.enable_compile_artifact_cache,
+        simplify_error=task.simplify_error,
         return_internal_compile_artifact=task.return_internal_compile_artifact,
         resources=task.resources,
     )

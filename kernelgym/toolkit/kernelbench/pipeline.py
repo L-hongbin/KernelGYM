@@ -219,6 +219,9 @@ def _sanitize_compile_artifact(artifact: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _copy_compile_artifact_metadata(metadata: Dict[str, Any], artifact: Dict[str, Any]) -> None:
+    artifact_work_dir = artifact.get("work_dir")
+    if artifact_work_dir:
+        metadata["_error_work_dir"] = str(artifact_work_dir)
     for artifact_key in (
         "build_backend",
         "compile_timing",
@@ -922,6 +925,7 @@ def eval_kernel_against_ref(
     backend_adapter: Optional[Any] = None,
     precompiled_artifact: Optional[Dict[str, Any]] = None,
     enable_compile_artifact_cache: bool = False,
+    simplify_error: bool = True,
     compile_only: bool = False,
     return_internal_compile_artifact: bool = False,
     adaptive_perf_trials: bool = False,
@@ -943,6 +947,9 @@ def eval_kernel_against_ref(
         memory_environment_floor = capture_cuda_memory_environment_floor(device)
     is_triton = backend == "triton"
     metadata: Dict[str, Any] = {}
+    metadata["_simplify_error_enabled"] = bool(simplify_error)
+    if build_dir is not None:
+        metadata["_error_work_dir"] = os.fspath(build_dir)
     metadata["memory_environment_floor"] = dict(memory_environment_floor)
     metadata["hardware"] = "compile-only" if compile_only else torch.cuda.get_device_name(device=device)
     metadata["device"] = str(device)
@@ -983,6 +990,7 @@ def eval_kernel_against_ref(
                 entry_point=f"{entry_point}New",
                 build_dir=build_dir,
                 enable_compile_artifact_cache=enable_compile_artifact_cache,
+                simplify_error=simplify_error,
             )
             _finish_stage(
                 metadata,
@@ -1128,6 +1136,7 @@ def eval_kernel_against_ref(
                     entry_point=f"{entry_point}New",
                     build_dir=build_dir,
                     enable_compile_artifact_cache=enable_compile_artifact_cache,
+                    simplify_error=simplify_error,
                 )
                 _record_phase_timing(
                     metadata,

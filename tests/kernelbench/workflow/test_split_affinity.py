@@ -69,6 +69,7 @@ def test_split_compile_execute_targets_idle_gpu_node() -> None:
             precision="bf16",
             split_compile_and_execute=True,
             enable_compile_artifact_cache=True,
+            simplify_error=False,
         )
         _ref_task, kernel_task = _create_paired_tasks(task)
         scheduler = FakeScheduler()
@@ -79,12 +80,14 @@ def test_split_compile_execute_targets_idle_gpu_node() -> None:
         compile_payload, execute_payload = scheduler.submissions
         assert compile_payload["required_resource"] == "cpu"
         assert compile_payload["precision"] == "bf16"
+        assert compile_payload["simplify_error"] is False
         assert compile_payload["node_affinity"] == "required"
         assert compile_payload["target_node_id"] == "node-b"
         assert compile_payload["target_gpu_worker_id"] == "node-b_gpu_3"
         assert compile_payload["target_gpu_selection_strategy"] == "idle"
         assert execute_payload["required_resource"] == "gpu"
         assert execute_payload["precision"] == "bf16"
+        assert execute_payload["simplify_error"] is False
         assert execute_payload["node_affinity"] == "required"
         assert execute_payload["target_node_id"] == "node-b"
         assert execute_payload["artifact_node_id"] == "node-b"

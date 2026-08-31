@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import importlib.metadata
 import importlib.util
-import hashlib
 import json
 import os
 import re
@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from kernelgym.toolkit.validation import precheck_tvm_ffi_submission
+from kernelgym.utils.error_simplifier import simplify_error_message
 
 from .base import KernelBenchBackendBase
 from .cuda_agent_backend import KernelBenchCudaAgentBackend
@@ -420,6 +421,7 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
         precision = kwargs.get("precision", "fp32")
         explicit_sources = self._normalize_cuda_sources_input(kwargs.get("cuda_sources"))
         enable_compile_artifact_cache = self._compile_artifact_cache_enabled(kwargs)
+        simplify_error = bool(kwargs.get("simplify_error", True))
 
         try:
             embedded_sources, python_code = self._parse_embedded_sources(code)
@@ -493,9 +495,16 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
             self._materialize_sources(work_dir, cuda_sources)
             cpp_files, cuda_files = self._collect_compile_sources(work_dir)
             try:
-                return self._build_extension(work_dir, cpp_files, cuda_files)
+                result = self._build_extension(work_dir, cpp_files, cuda_files)
             except Exception as exc:
-                return {"compiled": False, "error": str(exc)}
+                result = {"compiled": False, "error": str(exc)}
+            if result.get("error"):
+                result["error"] = simplify_error_message(
+                    str(result["error"]),
+                    work_dir=work_dir,
+                    enabled=simplify_error,
+                )
+            return result
 
         if enable_compile_artifact_cache and ready_path is not None:
             with KernelBenchCudaAgentBackend._file_lock(ready_path.parent / "compile.lock"):

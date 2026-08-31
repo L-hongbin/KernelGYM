@@ -292,6 +292,7 @@ class KernelBenchWorkflowController(WorkflowController):
             "enable_compute_sanitizer": enable_compute_sanitizer,
             "compute_sanitizer_mode": eval_task.compute_sanitizer_mode,
             "enable_correctness_input_perturbations": enable_correctness_input_perturbations,
+            "simplify_error": eval_task.simplify_error,
         }
 
     @staticmethod

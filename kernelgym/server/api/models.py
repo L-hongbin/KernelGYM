@@ -190,6 +190,14 @@ class EvaluationRequest(BaseModel):
         default=False,
         description="Enable complete compile artifact cache for exact payload reuse",
     )
+    simplify_error: bool = Field(
+        default=True,
+        description=(
+            "Remove local virtual-environment, kernel build-directory, and dynamically detected KernelGYM "
+            "source-root prefixes from compilation, runtime, and Sanitizer raw errors while preserving relative "
+            "source paths and line numbers"
+        ),
+    )
     task_stage: Optional[str] = Field(default=None, description="Internal task stage: compile or execute")
     required_resource: Optional[str] = Field(default=None, description="Internal resource target: cpu or gpu")
     assigned_worker: Optional[str] = Field(default=None, description="Internal worker routing target")
@@ -259,6 +267,7 @@ class EvaluationRequest(BaseModel):
                 "enable_compute_sanitizer": False,
                 "compute_sanitizer_mode": "error_based",
                 "enable_correctness_input_perturbations": None,
+                "simplify_error": True,
             }
         }
 

@@ -99,6 +99,7 @@ Caching / dedup:
 |---|---|---|
 | `force_refresh` | `false` | Bypass the per-task **result** cache (does NOT bypass compile-layer caches). |
 | `enable_compile_artifact_cache` | `false` | Opt into the whole-`.so` cache keyed by content hash. Independent of the object cache (always on for `cuda_agent`). |
+| `simplify_error` | `true` | Simplify compilation, runtime, and Sanitizer raw errors by removing local `.venv`, kernel build-directory, and dynamically detected KernelGYM source-root prefixes while keeping relative filenames and line/column numbers. Set `false` to retain full output paths for debugging. |
 | `use_reference_cache` | `false` | Reuse cached reference timing (paired with `uuid`). |
 | `uuid` | null | Reference timing cache key for `use_reference_cache=true`. |
 | `is_valid` | `false` | If true, route to the `val_data_cache` namespace instead of the default cache. |

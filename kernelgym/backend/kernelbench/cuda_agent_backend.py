@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import inspect
 import importlib.machinery
 import importlib.util
+import inspect
 import json
 import os
 import re
@@ -20,10 +20,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict
 
+from kernelgym.toolkit.kernelbench.binding_detection import strip_think_blocks
 from kernelgym.toolkit.validation import precheck_cuda_agent_submission
+from kernelgym.utils.error_simplifier import simplify_error_message
 
 from .base import KernelBenchBackendBase
-from kernelgym.toolkit.kernelbench.binding_detection import strip_think_blocks
 
 _CUDA_AGENT_DEFAULT_TMPDIR = "/dev/shm/kernelgym/work/cuda_agent"
 _CUDA_AGENT_MIN_TMPDIR_FREE_BYTES = 512 * 1024 * 1024
@@ -1013,6 +1014,7 @@ public:
         precision = kwargs.get("precision", "fp32")
         explicit_sources = self._normalize_cuda_sources_input(kwargs.get("cuda_sources"))
         enable_compile_artifact_cache = self._compile_artifact_cache_enabled(kwargs)
+        simplify_error = bool(kwargs.get("simplify_error", True))
 
         try:
             embedded_sources, python_code = self._parse_embedded_sources(code)
@@ -1076,13 +1078,20 @@ public:
             self._write_runtime_scaffold(work_dir, model_code, cuda_sources)
             self._materialize_sources(work_dir, cuda_sources)
             try:
-                return self._build_extension(
+                result = self._build_extension(
                     work_dir,
                     self._collect_compile_sources(work_dir),
                     ext_name_override=stable_ext_name,
                 )
             except Exception as exc:
-                return {"compiled": False, "error": str(exc)}
+                result = {"compiled": False, "error": str(exc)}
+            if result.get("error"):
+                result["error"] = simplify_error_message(
+                    str(result["error"]),
+                    work_dir=work_dir,
+                    enabled=simplify_error,
+                )
+            return result
 
         if enable_compile_artifact_cache and ready_path is not None:
             with self._file_lock(ready_path.parent / "compile.lock"):

@@ -64,6 +64,7 @@ Compute Sanitizer, correctness input perturbations, and adaptive performance tri
 | `enable_compute_sanitizer` | `false` | Run isolated Compute Sanitizer diagnostics after a correctness forward raises. `null` inherits the server setting. |
 | `compute_sanitizer_mode` | `"error_based"` | `error_based` selects relevant checks from the failure; `full` runs memcheck, synccheck, racecheck, and initcheck. |
 | `enable_correctness_input_perturbations` | `null` → server `false` | Add distribution-aware scale and sign-challenge correctness trials. |
+| `simplify_error` | `true` | Remove local `.venv`, kernel work-directory, and KernelGYM source-root prefixes from compilation, runtime, and Sanitizer raw errors. Set `false` to retain full paths for debugging. |
 | `memory_ratio_threshold` | `1.8` | Add `memory.comparison.warning` when Kernel total-task peak memory is greater than or equal to this multiple of reference memory. Use a number greater than `1`, or `null` to disable only this warning. |
 | `enable_profiling` | `null` → v1 server `true` | Enable or disable torch profiler collection for one request. |
 | `run_correctness` / `run_performance` | `null` → KernelBench `true` | Enable or skip the corresponding evaluation stage. |
@@ -80,6 +81,7 @@ For example, add these fields alongside the required task, reference, and Kernel
   "enable_compute_sanitizer": true,
   "compute_sanitizer_mode": "error_based",
   "enable_correctness_input_perturbations": true,
+  "simplify_error": true,
   "adaptive_perf_trials": true,
   "memory_ratio_threshold": 2.0
 }

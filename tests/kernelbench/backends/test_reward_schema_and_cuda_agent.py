@@ -26,6 +26,7 @@ def test_schema_exposes_compile_acceleration_fields() -> None:
     assert "split_compile_and_execute" in fields
     assert "pure_compile_task" in fields
     assert "enable_compile_artifact_cache" in fields
+    assert "simplify_error" in fields
     assert "task_stage" in fields
     assert "required_resource" in fields
     assert "compile_artifact" in fields
@@ -41,6 +42,7 @@ def test_evaluation_request_defaults_to_auto_backend() -> None:
     )
 
     assert request.backend == Backend.AUTO
+    assert request.simplify_error is True
 
 
 def test_evaluation_request_requires_split_mode_for_target_affinity() -> None:

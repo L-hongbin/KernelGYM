@@ -9,6 +9,7 @@ from .error_classifier import (
     get_error_category,
     get_error_description,
 )
+from .error_simplifier import simplify_error_message
 
 __all__ = [
     "classify_compile_error_metadata",
@@ -17,4 +18,6 @@ __all__ = [
     "classify_failure_detail",
     "get_error_category",
     "get_error_description",
+    "extract_compile_error_excerpt",
+    "simplify_error_message",
 ]

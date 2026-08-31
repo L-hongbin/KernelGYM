@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import traceback
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, Optional
 
 from kernelgym.common import ErrorCode
 from kernelgym.toolkit.kernelbench.exec_types import KernelExecResult
 from kernelgym.utils.device_info import with_device_info
+from kernelgym.utils.error_simplifier import simplify_error_message
 
 from .serialization import coerce_error_code, make_json_safe, serialize_error_code
 
@@ -19,7 +20,11 @@ def _filter_fields(cls, data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 _MEMORY_BYTE_UNITS = ("B", "KB", "MB", "GB", "TB", "PB")
-_INTERNAL_METADATA_FIELDS = ("correctness_failed_trial_seed",)
+_INTERNAL_METADATA_FIELDS = (
+    "correctness_failed_trial_seed",
+    "_error_work_dir",
+    "_simplify_error_enabled",
+)
 
 
 def _prepare_public_metadata(value: Any) -> Dict[str, Any]:
@@ -297,6 +302,8 @@ class KernelEvaluationResult:
         verbose_errors: bool = True,
     ) -> "KernelEvaluationResult":
         metadata: Dict[str, Any] = dict(result.metadata or {})
+        simplify_error = bool(metadata.pop("_simplify_error_enabled", True))
+        error_work_dir = metadata.pop("_error_work_dir", None)
 
         for key in (
             "compilation_error",
@@ -336,10 +343,36 @@ class KernelEvaluationResult:
                         metadata[key] = str(metadata[key])
                 else:
                     metadata[key] = str(metadata[key])
+            if (
+                key in {"compilation_error", "runtime_error", "error", "correctness_issue"}
+                and isinstance(metadata.get(key), str)
+            ):
+                metadata[key] = simplify_error_message(
+                    str(metadata[key]),
+                    work_dir=error_work_dir,
+                    enabled=simplify_error,
+                )
 
         error_message: Optional[str] = None
         error_code: Optional[ErrorCode] = None
         runtime_sanitizer = dict(result.runtime_sanitizer or {}) or None
+        if runtime_sanitizer is not None:
+            simplified_check_results = []
+            for check_result in runtime_sanitizer.get("check_results") or []:
+                if not isinstance(check_result, dict):
+                    simplified_check_results.append(check_result)
+                    continue
+                simplified_check_result = dict(check_result)
+                raw_output_tail = simplified_check_result.get("raw_output_tail")
+                if isinstance(raw_output_tail, str):
+                    simplified_check_result["raw_output_tail"] = simplify_error_message(
+                        raw_output_tail,
+                        work_dir=error_work_dir,
+                        enabled=simplify_error,
+                    )
+                simplified_check_results.append(simplified_check_result)
+            if "check_results" in runtime_sanitizer:
+                runtime_sanitizer["check_results"] = simplified_check_results
         sanitizer_issues_found = bool(
             runtime_sanitizer and runtime_sanitizer.get("status") == "issues_found"
         )
