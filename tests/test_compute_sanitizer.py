@@ -415,6 +415,17 @@ def test_compute_sanitizer_skips_only_explicit_host_errors() -> None:
         )
         == "python_unsupported_operand_type"
     )
+    assert classify_skip(TypeError("'int' object is not subscriptable"), backend="tvm_ffi") == (
+        "python_not_subscriptable"
+    )
+    assert (
+        classify_skip(
+            "'int' object is not subscriptable",
+            runtime_error_name="builtins.TypeError",
+            backend="tvm_ffi",
+        )
+        == "python_not_subscriptable"
+    )
     for message in (
         "ModelNew.forward() missing 1 required positional argument: 'weight'",
         "ModelNew.forward() missing 1 required keyword-only argument: 'weight'",
@@ -443,6 +454,14 @@ def test_compute_sanitizer_skips_only_explicit_host_errors() -> None:
     )
 
     assert classify_skip("RuntimeError: Check failed: CUDA launch failed", backend="tvm_ffi") is None
+    assert (
+        classify_skip(
+            "'int' object is not subscriptable",
+            runtime_error_name="builtins.RuntimeError",
+            backend="tvm_ffi",
+        )
+        is None
+    )
     assert (
         classify_skip(
             "name 'tvm_ffi_extension' is not defined",

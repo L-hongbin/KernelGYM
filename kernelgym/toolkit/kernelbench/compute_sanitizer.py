@@ -74,6 +74,7 @@ _TARGET_APPLICATION_ERROR_RE = re.compile(r"Target application (?:returned an er
 _TVM_FFI_TYPED_SIGNATURE_RE = re.compile(r"\([^\n]*\)\s*->\s*[A-Za-z_][\w:.<>]*")
 _TVM_FFI_EXPECTED_TYPE_RE = re.compile(r"Expected\s+`[^`]+`\s+but\s+got\s+`[^`]+`", re.IGNORECASE)
 _UNSUPPORTED_OPERAND_TYPE_RE = re.compile(r"unsupported operand type\(s\) for\b", re.IGNORECASE)
+_NOT_SUBSCRIPTABLE_RE = re.compile(r"\bobject is not subscriptable\b", re.IGNORECASE)
 _PYTHON_CALL_SIGNATURE_ERROR_RES = (
     re.compile(r"\bmissing\s+\d+\s+required\s+(?:positional|keyword-only)\s+arguments?\b", re.IGNORECASE),
     re.compile(r"\bgot\s+an\s+unexpected\s+keyword\s+argument\b", re.IGNORECASE),
@@ -157,6 +158,8 @@ def classify_compute_sanitizer_skip_reason(
     is_type_error = isinstance(runtime_error, TypeError) or error_name == "builtins.TypeError"
     if is_type_error and _UNSUPPORTED_OPERAND_TYPE_RE.search(message):
         return "python_unsupported_operand_type"
+    if is_type_error and _NOT_SUBSCRIPTABLE_RE.search(message):
+        return "python_not_subscriptable"
     if is_type_error and any(pattern.search(message) for pattern in _PYTHON_CALL_SIGNATURE_ERROR_RES):
         return "python_call_signature_mismatch"
 
