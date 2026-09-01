@@ -17,6 +17,8 @@ MISSING_HEADER = "missing_header"
 FUNCTION_ARGUMENT_MISMATCH = "function_argument_mismatch"
 INVALID_TYPE_CONVERSION = "invalid_type_conversion"
 INVALID_DECLARATION = "invalid_declaration"
+SYNTAX_ERROR = "syntax_error"
+INCOMPLETE_TYPE = "incomplete_type"
 OTHER_COMPILE_ERROR = "other"
 FAILURE_PROMPT_OVERLONG = "prompt_overlong"
 FAILURE_TIMEOUT = "timeout"
@@ -116,6 +118,16 @@ _INVALID_DECLARATION_PATTERNS = (
     r"\bvariably modified\s+['\"][^'\"]+['\"]\s+at file scope\b",
     r"\bvariably modified\s+['\"][^'\"]+['\"]\s+must have automatic storage duration\b",
 )
+_SYNTAX_ERROR_PATTERNS = (
+    r"\bexpected primary-expression before\b",
+    r"\bexpected expression\b",
+)
+_INCOMPLETE_TYPE_PATTERNS = (
+    r"\bincomplete type\s+['\"][^'\"]+['\"]\s+is not allowed\b",
+    r"\binvalid use of incomplete type\b",
+    r"\b(?:variable|field)\s+has incomplete type\b",
+    r"\bhas incomplete type and cannot be defined\b",
+)
 _COMPILER_ERROR_LINE_RE = re.compile(r"\b(?:(?:fatal|catastrophic)\s+)?error(?:\s+c\d+)?:")
 _COMPILER_SOURCE_GUTTER_RE = re.compile(r"^\s*\d+\s*\|")
 _COMPILE_ERROR_DETAIL_PATTERNS = {
@@ -129,6 +141,8 @@ _COMPILE_ERROR_DETAIL_PATTERNS = {
     FUNCTION_ARGUMENT_MISMATCH: _FUNCTION_ARGUMENT_MISMATCH_PATTERNS,
     INVALID_TYPE_CONVERSION: _INVALID_TYPE_CONVERSION_PATTERNS,
     INVALID_DECLARATION: _INVALID_DECLARATION_PATTERNS,
+    SYNTAX_ERROR: _SYNTAX_ERROR_PATTERNS,
+    INCOMPLETE_TYPE: _INCOMPLETE_TYPE_PATTERNS,
 }
 _MAX_COMPILE_ERROR_EXCERPT_CHARS = 1000
 
@@ -212,6 +226,12 @@ def classify_compile_error_detail(
     if _has_diagnostic_pattern(error_text, _INVALID_DECLARATION_PATTERNS):
         return INVALID_DECLARATION
 
+    if _has_diagnostic_pattern(error_text, _SYNTAX_ERROR_PATTERNS):
+        return SYNTAX_ERROR
+
+    if _has_diagnostic_pattern(error_text, _INCOMPLETE_TYPE_PATTERNS):
+        return INCOMPLETE_TYPE
+
     if has_tvm_ffi_api_marker and " error:" in error_text:
         return TVM_FFI_API_MISUSE
 
@@ -262,14 +282,35 @@ def classify_compile_error_metadata(
     error_message: str,
     *,
     backend: Optional[str] = None,
-) -> dict[str, str]:
-    """Return stable compile-error category plus the matched diagnostic line."""
-    detail = classify_compile_error_detail(error_message, backend=backend)
-    result = {"compilation_error_detail": detail}
-    excerpt = extract_compile_error_excerpt(error_message, backend=backend, detail=detail)
-    if excerpt is not None:
-        result["compilation_error_excerpt"] = excerpt
-    return result
+) -> dict[str, dict[str, list[str]]]:
+    """Group unique compiler diagnostics by stable error category."""
+    error_text = str(error_message or "")
+    primary_detail = classify_compile_error_detail(error_text, backend=backend)
+    primary_excerpt = extract_compile_error_excerpt(error_text, backend=backend, detail=primary_detail)
+    grouped: dict[str, list[str]] = {}
+    seen: dict[str, set[str]] = {}
+
+    for original_line in error_text.splitlines():
+        if not _is_diagnostic_error_line(original_line):
+            continue
+        excerpt = original_line.strip()
+        detail = classify_compile_error_detail(excerpt, backend=backend)
+        if primary_excerpt is not None and excerpt == primary_excerpt:
+            detail = primary_detail
+        dedupe_key = _normalize_error_text(excerpt)
+        detail_seen = seen.setdefault(detail, set())
+        if dedupe_key in detail_seen:
+            continue
+        detail_seen.add(dedupe_key)
+        if len(excerpt) > _MAX_COMPILE_ERROR_EXCERPT_CHARS:
+            marker = "...(truncated)..."
+            keep = (_MAX_COMPILE_ERROR_EXCERPT_CHARS - len(marker)) // 2
+            excerpt = excerpt[:keep] + marker + excerpt[-keep:]
+        grouped.setdefault(detail, []).append(excerpt)
+
+    if not grouped:
+        grouped[primary_detail] = []
+    return {"compilation_error_detail": grouped}
 
 
 def _is_true(value: object) -> bool:

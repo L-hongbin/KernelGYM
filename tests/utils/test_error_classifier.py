@@ -10,10 +10,12 @@ if repo_root_path not in sys.path:
 
 from kernelgym.utils.error_classifier import (
     FUNCTION_ARGUMENT_MISMATCH,
+    INCOMPLETE_TYPE,
     INVALID_DECLARATION,
     INVALID_TYPE_CONVERSION,
     MISSING_HEADER,
     OTHER_COMPILE_ERROR,
+    SYNTAX_ERROR,
     TVM_FFI_API_DTYPE,
     UNDEFINED_IDENTIFIER,
     classify_compile_error_metadata,
@@ -182,6 +184,27 @@ def test_ambiguous_declaration_text_stays_other(error_message: str) -> None:
     assert classify_compile_error_detail(error_message, backend="cuda_agent") == OTHER_COMPILE_ERROR
 
 
+@pytest.mark.parametrize("backend", (None, "cuda_agent", "tvm_ffi", "triton"))
+@pytest.mark.parametrize(
+    ("error_message", "expected"),
+    (
+        ("generated_binding.cpp:7:75: error: expected primary-expression before ')' token", SYNTAX_ERROR),
+        ('generated.cu:31:9: error: incomplete type "__nv_bfloat16" is not allowed', INCOMPLETE_TYPE),
+        (
+            "generated_binding.cpp:9:36: error: aggregate 'incomplete_value_for_test' "
+            "has incomplete type and cannot be defined",
+            INCOMPLETE_TYPE,
+        ),
+    ),
+)
+def test_syntax_and_incomplete_type_errors_are_backend_independent(
+    backend: str | None,
+    error_message: str,
+    expected: str,
+) -> None:
+    assert classify_compile_error_detail(error_message, backend=backend) == expected
+
+
 @pytest.mark.parametrize(
     ("backend", "error_message", "expected_detail", "expected_excerpt"),
     (
@@ -232,8 +255,7 @@ def test_compile_error_metadata_includes_matched_diagnostic_line(
     expected_excerpt: str,
 ) -> None:
     assert classify_compile_error_metadata(error_message, backend=backend) == {
-        "compilation_error_detail": expected_detail,
-        "compilation_error_excerpt": expected_excerpt,
+        "compilation_error_detail": {expected_detail: [expected_excerpt]},
     }
 
 
@@ -249,11 +271,24 @@ def test_compile_error_excerpt_ignores_source_and_note_lines() -> None:
     )
 
 
-def test_unclassified_compile_error_has_no_excerpt() -> None:
+def test_unclassified_compile_error_is_grouped_as_other() -> None:
     error_message = "generated.cu:20:3: error: expected ';' before '}' token"
 
     assert classify_compile_error_metadata(error_message, backend="cuda_agent") == {
-        "compilation_error_detail": OTHER_COMPILE_ERROR
+        "compilation_error_detail": {OTHER_COMPILE_ERROR: [error_message]}
+    }
+
+
+def test_compile_error_metadata_groups_multiple_unique_diagnostics_by_type() -> None:
+    syntax_error = "generated_binding.cpp:7:75: error: expected primary-expression before ')' token"
+    incomplete_type = 'generated.cu:31:9: error: incomplete type "__nv_bfloat16" is not allowed'
+    error_message = "\n".join((syntax_error, incomplete_type, syntax_error))
+
+    assert classify_compile_error_metadata(error_message, backend="tvm_ffi") == {
+        "compilation_error_detail": {
+            SYNTAX_ERROR: [syntax_error],
+            INCOMPLETE_TYPE: [incomplete_type],
+        }
     }
 
 
