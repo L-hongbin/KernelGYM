@@ -178,7 +178,7 @@ def test_memory_fields_are_serialized_at_feedback_top_level() -> None:
         "comparison": {
             "measurement_status": "complete",
             "kernel_minus_reference": "-800.00 B",
-            "kernel_to_reference_ratio": 0.7333333333333333,
+            "kernel_to_reference_ratio": 0.7333,
         },
         "measurement_error": "example measurement error",
     }

@@ -130,6 +130,7 @@ _INCOMPLETE_TYPE_PATTERNS = (
 )
 _COMPILER_ERROR_LINE_RE = re.compile(r"\b(?:(?:fatal|catastrophic)\s+)?error(?:\s+c\d+)?:")
 _COMPILER_SOURCE_GUTTER_RE = re.compile(r"^\s*\d+\s*\|")
+_COMPILER_CARET_LINE_RE = re.compile(r"^\s*(?:(?:\d+\s*)?\|\s*)?[\^~]+\s*$")
 _COMPILE_ERROR_DETAIL_PATTERNS = {
     TVM_FFI_API_TENSOR_ACCESSOR: _TVM_FFI_TENSOR_ACCESSOR_PATTERNS,
     TVM_FFI_API_SHAPEVIEW: _TVM_FFI_SHAPEVIEW_PATTERNS,
@@ -168,6 +169,38 @@ def _is_diagnostic_error_line(line: str) -> bool:
 
 def _diagnostic_error_lines(error_text: str) -> list[str]:
     return [line for line in error_text.splitlines() if _is_diagnostic_error_line(line)]
+
+
+def _truncate_compile_error_excerpt(excerpt: str) -> str:
+    if len(excerpt) <= _MAX_COMPILE_ERROR_EXCERPT_CHARS:
+        return excerpt
+    marker = "...(truncated)..."
+    keep = (_MAX_COMPILE_ERROR_EXCERPT_CHARS - len(marker)) // 2
+    return excerpt[:keep] + marker + excerpt[-keep:]
+
+
+def _diagnostic_excerpt_at(lines: list[str], index: int) -> str:
+    """Return one compiler error plus its immediately associated source context."""
+    excerpt_lines = [lines[index].strip()]
+    source_index = index + 1
+    if source_index >= len(lines):
+        return excerpt_lines[0]
+
+    source_line = lines[source_index]
+    caret_index = source_index + 1
+    has_following_caret = caret_index < len(lines) and bool(_COMPILER_CARET_LINE_RE.match(lines[caret_index]))
+    is_gutter_source = bool(_COMPILER_SOURCE_GUTTER_RE.match(source_line))
+    is_plain_source = (
+        bool(source_line[:1].isspace())
+        and bool(source_line.strip())
+        and not _is_diagnostic_error_line(source_line)
+        and (has_following_caret or source_line.rstrip().endswith(";"))
+    )
+    if not (is_gutter_source or is_plain_source):
+        return excerpt_lines[0]
+
+    excerpt_lines.append(source_line.rstrip())
+    return "\n".join(excerpt_lines)
 
 
 def _has_diagnostic_pattern(error_text: str, patterns: tuple[str, ...]) -> bool:
@@ -264,18 +297,14 @@ def extract_compile_error_excerpt(
     detail_patterns = _COMPILE_ERROR_DETAIL_PATTERNS.get(resolved_detail, ())
     for index in diagnostic_indices:
         if detail_patterns and _has_pattern(normalized_lines[index], detail_patterns):
-            excerpt = original_lines[index].strip()
+            excerpt = _diagnostic_excerpt_at(original_lines, index)
             break
     else:
         if not diagnostic_indices:
             return None
-        excerpt = original_lines[diagnostic_indices[0]].strip()
+        excerpt = _diagnostic_excerpt_at(original_lines, diagnostic_indices[0])
 
-    if len(excerpt) <= _MAX_COMPILE_ERROR_EXCERPT_CHARS:
-        return excerpt
-    marker = "...(truncated)..."
-    keep = (_MAX_COMPILE_ERROR_EXCERPT_CHARS - len(marker)) // 2
-    return excerpt[:keep] + marker + excerpt[-keep:]
+    return _truncate_compile_error_excerpt(excerpt)
 
 
 def classify_compile_error_metadata(
@@ -285,27 +314,26 @@ def classify_compile_error_metadata(
 ) -> dict[str, dict[str, list[str]]]:
     """Group unique compiler diagnostics by stable error category."""
     error_text = str(error_message or "")
+    original_lines = error_text.splitlines()
     primary_detail = classify_compile_error_detail(error_text, backend=backend)
     primary_excerpt = extract_compile_error_excerpt(error_text, backend=backend, detail=primary_detail)
+    primary_diagnostic = primary_excerpt.splitlines()[0] if primary_excerpt is not None else None
     grouped: dict[str, list[str]] = {}
     seen: dict[str, set[str]] = {}
 
-    for original_line in error_text.splitlines():
+    for index, original_line in enumerate(original_lines):
         if not _is_diagnostic_error_line(original_line):
             continue
-        excerpt = original_line.strip()
+        diagnostic = original_line.strip()
+        excerpt = _truncate_compile_error_excerpt(_diagnostic_excerpt_at(original_lines, index))
         detail = classify_compile_error_detail(excerpt, backend=backend)
-        if primary_excerpt is not None and excerpt == primary_excerpt:
+        if primary_diagnostic is not None and diagnostic == primary_diagnostic:
             detail = primary_detail
         dedupe_key = _normalize_error_text(excerpt)
         detail_seen = seen.setdefault(detail, set())
         if dedupe_key in detail_seen:
             continue
         detail_seen.add(dedupe_key)
-        if len(excerpt) > _MAX_COMPILE_ERROR_EXCERPT_CHARS:
-            marker = "...(truncated)..."
-            keep = (_MAX_COMPILE_ERROR_EXCERPT_CHARS - len(marker)) // 2
-            excerpt = excerpt[:keep] + marker + excerpt[-keep:]
         grouped.setdefault(detail, []).append(excerpt)
 
     if not grouped:

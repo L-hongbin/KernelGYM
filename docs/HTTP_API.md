@@ -187,7 +187,7 @@ Memory feedback is returned for correct kernels:
 | `memory.reference.forward_peak_allocated_delta`, `memory.kernel.forward_peak_allocated_delta` | Peak allocated-memory increase above the baseline taken after models and inputs are prepared. |
 | `memory.comparison.measurement_status` | `complete` means usable and complete, `partial` means usable but potentially a lower bound, and `invalid` means the measurement cannot be compared. |
 | `memory.comparison.kernel_minus_reference` | Signed difference computed as Kernel minus reference for `task_peak_allocated_delta`. Negative means the Kernel uses less memory; positive means it uses more. |
-| `memory.comparison.kernel_to_reference_ratio` | Kernel divided by reference for `task_peak_allocated_delta`; below 1 means the Kernel uses less memory. |
+| `memory.comparison.kernel_to_reference_ratio` | Kernel divided by reference for `task_peak_allocated_delta`, rounded to 4 decimal places; below 1 means the Kernel uses less memory. |
 | `memory.comparison.warning` | A single warning string returned when `kernel_to_reference_ratio` is greater than or equal to `memory_ratio_threshold`. The message includes the actual ratio and configured threshold. |
 | `memory.allocator_check` | Returned only when the Kernel source contains a direct CUDA allocation or another allocator warning. |
 
@@ -255,7 +255,7 @@ and memory measurements continue to use the original input distribution.
 | `kg_reference_total_s` | Reference timing |
 | `wg_pool_total_s`, `wg_pool_idle_wait_s`, `wg_pool_restart_s` | Subprocess pool dispatch metrics |
 | `build_backend` | `manual_ninja` / `tvm_ffi.cpp.build` / cached |
-| `compilation_error_detail` | Object mapping each stable compile-error category to its source-ordered, deduplicated compiler `error:` excerpts. Categories include `tvm_ffi_api_dtype`, `undefined_identifier`, `invalid_type_conversion`, `syntax_error`, `incomplete_type`, and `other`. Example: `{"undefined_identifier": ["generated.cu(33): error: identifier 'x' is undefined"]}`. Locations are simplified before the response is returned. |
+| `compilation_error_detail` | Object mapping each stable compile-error category to its source-ordered, deduplicated compiler excerpts. Each excerpt contains the `error:` line and, when emitted immediately afterward, its source line; caret-only locator lines are omitted. Categories include `tvm_ffi_api_dtype`, `undefined_identifier`, `invalid_type_conversion`, `syntax_error`, `incomplete_type`, and `other`. Locations are simplified before the response is returned. |
 | `compile_artifact_cache_enabled`, `compile_artifact_cache_hit`, `compile_artifact_cache_key` | Artifact-cache state |
 | `compile_timing.manual_ninja_build_wall_sec`, `compile_timing.manual_ninja_import_wall_sec` | Cuda_agent ninja path internals |
 | `compile_timing.manual_ninja_object_cache.{hits,misses,skipped,objects}` | Per-object cache outcome |

@@ -214,7 +214,8 @@ def test_syntax_and_incomplete_type_errors_are_backend_independent(
             "generated_binding.cpp:26:57: error: ‘struct DLDataType’ has no member named ‘bytes’\n"
             "   26 | output.dtype().bytes == 4",
             TVM_FFI_API_DTYPE,
-            "generated_binding.cpp:26:57: error: ‘struct DLDataType’ has no member named ‘bytes’",
+            "generated_binding.cpp:26:57: error: ‘struct DLDataType’ has no member named ‘bytes’\n"
+            "   26 | output.dtype().bytes == 4",
         ),
         (
             "cuda_agent",
@@ -271,6 +272,34 @@ def test_compile_error_excerpt_ignores_source_and_note_lines() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("error_message", "expected_excerpt"),
+    (
+        (
+            'generated.cu(33): error: identifier "G" is undefined\n'
+            "      __attribute__((shared)) float As[G_TILE][G_TILE_P];\n"
+            "                                       ^\n\n"
+            '1 error detected in the compilation of "generated.cu".',
+            'generated.cu(33): error: identifier "G" is undefined\n'
+            "      __attribute__((shared)) float As[G_TILE][G_TILE_P];",
+        ),
+        (
+            "generated_binding.cpp:8:33: error: expected primary-expression before ';' token\n"
+            "    8 |     int syntax_error_for_test = ;\n"
+            "      |                                 ^\n"
+            "ninja: build stopped: subcommand failed.",
+            "generated_binding.cpp:8:33: error: expected primary-expression before ';' token\n"
+            "    8 |     int syntax_error_for_test = ;",
+        ),
+    ),
+)
+def test_compile_error_excerpt_includes_source_and_omits_caret(
+    error_message: str,
+    expected_excerpt: str,
+) -> None:
+    assert extract_compile_error_excerpt(error_message, backend="cuda_agent") == expected_excerpt
+
+
 def test_unclassified_compile_error_is_grouped_as_other() -> None:
     error_message = "generated.cu:20:3: error: expected ';' before '}' token"
 
@@ -281,13 +310,21 @@ def test_unclassified_compile_error_is_grouped_as_other() -> None:
 
 def test_compile_error_metadata_groups_multiple_unique_diagnostics_by_type() -> None:
     syntax_error = "generated_binding.cpp:7:75: error: expected primary-expression before ')' token"
+    syntax_excerpt = f"{syntax_error}\n    7 | int value = ;"
     incomplete_type = 'generated.cu:31:9: error: incomplete type "__nv_bfloat16" is not allowed'
-    error_message = "\n".join((syntax_error, incomplete_type, syntax_error))
+    incomplete_excerpt = f'{incomplete_type}\n          __nv_bfloat16 value;'
+    error_message = "\n".join(
+        (
+            syntax_excerpt,
+            incomplete_excerpt,
+            syntax_excerpt,
+        )
+    )
 
     assert classify_compile_error_metadata(error_message, backend="tvm_ffi") == {
         "compilation_error_detail": {
-            SYNTAX_ERROR: [syntax_error],
-            INCOMPLETE_TYPE: [incomplete_type],
+            SYNTAX_ERROR: [syntax_excerpt],
+            INCOMPLETE_TYPE: [incomplete_excerpt],
         }
     }
 

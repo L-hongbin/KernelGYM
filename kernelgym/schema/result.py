@@ -100,14 +100,15 @@ def _prepare_public_memory_measurement(
 def _prepare_public_memory_comparison(value: Dict[str, Any]) -> Dict[str, Any]:
     comparison = dict(value)
     measurement_status = _pop_measurement_status(comparison)
+    kernel_to_reference_ratio = comparison.get("primary_kernel_to_reference_ratio")
+    if isinstance(kernel_to_reference_ratio, (int, float)) and not isinstance(kernel_to_reference_ratio, bool):
+        kernel_to_reference_ratio = round(float(kernel_to_reference_ratio), 4)
     public_comparison = {
         "measurement_status": measurement_status,
         "kernel_minus_reference_bytes": comparison.get(
             "primary_kernel_minus_reference_bytes"
         ),
-        "kernel_to_reference_ratio": comparison.get(
-            "primary_kernel_to_reference_ratio"
-        ),
+        "kernel_to_reference_ratio": kernel_to_reference_ratio,
     }
     warnings = comparison.get("warnings")
     if isinstance(warnings, list) and warnings:
