@@ -73,8 +73,15 @@ _DIAGNOSTIC_STARTS = (
 _TARGET_APPLICATION_ERROR_RE = re.compile(r"Target application (?:returned an error|terminated)", re.IGNORECASE)
 _TVM_FFI_TYPED_SIGNATURE_RE = re.compile(r"\([^\n]*\)\s*->\s*[A-Za-z_][\w:.<>]*")
 _TVM_FFI_EXPECTED_TYPE_RE = re.compile(r"Expected\s+`[^`]+`\s+but\s+got\s+`[^`]+`", re.IGNORECASE)
+_TVM_FFI_OUTPUT_CONTRACT_RE = re.compile(
+    r"(?:^|\n)(?:RuntimeError:\s*)?Check failed:\s*[^\r\n]+?\s+is false:\s*"
+    r"output must be[ \t]+[A-Za-z0-9_][\w.]*[.!]?[ \t]*(?:\r?\n|$)",
+    re.IGNORECASE,
+)
 _UNSUPPORTED_OPERAND_TYPE_RE = re.compile(r"unsupported operand type\(s\) for\b", re.IGNORECASE)
 _NOT_SUBSCRIPTABLE_RE = re.compile(r"\bobject is not subscriptable\b", re.IGNORECASE)
+_NOT_ENOUGH_VALUES_TO_UNPACK_RE = re.compile(r"\bnot enough values to unpack\b", re.IGNORECASE)
+_MISSING_ATTRIBUTE_RE = re.compile(r"\bobject has no attribute\b", re.IGNORECASE)
 _PYTHON_CALL_SIGNATURE_ERROR_RES = (
     re.compile(r"\bmissing\s+\d+\s+required\s+(?:positional|keyword-only)\s+arguments?\b", re.IGNORECASE),
     re.compile(r"\bgot\s+an\s+unexpected\s+keyword\s+argument\b", re.IGNORECASE),
@@ -155,6 +162,14 @@ def classify_compute_sanitizer_skip_reason(
     if isinstance(runtime_error, IndexError) or error_name == "builtins.IndexError":
         return "python_index_error"
 
+    is_value_error = isinstance(runtime_error, ValueError) or error_name == "builtins.ValueError"
+    if is_value_error and _NOT_ENOUGH_VALUES_TO_UNPACK_RE.search(message):
+        return "python_not_enough_values_to_unpack"
+
+    is_attribute_error = isinstance(runtime_error, AttributeError) or error_name == "builtins.AttributeError"
+    if is_attribute_error and _MISSING_ATTRIBUTE_RE.search(message):
+        return "python_missing_attribute"
+
     is_type_error = isinstance(runtime_error, TypeError) or error_name == "builtins.TypeError"
     if is_type_error and _UNSUPPORTED_OPERAND_TYPE_RE.search(message):
         return "python_unsupported_operand_type"
@@ -169,6 +184,14 @@ def classify_compute_sanitizer_skip_reason(
         and _TVM_FFI_EXPECTED_TYPE_RE.search(message)
     ):
         return "tvm_ffi_argument_type_mismatch"
+
+    is_runtime_error = isinstance(runtime_error, RuntimeError) or error_name == "builtins.RuntimeError"
+    if (
+        is_runtime_error
+        and str(backend or "").strip().lower() == "tvm_ffi"
+        and _TVM_FFI_OUTPUT_CONTRACT_RE.search(message)
+    ):
+        return "tvm_ffi_output_contract_mismatch"
 
     return None
 

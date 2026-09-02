@@ -407,6 +407,28 @@ def test_compute_sanitizer_skips_only_explicit_host_errors() -> None:
         )
         == "python_index_error"
     )
+    assert classify_skip(ValueError("not enough values to unpack (expected 3, got 2)"), backend="tvm_ffi") == (
+        "python_not_enough_values_to_unpack"
+    )
+    assert (
+        classify_skip(
+            "not enough values to unpack (expected 3, got 2)",
+            runtime_error_name="builtins.ValueError",
+            backend="tvm_ffi",
+        )
+        == "python_not_enough_values_to_unpack"
+    )
+    assert classify_skip(
+        AttributeError("'CustomConv2d' object has no attribute 'weight'"), backend="tvm_ffi"
+    ) == "python_missing_attribute"
+    assert (
+        classify_skip(
+            "'CustomConv2d' object has no attribute 'weight'",
+            runtime_error_name="builtins.AttributeError",
+            backend="tvm_ffi",
+        )
+        == "python_missing_attribute"
+    )
     assert (
         classify_skip(
             "unsupported operand type(s) for +: 'NoneType' and 'int'",
@@ -452,11 +474,70 @@ def test_compute_sanitizer_skips_only_explicit_host_errors() -> None:
         )
         == "tvm_ffi_argument_type_mismatch"
     )
+    output_contract_error = (
+        "Check failed: (output.dtype().code == kDLBool && output.dtype().bits == 1) "
+        "is false: output must be bool"
+    )
+    assert classify_skip(RuntimeError(output_contract_error), backend="tvm_ffi") == (
+        "tvm_ffi_output_contract_mismatch"
+    )
+    assert classify_skip(
+        RuntimeError("Check failed: output.dim() == 3 is false: output must be 3D"),
+        backend="tvm_ffi",
+    ) == "tvm_ffi_output_contract_mismatch"
+    assert (
+        classify_skip(
+            f"Traceback (most recent call last):\nRuntimeError: {output_contract_error}",
+            runtime_error_name="builtins.RuntimeError",
+            backend="tvm_ffi",
+        )
+        == "tvm_ffi_output_contract_mismatch"
+    )
 
     assert classify_skip("RuntimeError: Check failed: CUDA launch failed", backend="tvm_ffi") is None
     assert (
         classify_skip(
+            output_contract_error,
+            runtime_error_name="builtins.RuntimeError",
+            backend="cuda_agent",
+        )
+        is None
+    )
+    assert (
+        classify_skip(
+            "Check failed: input.dtype().bits == 32 is false: input must be float32",
+            runtime_error_name="builtins.RuntimeError",
+            backend="tvm_ffi",
+        )
+        is None
+    )
+    assert (
+        classify_skip(
+            "Check failed: output.dtype().bits == 1 is false: output must be a bool tensor",
+            runtime_error_name="builtins.RuntimeError",
+            backend="tvm_ffi",
+        )
+        is None
+    )
+    assert (
+        classify_skip(
             "'int' object is not subscriptable",
+            runtime_error_name="builtins.RuntimeError",
+            backend="tvm_ffi",
+        )
+        is None
+    )
+    assert (
+        classify_skip(
+            "not enough values to unpack (expected 3, got 2)",
+            runtime_error_name="builtins.RuntimeError",
+            backend="tvm_ffi",
+        )
+        is None
+    )
+    assert (
+        classify_skip(
+            "'CustomConv2d' object has no attribute 'weight'",
             runtime_error_name="builtins.RuntimeError",
             backend="tvm_ffi",
         )
