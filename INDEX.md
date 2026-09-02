@@ -34,6 +34,7 @@ This file indexes stable repository docs and evidence locations.
 | `scripts/start_container.sh` | Physical-host Docker container startup; defaults to Docker `--init` for subprocess reaping. |
 | `scripts/debug_line451_rmsnorm_nondeterminism.py` | Standalone reproduction for line 451 RMSNorm CUDA-Agent nondeterministic correctness. |
 | `scripts/benchmark_worker_spawn.py` | Isolated staged-import, real worker-constructor, and subprocess-pool replenishment benchmark with JSON evidence output. |
+| `scripts/reproduce_runtime_import_latency.py` | Fresh-process serial and concurrent module-import comparison between shared and node-local Python environments. |
 | `kernelgym/backend/kernelbench/cuda_agent_backend.py` | CUDA-Agent parsing, validation scaffold, compile/load backend. |
 | `kernelgym/backend/kernelbench/tvm_ffi_backend.py` | TVM-FFI compile/load backend and compile artifact cache. |
 | `kernelgym/schema/precision.py` | Canonical FP32/FP16/BF16 aliases and fail-closed internal normalization. |
