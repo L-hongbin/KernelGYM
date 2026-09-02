@@ -527,8 +527,8 @@ async def evaluate_kernel(
         )
 
 
-@app.post("/benchmark/gemm-rmsnorm", response_model=SpeedTestResponse)
-async def benchmark_gemm_rmsnorm(task_mgr: TaskManager = Depends(get_task_manager)):
+@app.post("/benchmark/speed-test", response_model=SpeedTestResponse)
+async def benchmark_speed_test(task_mgr: TaskManager = Depends(get_task_manager)):
     """Run the fixed, correct TVM-FFI GEMM + RMSNorm case three times."""
 
     def optional_float(value: Any) -> Optional[float]:
@@ -546,7 +546,7 @@ async def benchmark_gemm_rmsnorm(task_mgr: TaskManager = Depends(get_task_manage
 
     for run_index in range(1, SPEED_TEST_REPEAT_COUNT + 1):
         run_token = uuid4().hex[:12]
-        task_id = f"speed-gemm-rmsnorm-{run_token}-{run_index}"
+        task_id = f"speed-test-{run_token}-{run_index}"
         payload = build_speed_test_payload(task_id, run_token)
         run_started = time.perf_counter()
         workflow_finished = False

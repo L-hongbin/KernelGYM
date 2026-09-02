@@ -80,7 +80,7 @@ def test_speed_test_runs_three_times_and_averages_passed_results(monkeypatch):
     monkeypatch.setattr(server, "_execute_workflow", fake_execute_workflow)
 
     manager = FakeTaskManager()
-    response = asyncio.run(server.benchmark_gemm_rmsnorm(task_mgr=manager))
+    response = asyncio.run(server.benchmark_speed_test(task_mgr=manager))
 
     assert len(calls) == REPEAT_COUNT == 3
     assert len({call["task_id"] for call in calls}) == 3
@@ -103,7 +103,8 @@ def test_speed_test_runs_three_times_and_averages_passed_results(monkeypatch):
 
 def test_speed_test_route_is_registered():
     paths = {route.path for route in server.app.routes if hasattr(route, "path")}
-    assert "/benchmark/gemm-rmsnorm" in paths
+    assert "/benchmark/speed-test" in paths
+    assert "/benchmark/gemm-rmsnorm" not in paths
 
 
 def test_discard_task_records_removes_current_and_legacy_cache_entries():
