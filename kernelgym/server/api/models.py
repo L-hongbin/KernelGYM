@@ -367,6 +367,50 @@ class EvaluationResponse(BaseModel):
         }
 
 
+class SpeedTestRunResponse(BaseModel):
+    """One complete evaluation in the fixed API speed test."""
+
+    run_index: int
+    task_id: str
+    status: TaskStatus
+    passed: bool
+    compiled: Optional[bool] = None
+    correctness: Optional[bool] = None
+    end_to_end_s: float
+    reference_runtime_ms: Optional[float] = None
+    kernel_runtime_ms: Optional[float] = None
+    speedup: Optional[float] = None
+    stage_timings: Dict[str, float] = Field(default_factory=dict)
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+
+
+class SpeedTestAverageResponse(BaseModel):
+    """Averages from the fixed API speed test."""
+
+    end_to_end_s: float
+    reference_runtime_ms: Optional[float] = None
+    kernel_runtime_ms: Optional[float] = None
+    speedup: Optional[float] = None
+    stage_timings: Dict[str, float] = Field(default_factory=dict)
+
+
+class SpeedTestResponse(BaseModel):
+    """Three-run GEMM + RMSNorm end-to-end speed-test response."""
+
+    benchmark_status: Literal["passed", "failed"]
+    case_name: str
+    backend: Backend
+    precision: str
+    input_shapes: Dict[str, List[int]]
+    repeat_count: int
+    passed_runs: int
+    all_passed: bool
+    total_end_to_end_s: float
+    average: SpeedTestAverageResponse
+    runs: List[SpeedTestRunResponse]
+
+
 class BatchEvaluationRequest(BaseModel):
     """Request model for batch evaluation."""
 

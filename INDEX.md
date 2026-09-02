@@ -51,6 +51,7 @@ This file indexes stable repository docs and evidence locations.
 | `kernelgym/utils/page_user_notifier.py` | Mode-restricted page-user MCP client for physical-GPU quarantine and worker-process exclusion alerts. |
 | `kernelgym/cli/service.py` | Service lifecycle with admission-first shutdown, process-generation fencing, whole-group drain proof, and fail-closed replacement startup. |
 | `kernelgym/workflow/kernelbench.py` | Server-side KernelBench workflow orchestration. |
+| `kernelgym/server/api/speed_test.py` | Fixed correct TVM-FFI GEMM + RMSNorm case and timing-field extraction for the three-run speed-test endpoint. |
 | `kernelgym/server/task_manager.py` | Redis task queue and worker coordination. |
 | `kernelgym/worker/gpu_worker.py` | Worker-side task execution and failure handling. |
 | `kernelgym/worker/subprocess_pool.py` | Persistent GPU subprocess pool, crash containment proof, fresh-context recovery, recycle, timeout, and pool-size enforcement. |
@@ -83,6 +84,7 @@ Tracked repository evidence artifacts only. Local-only `docs/evidence/`, run log
 | Path | Purpose |
 | --- | --- |
 | `benchmarks/review_evidence/gemm_large_memory_delta_kernel_schema_h100_20260826.json` | Final redeployed 1024x1024 H100 GEMM evidence using reference/kernel role names and a deterministic 64 MB Kernel memory delta. |
+| `benchmarks/review_evidence/gemm_rmsnorm_speed_test_local_20260902.json` | Three-run live-worker validation of the fixed TVM-FFI GEMM + RMSNorm speed-test handler, including per-run/average timings and zero retained Redis result records. |
 | `benchmarks/review_evidence/official_27b_review_evidence.json` | Adversarial review evidence for official 27B 3-binding c3/c8 runs: pairing, sample IDs, coverage, statuses, queue deltas, residuals, and c3/c8 consistency. |
 | `benchmarks/review_evidence/official_27b_perf_step_correctness_summary.json` | Perf-step breakdown split by completed, correct-only, and incorrect-completed rows for official 27B c3/c8 runs. |
 | `benchmarks/review_evidence/runtime_sanitizer_tvm_ffi_h100_20260826_pass.json` | Current-schema H100 TVM-FFI validation for clean, OOB, race, invalid synchronization, and uninitialized-read fixtures. |

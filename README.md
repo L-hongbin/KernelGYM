@@ -49,6 +49,7 @@ bash deploy_node.sh --clear-cache --nnodes 1
 bash check_node.sh                  # GPU + worker health summary (ASCII tables with -v)
 bash test_reward.sh                 # round-trip a hand-written CUDA add kernel
 curl -sS http://127.0.0.1:20111/device-info  # locally detected static GPU capabilities
+curl -sS -X POST http://127.0.0.1:20111/benchmark/gemm-rmsnorm  # 3-run end-to-end speed test
 ```
 
 ### 4. Control evaluation features through the request payload

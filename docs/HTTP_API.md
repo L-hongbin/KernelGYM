@@ -18,6 +18,7 @@ For a quick end-to-end probe, run `bash test_reward.sh` (single CUDA-Agent add) 
 | GET | `/health` | Aggregated GPU + queue + memory health |
 | GET | `/metrics` | Performance / resource / queue / error counters |
 | POST | `/evaluate` | **Submit one kernel evaluation (primary endpoint)** |
+| POST | `/benchmark/gemm-rmsnorm` | Run the fixed correct GEMM + RMSNorm end-to-end speed test three times |
 | POST | `/evaluate/batch` | Submit a batch of evaluations |
 | POST | `/workflow/submit` | Submit any workflow with an arbitrary payload |
 | POST | `/debug/validate` | Dry-run request validation (does not run) |
@@ -295,6 +296,64 @@ The compile-layer caches (per-object cache, compile artifact cache) live below t
 ### Correctness semantics
 
 `stop_on_first_failure` is on by default: as soon as one correctness trial fails, the run aborts with `correctness=false`. The v1 deployment also disables the wall-clock time-budget early-pass mechanism — every configured trial runs unless `stop_on_first_failure` fires. Env-var overrides exist in `kernelgym/toolkit/kernelbench/correctness.py`.
+
+## `POST /benchmark/gemm-rmsnorm` — fixed end-to-end speed test
+
+Runs a built-in correct FP32 TVM-FFI case with `512×512 GEMM → RMSNorm` three times in sequence. Each run uses a unique task id and CUDA source marker, forces a result-cache miss, disables the compile-artifact and reference caches, and executes five correctness trials plus 100 performance trials after three warmups. After timing information is collected, the endpoint removes the generated parent, compile, kernel, and reference task/result records from Redis, so the probe leaves no reusable result-cache entries. NCU, Compute Sanitizer, adaptive performance trials, and correctness input perturbations are disabled so optional diagnostics do not distort the service-speed measurement.
+
+The endpoint takes no request body:
+
+```bash
+curl -sS -X POST http://127.0.0.1:20111/benchmark/gemm-rmsnorm
+```
+
+The response contains every run and the three-run aggregate. `end_to_end_s`, `total_end_to_end_s`, and all `stage_timings` values are seconds; `reference_runtime_ms` and `kernel_runtime_ms` are CUDA-event milliseconds. Runtime and stage averages use successful runs, while average end-to-end time covers all three attempts. `all_passed` is true only when all three runs compile and pass correctness.
+
+When split compile/execute is enabled, `stage_timings.kernel_compile_s` and `compile_worker_total_s` come from the corresponding CPU compile sub-task. The end-to-end time also includes scheduler, Redis, queue, reference, compile, execute, and response assembly overhead.
+
+```json
+{
+  "benchmark_status": "passed",
+  "case_name": "gemm_rmsnorm_fp32",
+  "backend": "tvm_ffi",
+  "precision": "fp32",
+  "input_shapes": {"lhs": [512, 512], "rhs": [512, 512]},
+  "repeat_count": 3,
+  "passed_runs": 3,
+  "all_passed": true,
+  "total_end_to_end_s": 18.9,
+  "average": {
+    "end_to_end_s": 6.3,
+    "reference_runtime_ms": 0.08,
+    "kernel_runtime_ms": 0.16,
+    "speedup": 0.5,
+    "stage_timings": {
+      "kernel_compile_s": 2.4,
+      "kernel_correctness_s": 1.4,
+      "kernel_performance_s": 0.06
+    }
+  },
+  "runs": [
+    {
+      "run_index": 1,
+      "task_id": "speed-gemm-rmsnorm-012345abcdef-1",
+      "status": "completed",
+      "passed": true,
+      "compiled": true,
+      "correctness": true,
+      "end_to_end_s": 6.2,
+      "reference_runtime_ms": 0.08,
+      "kernel_runtime_ms": 0.16,
+      "speedup": 0.5,
+      "stage_timings": {"kernel_compile_s": 2.4},
+      "error_code": null,
+      "error_message": null
+    }
+  ]
+}
+```
+
+The example abbreviates `runs`; a real response always contains three objects.
 
 ## `POST /evaluate/batch`
 

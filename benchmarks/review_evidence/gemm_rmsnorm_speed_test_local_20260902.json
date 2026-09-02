@@ -1,0 +1,125 @@
+{
+  "captured_at": "2026-09-02",
+  "validation_mode": "new endpoint handler using the live Redis and GPU workers; HTTP route not yet deployed",
+  "deployed_evaluate_case_validation": {
+    "http_status": 200,
+    "end_to_end_s": 6.645806,
+    "status": "completed",
+    "compiled": true,
+    "correctness": true,
+    "reference_runtime_ms": 0.0811,
+    "kernel_runtime_ms": 0.159,
+    "speedup": 0.510062893081761,
+    "error_code": null,
+    "error_message": null
+  },
+  "endpoint_response": {
+    "benchmark_status": "passed",
+    "case_name": "gemm_rmsnorm_fp32",
+    "backend": "tvm_ffi",
+    "precision": "fp32",
+    "input_shapes": {
+      "lhs": [512, 512],
+      "rhs": [512, 512]
+    },
+    "repeat_count": 3,
+    "passed_runs": 3,
+    "all_passed": true,
+    "total_end_to_end_s": 20.341399,
+    "average": {
+      "end_to_end_s": 6.780087,
+      "reference_runtime_ms": 0.0841,
+      "kernel_runtime_ms": 0.193333,
+      "speedup": 0.441417,
+      "stage_timings": {
+        "kernel_compile_s": 2.580928,
+        "kernel_correctness_s": 1.392477,
+        "kernel_load_s": 0.002976,
+        "kernel_performance_s": 0.071165,
+        "kernel_total_s": 4.552302,
+        "reference_total_s": 0.549106,
+        "worker_pool_s": 5.42178
+      }
+    },
+    "runs": [
+      {
+        "run_index": 1,
+        "task_id": "speed-gemm-rmsnorm-db489884f524-1",
+        "status": "completed",
+        "passed": true,
+        "compiled": true,
+        "correctness": true,
+        "end_to_end_s": 6.187652,
+        "reference_runtime_ms": 0.0809,
+        "kernel_runtime_ms": 0.224,
+        "speedup": 0.3611607142857143,
+        "stage_timings": {
+          "reference_total_s": 0.537532,
+          "kernel_total_s": 4.604547,
+          "kernel_compile_s": 2.599026,
+          "kernel_load_s": 0.003018,
+          "kernel_correctness_s": 1.376919,
+          "kernel_performance_s": 0.084118,
+          "worker_pool_s": 4.92737
+        },
+        "error_code": null,
+        "error_message": null
+      },
+      {
+        "run_index": 2,
+        "task_id": "speed-gemm-rmsnorm-83ee54d92945-2",
+        "status": "completed",
+        "passed": true,
+        "compiled": true,
+        "correctness": true,
+        "end_to_end_s": 7.589335,
+        "reference_runtime_ms": 0.0879,
+        "kernel_runtime_ms": 0.177,
+        "speedup": 0.4966101694915255,
+        "stage_timings": {
+          "reference_total_s": 0.489397,
+          "kernel_total_s": 4.499178,
+          "kernel_compile_s": 2.577499,
+          "kernel_load_s": 0.002965,
+          "kernel_correctness_s": 1.417904,
+          "kernel_performance_s": 0.062532,
+          "worker_pool_s": 6.104627
+        },
+        "error_code": null,
+        "error_message": null
+      },
+      {
+        "run_index": 3,
+        "task_id": "speed-gemm-rmsnorm-441096898b09-3",
+        "status": "completed",
+        "passed": true,
+        "compiled": true,
+        "correctness": true,
+        "end_to_end_s": 6.563274,
+        "reference_runtime_ms": 0.0835,
+        "kernel_runtime_ms": 0.179,
+        "speedup": 0.46648044692737434,
+        "stage_timings": {
+          "reference_total_s": 0.620389,
+          "kernel_total_s": 4.553182,
+          "kernel_compile_s": 2.566259,
+          "kernel_load_s": 0.002945,
+          "kernel_correctness_s": 1.382609,
+          "kernel_performance_s": 0.066846,
+          "worker_pool_s": 5.233343
+        },
+        "error_code": null,
+        "error_message": null
+      }
+    ]
+  },
+  "no_cache_retention_validation": {
+    "benchmark_status": "passed",
+    "passed_runs": 3,
+    "repeat_count": 3,
+    "total_end_to_end_s": 20.842453,
+    "average_end_to_end_s": 6.946048,
+    "generated_task_records_checked": 12,
+    "remaining_result_records": []
+  }
+}

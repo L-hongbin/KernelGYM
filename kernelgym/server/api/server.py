@@ -7,6 +7,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, Optional
+from uuid import uuid4
 
 import redis.asyncio as redis
 import uvicorn
@@ -44,12 +45,21 @@ from .models import (
     EvaluationRequest,
     EvaluationResponse,
     MetricsResponse,
+    SpeedTestAverageResponse,
+    SpeedTestResponse,
+    SpeedTestRunResponse,
     SystemHealthResponse,
     TaskStatusResponse,
     WorkflowRequest,
     WorkflowResponse,
 )
 from .monitoring_routes import router as monitoring_router
+from .speed_test import BACKEND as SPEED_TEST_BACKEND
+from .speed_test import CASE_NAME as SPEED_TEST_CASE_NAME
+from .speed_test import INPUT_SHAPES as SPEED_TEST_INPUT_SHAPES
+from .speed_test import REPEAT_COUNT as SPEED_TEST_REPEAT_COUNT
+from .speed_test import build_payload as build_speed_test_payload
+from .speed_test import extract_stage_timings
 from .utils import format_timestamp, get_system_health, get_system_metrics
 
 # Configure logging with file support
@@ -515,6 +525,137 @@ async def evaluate_kernel(
             detail=f"Failed to submit task: {str(e)}",
             headers={"X-Error-Code": error_code.value},
         )
+
+
+@app.post("/benchmark/gemm-rmsnorm", response_model=SpeedTestResponse)
+async def benchmark_gemm_rmsnorm(task_mgr: TaskManager = Depends(get_task_manager)):
+    """Run the fixed, correct TVM-FFI GEMM + RMSNorm case three times."""
+
+    def optional_float(value: Any) -> Optional[float]:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+        return None
+
+    def rounded_mean(values: list[float]) -> Optional[float]:
+        if not values:
+            return None
+        return round(sum(values) / len(values), 6)
+
+    suite_started = time.perf_counter()
+    runs: list[SpeedTestRunResponse] = []
+
+    for run_index in range(1, SPEED_TEST_REPEAT_COUNT + 1):
+        run_token = uuid4().hex[:12]
+        task_id = f"speed-gemm-rmsnorm-{run_token}-{run_index}"
+        payload = build_speed_test_payload(task_id, run_token)
+        run_started = time.perf_counter()
+        workflow_finished = False
+        try:
+            _, result, status_value = await _execute_workflow(
+                task_mgr=task_mgr,
+                workflow_name="kernelbench",
+                payload=payload,
+                task_id=task_id,
+                force_refresh=True,
+            )
+            workflow_finished = True
+            passed = (
+                status_value == TaskStatus.COMPLETED
+                and result.get("compiled") is True
+                and result.get("correctness") is True
+            )
+            error_code = result.get("error_code")
+            if hasattr(error_code, "value"):
+                error_code = error_code.value
+            compile_metadata = None
+            if (result.get("metadata") or {}).get("split_compile_and_execute") is True:
+                try:
+                    compile_result = await task_mgr.get_task_result(f"{task_id}_compile")
+                    if isinstance(compile_result, dict):
+                        compile_metadata = compile_result.get("metadata")
+                except Exception as exc:
+                    logger.warning("Could not load speed-test compile timing for %s: %s", task_id, exc)
+            elapsed = round(time.perf_counter() - run_started, 6)
+            runs.append(
+                SpeedTestRunResponse(
+                    run_index=run_index,
+                    task_id=task_id,
+                    status=status_value,
+                    passed=passed,
+                    compiled=result.get("compiled"),
+                    correctness=result.get("correctness"),
+                    end_to_end_s=elapsed,
+                    reference_runtime_ms=optional_float(result.get("reference_runtime")),
+                    kernel_runtime_ms=optional_float(result.get("kernel_runtime")),
+                    speedup=optional_float(result.get("speedup")),
+                    stage_timings=extract_stage_timings(result.get("metadata"), compile_metadata),
+                    error_code=str(error_code) if error_code is not None else None,
+                    error_message=result.get("error_message"),
+                )
+            )
+        except Exception as exc:
+            elapsed = round(time.perf_counter() - run_started, 6)
+            error_code = classify_error(str(exc), "system")
+            logger.exception("GEMM + RMSNorm speed-test run %s failed", run_index)
+            runs.append(
+                SpeedTestRunResponse(
+                    run_index=run_index,
+                    task_id=task_id,
+                    status=TaskStatus.FAILED,
+                    passed=False,
+                    end_to_end_s=elapsed,
+                    error_code=error_code.value,
+                    error_message=str(exc),
+                )
+            )
+        if workflow_finished:
+            ephemeral_task_ids = (
+                task_id,
+                f"{task_id}_compile",
+                f"{task_id}_kernel",
+                f"{task_id}_ref",
+            )
+            try:
+                await task_mgr.discard_task_records(ephemeral_task_ids)
+            except Exception as exc:
+                logger.exception("Could not discard speed-test task records for %s", task_id)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Speed-test result-cache cleanup failed for {task_id}: {exc}",
+                ) from exc
+
+    passed_runs = [run for run in runs if run.passed]
+    stage_names = sorted({name for run in passed_runs for name in run.stage_timings})
+    average_stage_timings = {
+        name: rounded_mean([run.stage_timings[name] for run in passed_runs if name in run.stage_timings])
+        for name in stage_names
+    }
+    average_stage_timings = {name: value for name, value in average_stage_timings.items() if value is not None}
+
+    def passed_values(field_name: str) -> list[float]:
+        values = [getattr(run, field_name) for run in passed_runs]
+        return [float(value) for value in values if value is not None]
+
+    all_passed = len(passed_runs) == SPEED_TEST_REPEAT_COUNT
+    return SpeedTestResponse(
+        benchmark_status="passed" if all_passed else "failed",
+        case_name=SPEED_TEST_CASE_NAME,
+        backend=SPEED_TEST_BACKEND,
+        precision="fp32",
+        input_shapes=SPEED_TEST_INPUT_SHAPES,
+        repeat_count=SPEED_TEST_REPEAT_COUNT,
+        passed_runs=len(passed_runs),
+        all_passed=all_passed,
+        total_end_to_end_s=round(time.perf_counter() - suite_started, 6),
+        average=SpeedTestAverageResponse(
+            end_to_end_s=rounded_mean([run.end_to_end_s for run in runs]) or 0.0,
+            reference_runtime_ms=rounded_mean(passed_values("reference_runtime_ms")),
+            kernel_runtime_ms=rounded_mean(passed_values("kernel_runtime_ms")),
+            speedup=rounded_mean(passed_values("speedup")),
+            stage_timings=average_stage_timings,
+        ),
+        runs=runs,
+    )
 
 
 @app.post("/evaluate/batch", response_model=BatchEvaluationResponse)

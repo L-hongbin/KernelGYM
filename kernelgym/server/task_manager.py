@@ -13,7 +13,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional
 
 import redis.asyncio as redis
 
@@ -1845,6 +1845,36 @@ class TaskManager:
                     "error_code": result_data.get(b"error_code", b"UNKNOWN_ERROR").decode(),
                 }
         return None
+
+    async def discard_task_records(self, task_ids: Iterable[str]) -> int:
+        """Remove completed ephemeral task/result records from every readable prefix.
+
+        This is intended for built-in service probes whose results must not
+        become reusable result-cache entries. Callers must only pass task ids
+        they generated and whose workflows have already finished.
+        """
+        normalized_ids = sorted({str(task_id).strip() for task_id in task_ids if str(task_id).strip()})
+        if not normalized_ids:
+            return 0
+
+        keys = []
+        for prefix in self._prefixes_for_read():
+            for task_id in normalized_ids:
+                keys.extend(
+                    (
+                        f"{prefix}:task:{task_id}",
+                        f"{prefix}:result:{task_id}",
+                        f"{prefix}:status:{task_id}",
+                        self._cancel_key(task_id, prefix),
+                        self._workflow_key(task_id, prefix),
+                    )
+                )
+
+        deleted = int(await self.redis.delete(*keys))
+        for task_id in normalized_ids:
+            self.active_tasks.pop(task_id, None)
+            self._task_claims.pop(task_id, None)
+        return deleted
 
     @staticmethod
     def _dropped_before_dispatch(task_hash: Optional[Dict[bytes, bytes]]) -> bool:
