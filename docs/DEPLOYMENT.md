@@ -9,7 +9,7 @@ KernelGYM reward-only supports two deployment modes. Runtime env values come fro
 - The default reward runtime profile is `v1`; `auto` is an alias for it.
 - Service ports are fixed: API `20111`, Redis `20110`, metrics `20112`.
 - API workers/reload and Redis db/password/key-prefix are fixed.
-- Use the node-local uv virtual environment `/root/kernelgym-reward-only/.venv`. The repo-local shared `.venv` is deprecated and ignored.
+- By default, use the project-local uv virtual environment `<KernelGYM project root>/.venv`. For a checkout on a shared filesystem, set `KERNELGYM_LOCAL_VENV_DIR` to an absolute node-local path before bootstrapping or deploying.
 - Install the versions pinned in `requirements-offline.txt` directly from the absolute wheelhouse `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels`; `ensure_venv.sh` passes `--offline --no-index` and does not fall back to a package index.
 - Keep source, `logs/`, `py_logs/`, core dumps, compile artifacts, and other long-lived evidence under the shared checkout.
 - Redis `5:7.0.15-1ubuntu0.24.04.4` and its Redis-specific libraries are pinned under `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels/redis/ubuntu-24.04-amd64`; `ensure_venv.sh` installs those local `.deb` files with apt downloads disabled and never runs `apt update`.
@@ -23,7 +23,7 @@ KernelGYM reward-only supports two deployment modes. Runtime env values come fro
 - It runs only after a candidate correctness forward raises and regenerates that trial's input in an isolated process. `error_based` runs the check selected from the failure and falls back to all four checks when classification is ambiguous; `full` always runs all four checks.
 - Set `ENABLE_COMPUTE_SANITIZER=true` globally or request field `enable_compute_sanitizer=true` per evaluation to enable its isolated trials. An explicit request value overrides the server default for that evaluation.
 - Hidden correctness input perturbations are disabled by default. Set `ENABLE_CORRECTNESS_INPUT_PERTURBATIONS=true` globally or request field `enable_correctness_input_perturbations=true` per evaluation to enable distribution-aware correctness trials.
-- `set_env.sh` validates and reports the node-local venv and absolute wheelhouse paths. It only reports the deprecated shared `.venv`; it never reads, repairs, deletes, or activates it.
+- `set_env.sh` validates and reports the resolved venv and absolute wheelhouse paths.
 - Do not reuse older KernelGYM or drkernel virtual environments.
 
 Create the environment in the runtime where reward will execute (run from the repo root):
@@ -31,10 +31,10 @@ Create the environment in the runtime where reward will execute (run from the re
 ```bash
 bash set_env.sh
 bash ensure_venv.sh --recreate
-source /root/kernelgym-reward-only/.venv/bin/activate
+source .venv/bin/activate
 ```
 
-The script validates `redis-server`, `torch.version.cuda == "12.9"`, `nvcc`, and Nsight Compute from CUDA 12.9. It also validates Compute Sanitizer when `ENABLE_COMPUTE_SANITIZER=true`; with the default `false`, that check is reported as skipped. Common overrides are not needed: it creates and activates the node-local venv with Python 3.12 when missing, then checks the CUDA tools under `/usr/local/cuda-12.9/bin` directly. `KERNELGYM_LOCAL_VENV_DIR` may override the node-local venv. Without an explicit `WHELL_PATH`, `runtime_paths.sh` selects the first existing path from `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels` and `/ms/FM/lihongbin/code/Code-Agent/KernelENV/env_wheel`. `KERNELGYM_OFFLINE_WHEEL_DIR` defaults to `${WHELL_PATH}`, and `KERNELGYM_OFFLINE_REDIS_DIR` defaults to `${WHELL_PATH}/redis/ubuntu-24.04-amd64`; all path overrides must be absolute. When the Redis bundle is missing, an existing system Redis is reused; otherwise `ensure_redis.sh` runs `apt-get update` and installs `redis-server` plus `redis-tools` from the configured apt repositories. `bash scripts/ensure_redis.sh --verify-bundle` remains offline-only and fails when the bundle is unavailable or invalid.
+The script validates `redis-server`, `torch.version.cuda == "12.9"`, `nvcc`, and Nsight Compute from CUDA 12.9. It also validates Compute Sanitizer when `ENABLE_COMPUTE_SANITIZER=true`; with the default `false`, that check is reported as skipped. By default it creates and activates `<KernelGYM project root>/.venv` with Python 3.12 when missing, then checks the CUDA tools under `/usr/local/cuda-12.9/bin` directly. `KERNELGYM_LOCAL_VENV_DIR` may override the venv with another absolute local path. Without an explicit `WHELL_PATH`, `runtime_paths.sh` selects the first existing path from `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels` and `/ms/FM/lihongbin/code/Code-Agent/KernelENV/env_wheel`. `KERNELGYM_OFFLINE_WHEEL_DIR` defaults to `${WHELL_PATH}`, and `KERNELGYM_OFFLINE_REDIS_DIR` defaults to `${WHELL_PATH}/redis/ubuntu-24.04-amd64`; all path overrides must be absolute. When the Redis bundle is missing, an existing system Redis is reused; otherwise `ensure_redis.sh` runs `apt-get update` and installs `redis-server` plus `redis-tools` from the configured apt repositories. `bash scripts/ensure_redis.sh --verify-bundle` remains offline-only and fails when the bundle is unavailable or invalid.
 
 Use `--profile v1`:
 
@@ -61,7 +61,7 @@ bash stop_node.sh
 
 A typical restart cycle inside the container is `bash stop_node.sh && bash deploy_node.sh`. For a cold restart that also removes local Redis persistence and KernelGym compile/work caches before launching, use `bash deploy_node.sh --clear-cache`.
 
-The deployment convenience script is container-only. It runs `set_env.sh`, ensures the pinned Redis packages are present from the offline bundle, sources the node-local venv, and validates the runtime. It does not create or install the venv; run `ensure_venv.sh` once when bootstrapping a container or when packages need repair. It always stops existing KernelGym worker processes before starting worker-only nodes.
+The deployment convenience script is container-only. It runs `set_env.sh`, ensures the pinned Redis packages are present from the offline bundle, sources the resolved venv, and validates the runtime. It does not create or install the venv; run `ensure_venv.sh` once when bootstrapping a container or when packages need repair. It always stops existing KernelGym worker processes before starting worker-only nodes.
 
 ## Mode 1: Physical Host, Then Docker
 
@@ -71,7 +71,7 @@ from the physical host. Host-level duties happen before starting the container:
 1. Stop old reward services if needed.
 2. Lock GPU clocks on the host.
 3. Start or replace the Docker container.
-4. Enter the container and ensure the node-local venv plus Redis there with CUDA 12.9.
+4. Enter the container and ensure the project venv plus Redis there with CUDA 12.9.
 5. Start the reward API/workers from inside the container.
 
 Host preparation example (run from the repo root):
@@ -99,7 +99,7 @@ Inside the container (run from the repo root):
 ```bash
 bash set_env.sh
 bash ensure_venv.sh --recreate
-source /root/kernelgym-reward-only/.venv/bin/activate
+source .venv/bin/activate
 python -m kernelgym.cli.service start-local --profile v1
 ```
 
@@ -109,21 +109,21 @@ The same startup can be run with:
 bash deploy_node.sh
 ```
 
-Worker-only multi-node deployment uses `deploy_node.sh` from inside each container after the node-local venv exists.
+Worker-only multi-node deployment uses `deploy_node.sh` from inside each container after the resolved venv exists.
 
 ## Mode 2: Already Inside A Container
 
 Use this mode when the operator is already in the runtime container. Do not start Docker from inside this
-container. From the repo root, create the node-local venv and start services directly:
+container. From the repo root, create the project venv and start services directly:
 
 ```bash
 bash set_env.sh
 bash ensure_venv.sh --recreate
-source /root/kernelgym-reward-only/.venv/bin/activate
+source .venv/bin/activate
 python -m kernelgym.cli.service start-local --profile v1
 ```
 
-After the node-local venv exists, the single-node convenience entrypoint is:
+After the project venv exists, the single-node convenience entrypoint is:
 
 ```bash
 bash deploy_node.sh
@@ -169,16 +169,17 @@ docker exec -it kernelgym-reward bash
 cd /nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only
 ```
 
-### 2. Prepare the node-local environment in each container
+### 2. Prepare the environment in each container
 
 Run this on the primary container and every worker-only container:
 
 ```bash
+export KERNELGYM_LOCAL_VENV_DIR=/root/kernelgym-reward-only/.venv  # checkout is on shared /nfs
 bash set_env.sh
 bash ensure_venv.sh --recreate
 ```
 
-`deploy_node.sh` activates `/root/kernelgym-reward-only/.venv` itself, so you do not need to keep the shell activated after this step.
+Keep the same override in the environment when invoking `deploy_node.sh`; it activates that venv itself, so you do not need to source it manually. A checkout on local storage can omit the override and use the default project-root `.venv`.
 
 ### 3. Start the primary node first
 
@@ -276,7 +277,7 @@ The primary runs standalone until others join. (`--cluster` simply enables remot
 
 ### Add a worker node
 
-On the new node, inside the container, after the node-local venv exists, point it at the primary:
+On the new node, inside the container, after the resolved venv exists, point it at the primary:
 
 ```bash
 bash deploy_node.sh --join 192.168.16.40    # 192.168.16.40 = primary address
@@ -346,10 +347,10 @@ Manual operations:
 
 ## Verification
 
-Run lint and tests from the node-local CUDA 12.9 venv:
+Run lint and tests from the project CUDA 12.9 venv:
 
 ```bash
-source /root/kernelgym-reward-only/.venv/bin/activate
+source .venv/bin/activate
 ruff format .
 ruff check .
 pytest

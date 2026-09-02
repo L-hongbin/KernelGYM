@@ -16,7 +16,7 @@ bash scripts/start_container.sh
 
 ### 1. Bootstrap the environment
 
-`ensure_venv.sh` validates CUDA 12.9, ensures Redis is available, and creates `/root/kernelgym-reward-only/.venv` on the node-local system disk. When `WHELL_PATH` is not set explicitly, `runtime_paths.sh` selects the first existing wheelhouse from `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels` and `/ms/FM/lihongbin/code/Code-Agent/KernelENV/env_wheel`. `KERNELGYM_OFFLINE_WHEEL_DIR` defaults to `${WHELL_PATH}`, while `KERNELGYM_OFFLINE_REDIS_DIR` defaults to `${WHELL_PATH}/redis/ubuntu-24.04-amd64`; either remains independently overridable. Python packages are installed with `--offline --no-index`. When the Redis bundle is unavailable, the script reuses an existing system Redis or falls back to `apt-get update` plus online installation from the configured apt repositories. The old repo-local `.venv` is deprecated and ignored. `set_env.sh` reports and validates these runtime paths.
+`ensure_venv.sh` validates CUDA 12.9, ensures Redis is available, and creates `.venv` in the KernelGYM project root by default. `KERNELGYM_LOCAL_VENV_DIR` may override it with another absolute local path. When `WHELL_PATH` is not set explicitly, `runtime_paths.sh` selects the first existing wheelhouse from `/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels` and `/ms/FM/lihongbin/code/Code-Agent/KernelENV/env_wheel`. `KERNELGYM_OFFLINE_WHEEL_DIR` defaults to `${WHELL_PATH}`, while `KERNELGYM_OFFLINE_REDIS_DIR` defaults to `${WHELL_PATH}/redis/ubuntu-24.04-amd64`; either remains independently overridable. Python packages are installed with `--offline --no-index`. When the Redis bundle is unavailable, the script reuses an existing system Redis or falls back to `apt-get update` plus online installation from the configured apt repositories. `set_env.sh` reports and validates these runtime paths.
 
 ```bash
 bash set_env.sh
@@ -29,7 +29,7 @@ bash ensure_venv.sh
 bash deploy_node.sh --nnodes 1
 ```
 
-`deploy_node.sh` activates the node-local venv, scrubs `LD_LIBRARY_PATH` / `PYTHONPATH` of host-Python torch trees, runs `scripts/validate_runtime.py`, then starts the API server (`:20111`), worker monitor, one GPU worker per container-visible CUDA device, and the profile's CPU compile workers. Logs, Python logs, core dumps, source, and long-lived artifacts remain under the shared checkout. Once this node's workers are ready, deployment performs one force-refreshed correctness and CUDA-profiling warmup affined to this hostname; cold `/nfs` compilation can keep the startup command busy for several minutes. Override the CPU count with `--cpu-compile-workers N` / `--cpu-workers N`, select a logical GPU subset with `--gpu-devices 0,1`, or use `--no-startup-warmup` only for diagnostics.
+`deploy_node.sh` activates the project venv, scrubs `LD_LIBRARY_PATH` / `PYTHONPATH` of host-Python torch trees, runs `scripts/validate_runtime.py`, then starts the API server (`:20111`), worker monitor, one GPU worker per container-visible CUDA device, and the profile's CPU compile workers. Logs, Python logs, core dumps, source, and long-lived artifacts remain under the checkout. Once this node's workers are ready, deployment performs one force-refreshed correctness and CUDA-profiling warmup affined to this hostname; cold `/nfs` compilation can keep the startup command busy for several minutes. Override the CPU count with `--cpu-compile-workers N` / `--cpu-workers N`, select a logical GPU subset with `--gpu-devices 0,1`, or use `--no-startup-warmup` only for diagnostics.
 
 Add `--block-terminal` when the deploy command should stay in the foreground (for example, as the container's foreground command). After startup succeeds, Ctrl-C, SIGTERM, or a terminal hangup stops this node's KernelGym services before the command exits:
 
@@ -169,10 +169,10 @@ See [docs/DEPLOYMENT.md#multi-node-tutorial](docs/DEPLOYMENT.md#multi-node-tutor
 
 ## Development Setup
 
-Install the pre-commit hooks and run the test suite from inside the activated node-local venv:
+Install the pre-commit hooks and run the test suite from inside the activated project venv:
 
 ```bash
-source /root/kernelgym-reward-only/.venv/bin/activate
+source .venv/bin/activate
 pre-commit install
 pytest
 ruff format .

@@ -30,10 +30,6 @@ fi
 
 mkdir -p "$(dirname "${KERNELGYM_LOCAL_VENV_DIR}")"
 
-if [[ -e "${ROOT_DIR}/.venv" ]]; then
-    echo "deprecated_shared_venv=${ROOT_DIR}/.venv (ignored)" >&2
-fi
-
 echo "python_target=${PYTHON_TARGET}"
 echo "local_venv=${KERNELGYM_LOCAL_VENV_DIR}"
 echo "wheel_path=${WHELL_PATH}"

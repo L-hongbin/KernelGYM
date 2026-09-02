@@ -1,10 +1,10 @@
-# Scrub LD_LIBRARY_PATH and PYTHONPATH so the node-local venv's torch (and the
+# Scrub LD_LIBRARY_PATH and PYTHONPATH so the project venv's torch (and the
 # wheel-vendored CUDA runtime libs under site-packages/nvidia/*/lib) win over
 # any host-side Python tree.
 #
 # NGC-style images set LD_LIBRARY_PATH to point at the system Python's torch
 # tree (.../dist-packages/torch/lib and .../torch_tensorrt/lib) and a
-# PYTHONPATH that imports torch from outside the venv. Once the node-local venv is
+# PYTHONPATH that imports torch from outside the venv. Once the project venv is
 # active, the dynamic linker still resolves transitive deps (libnvJitLink,
 # libnccl, libcusparse) against the system torch's vendored copies — producing
 # `undefined symbol: __nvJitLinkGetErrorLogSize_12_9` /

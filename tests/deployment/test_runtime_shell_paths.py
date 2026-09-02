@@ -4,15 +4,14 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-LOCAL_VENV = "/root/kernelgym-reward-only/.venv"
 OFFLINE_WHEELS = "/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels"
 MS_WHEELS = "/ms/FM/lihongbin/code/Code-Agent/KernelENV/env_wheel"
 
 
-def test_runtime_paths_pin_local_venv_and_absolute_offline_wheelhouse() -> None:
+def test_runtime_paths_default_to_project_venv_and_absolute_offline_wheelhouse() -> None:
     paths = (ROOT / "scripts" / "runtime_paths.sh").read_text(encoding="utf-8")
 
-    assert LOCAL_VENV in paths
+    assert '${_KERNELGYM_PROJECT_ROOT}/.venv' in paths
     assert OFFLINE_WHEELS in paths
     assert MS_WHEELS in paths
     assert "export WHELL_PATH" in paths
@@ -22,6 +21,25 @@ def test_runtime_paths_pin_local_venv_and_absolute_offline_wheelhouse() -> None:
     assert "findmnt" in paths
     assert "findmnt is required to prove the venv path is node-local" in paths
     assert "nfs|nfs4|cifs|smb3|lustre|ceph|gpfs|9p|virtiofs|fuse.*" in paths
+
+    env = os.environ.copy()
+    env.pop("KERNELGYM_LOCAL_VENV_DIR", None)
+    completed = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1" && printf "%s" "${KERNELGYM_LOCAL_VENV_DIR}"',
+            "bash",
+            str(ROOT / "scripts/runtime_paths.sh"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout == str(ROOT / ".venv")
 
 
 def test_runtime_paths_honors_explicit_whell_path(tmp_path: Path) -> None:
@@ -112,7 +130,7 @@ def test_verify_redis_bundle_does_not_fall_back_online(tmp_path: Path) -> None:
     assert "offline bundle is unavailable or incomplete" in completed.stderr
 
 
-def test_environment_bootstrap_is_offline_and_ignores_shared_venv() -> None:
+def test_environment_bootstrap_is_offline_and_uses_resolved_venv() -> None:
     ensure = (ROOT / "ensure_venv.sh").read_text(encoding="utf-8")
     deploy = (ROOT / "deploy_node.sh").read_text(encoding="utf-8")
 
@@ -124,6 +142,8 @@ def test_environment_bootstrap_is_offline_and_ignores_shared_venv() -> None:
     assert '--no-deps -e "${ROOT_DIR}"' in ensure
     assert "source .venv/bin/activate" not in ensure
     assert "source .venv/bin/activate" not in deploy
+    assert "deprecated_shared_venv" not in ensure
+    assert "deprecated_shared_venv" not in deploy
 
 
 def test_offline_lock_pins_cuda_and_tvm_runtime() -> None:

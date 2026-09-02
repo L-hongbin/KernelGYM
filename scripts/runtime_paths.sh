@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 
-# Runtime Python packages live on each node's local system disk. The wheelhouse
-# and repository remain shared so every node installs the same artifacts and
-# continues to write logs to the shared checkout.
-export KERNELGYM_LOCAL_VENV_DIR="${KERNELGYM_LOCAL_VENV_DIR:-/root/kernelgym-reward-only/.venv}"
+# Keep the default Python environment with the checkout while allowing an
+# absolute per-node override when the project directory is shared.
+_KERNELGYM_RUNTIME_PATHS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_KERNELGYM_PROJECT_ROOT="$(cd "${_KERNELGYM_RUNTIME_PATHS_DIR}/.." && pwd)"
+export KERNELGYM_LOCAL_VENV_DIR="${KERNELGYM_LOCAL_VENV_DIR:-${_KERNELGYM_PROJECT_ROOT}/.venv}"
+unset _KERNELGYM_RUNTIME_PATHS_DIR _KERNELGYM_PROJECT_ROOT
 
 WHELL_PATH_1="/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/wheels"
 WHELL_PATH_2="/ms/FM/lihongbin/code/Code-Agent/KernelENV/env_wheel"

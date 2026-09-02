@@ -124,9 +124,6 @@ echo "local_venv=${KERNELGYM_LOCAL_VENV_DIR}"
 echo "wheel_path=${WHELL_PATH}"
 echo "offline_wheels=${KERNELGYM_OFFLINE_WHEEL_DIR}"
 echo "offline_redis=${KERNELGYM_OFFLINE_REDIS_DIR}"
-if [[ -e "${ROOT_DIR}/.venv" ]]; then
-    echo "deprecated_shared_venv=${ROOT_DIR}/.venv (ignored)" >&2
-fi
 
 echo
 echo "=== CUDA toolchain ==="

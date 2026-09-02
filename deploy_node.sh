@@ -10,7 +10,7 @@ bash "${ROOT_DIR}/set_env.sh"
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/scripts/runtime_paths.sh"
 
-# Assume the local venv has been bootstrapped already (bash ensure_venv.sh). Here we
+# Assume the project venv has been bootstrapped already (bash ensure_venv.sh). Here we
 # only: make sure redis-server is installed (cheap; no-op when already there),
 # activate the venv, scrub the env so the host's torch tree doesn't shadow us,
 # sanity-check the runtime, then hand off to the Python deploy driver.
