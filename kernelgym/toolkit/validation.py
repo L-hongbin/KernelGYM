@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-import ast
 import re
 from typing import Any, Optional, Tuple
 
 from kernelgym.common import ErrorCode
-from kernelgym.toolkit.kernelbench.static_checker import validate_kernel_static
+from kernelgym.toolkit.kernelbench.static_checker import (
+    detect_extension_calls,
+    mask_native_comments,
+    mask_native_noncode,
+    validate_kernel_static,
+)
 
 
 def validate_code(code: str, entry_point: str = "Model") -> Tuple[bool, str]:
@@ -127,50 +131,15 @@ def _find_register_binding_semicolon_issue(source_map: dict[str, str]) -> tuple[
     return None
 
 
-class _ExtensionCallVisitor(ast.NodeVisitor):
-    def __init__(self, module_name: str) -> None:
-        self.module_name = module_name
-        self.module_aliases: set[str] = {module_name}
-        self.from_import_aliases: dict[str, str] = {}
-        self.detected_calls: set[str] = set()
-        self.imported = False
-
-    def visit_Import(self, node: ast.Import) -> Any:
-        for alias in node.names:
-            if alias.name == self.module_name:
-                self.module_aliases.add(alias.asname or alias.name)
-                self.imported = True
-        self.generic_visit(node)
-
-    def visit_ImportFrom(self, node: ast.ImportFrom) -> Any:
-        if node.module != self.module_name:
-            self.generic_visit(node)
-            return
-        self.imported = True
-        for alias in node.names:
-            if alias.name == "*":
-                continue
-            self.from_import_aliases[alias.asname or alias.name] = alias.name
-        self.generic_visit(node)
-
-    def visit_Call(self, node: ast.Call) -> Any:
-        func = node.func
-        if (
-            isinstance(func, ast.Attribute)
-            and isinstance(func.value, ast.Name)
-            and func.value.id in self.module_aliases
-        ):
-            self.detected_calls.add(func.attr)
-        elif isinstance(func, ast.Name) and func.id in self.from_import_aliases:
-            self.detected_calls.add(self.from_import_aliases[func.id])
-        self.generic_visit(node)
-
-
-def _detect_extension_calls(model_code: str, module_name: str) -> tuple[bool, list[str]]:
-    tree = ast.parse(model_code)
-    visitor = _ExtensionCallVisitor(module_name)
-    visitor.visit(tree)
-    return visitor.imported or module_name in model_code, sorted(visitor.detected_calls)
+def _has_native_include(code: str, header: str) -> bool:
+    pattern = rf'(?m)^\s*#\s*include\s*[<"]{re.escape(header)}[>"]'
+    comments_only = mask_native_comments(code)
+    noncode_masked = mask_native_noncode(code)
+    directive = re.compile(r"^\s*#\s*include\b")
+    return any(
+        directive.search(masked_line) is not None and re.search(pattern, source_line) is not None
+        for source_line, masked_line in zip(comments_only.splitlines(), noncode_masked.splitlines())
+    )
 
 
 def _extract_tvm_ffi_exports(source_map: dict[str, str]) -> list[str]:
@@ -182,15 +151,8 @@ def _extract_tvm_ffi_exports(source_map: dict[str, str]) -> list[str]:
     for name, content in source_map.items():
         if not name.lower().endswith((".cpp", ".cc", ".cxx")):
             continue
-        exports.update(export_pattern.findall(content))
+        exports.update(export_pattern.findall(mask_native_noncode(str(content))))
     return sorted(exports)
-
-
-def _combine_static_check_code(model_code: str, source_map: dict[str, str]) -> str:
-    parts = ["// model_new.py", model_code]
-    for filename in sorted(source_map):
-        parts.extend([f"// {filename}", str(source_map[filename])])
-    return "\n".join(parts)
 
 
 def _run_submission_static_check(
@@ -199,10 +161,13 @@ def _run_submission_static_check(
     source_map: dict[str, str],
     *,
     precision: str,
+    allowed_extension_modules: set[str],
 ) -> Tuple[str, Optional[ErrorCode], dict[str, Any]] | None:
     result = validate_kernel_static(
-        _combine_static_check_code(model_code, source_map),
+        model_code,
         precision=precision,
+        source_map=source_map,
+        allowed_extension_modules=allowed_extension_modules,
     )
     precheck["static_check"] = result.to_dict()
     if result.valid:
@@ -246,9 +211,14 @@ def precheck_cuda_agent_submission(
         except SyntaxError as exc:
             return _fail(f"Syntax error in model code: {exc}", ErrorCode.SYNTAX_ERROR)
 
-        if "cuda_extension" not in model_code:
+        try:
+            imported_extension, detected_calls = detect_extension_calls(model_code, "cuda_extension")
+        except SyntaxError as exc:
+            return _fail(f"Syntax error in model code: {exc}", ErrorCode.SYNTAX_ERROR)
+
+        if not imported_extension:
             return _fail(
-                "model_new.py must import or reference cuda_extension",
+                "model_new.py must import cuda_extension",
                 ErrorCode.IMPORT_ERROR,
             )
 
@@ -279,16 +249,16 @@ def precheck_cuda_agent_submission(
                 ErrorCode.VALIDATION_ERROR,
             )
 
-        combined_cpp = "\n".join(str(source_map[name]) for name in cpp_files)
+        combined_cpp = "\n".join(mask_native_noncode(str(source_map[name])) for name in cpp_files)
         uses_pybind11_module = re.search(r"\bPYBIND11_MODULE\s*\(", combined_cpp) is not None
         precheck["binding_mode"] = "pybind11_module" if uses_pybind11_module else "register_binding"
 
         if not uses_pybind11_module:
-            include_markers = (
-                '#include "../binding_registry.h"',
-                '#include "binding_registry.h"',
-            )
-            if not any(marker in combined_cpp for marker in include_markers):
+            if not any(
+                _has_native_include(str(source_map[name]), header)
+                for name in cpp_files
+                for header in ("../binding_registry.h", "binding_registry.h")
+            ):
                 return _fail(
                     "Binding source must include binding_registry.h",
                     ErrorCode.VALIDATION_ERROR,
@@ -300,7 +270,9 @@ def precheck_cuda_agent_submission(
                     ErrorCode.VALIDATION_ERROR,
                 )
 
-            binding_issue = _find_register_binding_semicolon_issue(source_map)
+            binding_issue = _find_register_binding_semicolon_issue(
+                {name: mask_native_noncode(str(content)) for name, content in source_map.items()}
+            )
             if binding_issue is not None:
                 issue_file, issue_line = binding_issue
                 return _fail(
@@ -308,19 +280,13 @@ def precheck_cuda_agent_submission(
                     ErrorCode.SYNTAX_ERROR,
                 )
 
-        precheck["detected_extension_calls"] = sorted(
-            set(
-                re.findall(
-                    r"(?:cuda_extension|torch\.ops\.cuda_extension)\.([A-Za-z_]\w*)\s*\(",
-                    model_code,
-                )
-            )
-        )
+        precheck["detected_extension_calls"] = detected_calls
         static_failure = _run_submission_static_check(
             precheck,
             model_code,
             source_map,
             precision=precision,
+            allowed_extension_modules={"cuda_extension"},
         )
         if static_failure is not None:
             return static_failure
@@ -368,7 +334,7 @@ def precheck_tvm_ffi_submission(
             return _fail(f"Syntax error in model code: {exc}", ErrorCode.SYNTAX_ERROR)
 
         try:
-            imported_extension, detected_calls = _detect_extension_calls(
+            imported_extension, detected_calls = detect_extension_calls(
                 model_code,
                 "tvm_ffi_extension",
             )
@@ -414,11 +380,10 @@ def precheck_tvm_ffi_submission(
                 ErrorCode.VALIDATION_ERROR,
             )
 
-        combined_cpp = "\n".join(str(source_map[name]) for name in cpp_files)
+        combined_cpp = "\n".join(mask_native_noncode(str(source_map[name])) for name in cpp_files)
         forbidden_markers = (
             "PYBIND11_MODULE",
             "REGISTER_BINDING(",
-            "binding_registry.h",
         )
         for marker in forbidden_markers:
             if marker in combined_cpp:
@@ -427,25 +392,38 @@ def precheck_tvm_ffi_submission(
                     ErrorCode.VALIDATION_ERROR,
                 )
 
-        host_cuda_runtime_markers = (
-            "#include <cuda_runtime.h>",
-            "#include <cuda.h>",
-            "cudaStream_t",
-        )
-        for marker in host_cuda_runtime_markers:
-            if marker in combined_cpp:
-                return _fail(
-                    "TVM-FFI host binding source must keep CUDA runtime headers/types out of "
-                    f"binding .cpp files; use an opaque void* stream handle instead of {marker}",
-                    ErrorCode.VALIDATION_ERROR,
-                )
+        if any(
+            _has_native_include(str(source_map[name]), header)
+            for name in cpp_files
+            for header in ("../binding_registry.h", "binding_registry.h")
+        ):
+            return _fail(
+                "TVM-FFI binding source must not use pybind11 marker binding_registry.h",
+                ErrorCode.VALIDATION_ERROR,
+            )
 
-        tvm_header_markers = (
-            "#include <tvm/ffi/tvm_ffi.h>",
-            "#include <tvm/ffi/function.h>",
-            "#include <tvm/ffi/container/tensor.h>",
+        forbidden_cuda_header = next(
+            (
+                header
+                for name in cpp_files
+                for header in ("cuda_runtime.h", "cuda.h")
+                if _has_native_include(str(source_map[name]), header)
+            ),
+            None,
         )
-        if not any(marker in combined_cpp for marker in tvm_header_markers):
+        forbidden_cuda_marker = forbidden_cuda_header or ("cudaStream_t" if "cudaStream_t" in combined_cpp else None)
+        if forbidden_cuda_marker is not None:
+            return _fail(
+                "TVM-FFI host binding source must keep CUDA runtime headers/types out of "
+                f"binding .cpp files; use an opaque void* stream handle instead of {forbidden_cuda_marker}",
+                ErrorCode.VALIDATION_ERROR,
+            )
+
+        if not any(
+            _has_native_include(str(source_map[name]), header)
+            for name in cpp_files
+            for header in ("tvm/ffi/tvm_ffi.h", "tvm/ffi/function.h", "tvm/ffi/container/tensor.h")
+        ):
             return _fail(
                 "TVM-FFI binding source must include a tvm/ffi header",
                 ErrorCode.VALIDATION_ERROR,
@@ -471,6 +449,7 @@ def precheck_tvm_ffi_submission(
             model_code,
             source_map,
             precision=precision,
+            allowed_extension_modules={"tvm_ffi_extension"},
         )
         if static_failure is not None:
             return static_failure

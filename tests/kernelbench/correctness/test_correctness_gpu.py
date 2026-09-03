@@ -1,5 +1,7 @@
 """KernelBench correctness GPU tests."""
 
+from contextlib import contextmanager
+
 import pytest
 
 
@@ -241,6 +243,41 @@ def test_correctness_allows_allowlisted_aten_view() -> None:
     assert result.decoy_kernel is False
     assert result.metadata["forbidden_aten_op_names"] == []
     assert any(item["name"] == "aten::view" for item in result.metadata["allowed_aten_ops"])
+
+
+@pytest.mark.gpu
+def test_correctness_fails_closed_when_aten_capture_is_unavailable(monkeypatch) -> None:
+    torch = _require_cuda_runtime()
+    correctness = _get_correctness_module()
+
+    @contextmanager
+    def unavailable_profiler(enabled=True):
+        assert enabled is True
+        yield None
+
+    monkeypatch.setattr(correctness, "aten_operator_profiling_context", unavailable_profiler)
+
+    class Identity(torch.nn.Module):
+        def forward(self, x):
+            return x
+
+    device = torch.device("cuda:0")
+    result = correctness.run_and_check_correctness(
+        Identity(),
+        Identity(),
+        lambda: [torch.randn((64, 64), device=device)],
+        metadata={},
+        num_correct_trials=1,
+        seed=1234,
+        device=device,
+        detect_aten_fallback=True,
+    )
+
+    assert result.correctness is True
+    assert result.decoy_kernel is True
+    assert result.metadata["aten_detection_valid"] is False
+    assert result.metadata["policy_violation_reason"] == "ATEN_DETECTION_UNAVAILABLE"
+    assert result.metadata["decoy_reason"] == "ATEN_DETECTION_UNAVAILABLE"
 
 
 @pytest.mark.gpu

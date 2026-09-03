@@ -36,6 +36,21 @@ _CORRECTNESS_GPU_INPUTS_ENV = "KERNELGYM_CORRECTNESS_GPU_INPUTS"
 T = TypeVar("T")
 
 
+def apply_aten_detection_policy(metadata: dict[str, Any], errors: list[dict[str, Any]]) -> None:
+    """Fail closed when candidate-forward ATen evidence is unavailable."""
+
+    if not errors:
+        return
+    metadata["aten_detection_errors"] = errors
+    # Unknown-receiver tensor calls are intentionally not rejected by static
+    # text matching. Incomplete runtime dispatcher evidence therefore cannot
+    # earn reward.
+    metadata["policy_violation"] = True
+    metadata["policy_violation_reason"] = "ATEN_DETECTION_UNAVAILABLE"
+    metadata["decoy_reason"] = "ATEN_DETECTION_UNAVAILABLE"
+    logger.warning("[ATen Detection] Invalid or unavailable candidate-forward capture: %s", errors)
+
+
 def get_tolerance_for_dtype(dtype: torch.dtype) -> float:
     """Match KernelBench fp32 tolerance for integral outputs."""
     tolerances = {
@@ -323,7 +338,7 @@ def run_and_check_correctness(
             if not record.get("aten_detection_valid")
         ]
         if errors:
-            metadata["aten_detection_errors"] = errors
+            apply_aten_detection_policy(metadata, errors)
 
         merged_ops: dict[str, dict[str, Any]] = {}
         for record in trial_records:

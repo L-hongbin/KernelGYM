@@ -70,7 +70,7 @@ Any other `aten::*` call is treated as a high-level compute fallback. A candidat
 - `decoy_reason=DISALLOWED_ATEN_COMPUTE`
 - `forbidden_aten_op_names` and per-trial operator evidence
 
-ATen legality is categorical and does not use a CUDA-time percentage threshold. Profiler initialization/extraction failure sets `aten_detection_valid=false` and records the error; it does not create a decoy verdict.
+ATen legality is categorical and does not use a CUDA-time percentage threshold. When decoy detection is enabled, profiler initialization/extraction failure sets `aten_detection_valid=false`, records the error, and fails closed with `policy_violation_reason=ATEN_DETECTION_UNAVAILABLE`. This is required because the static checker deliberately defers unknown-receiver method calls to runtime evidence.
 
 Hard ATen evidence is preserved independently of numerical correctness. Once any completed candidate forward records `policy_violation=true`, every subsequent correctness exit—including shape mismatch, value mismatch, time-budget failure, and a later runtime exception—returns `decoy_kernel=true`. The metadata fields `correctness_candidate_forward_completed`, `correctness_candidate_forward_completed_trials`, and `correctness_output_mismatch` distinguish a successfully completed but incorrect candidate forward from failures where rerunning untrusted code would be unsafe.
 
@@ -119,7 +119,9 @@ If profiling is enabled and returns no kernels, the performance step can retry p
 
 ### Static checker
 
-`kernelgym/toolkit/kernelbench/static_checker.py` blocks known direct evaluator tampering patterns such as assigning to `torch.cuda.synchronize`.
+`kernelgym/toolkit/kernelbench/static_checker.py` parses Python model code with `ast` and scans each native source independently after masking C/C++ comments and literals. It does not concatenate Python and native sources into one regex input. Framework-compute checks require resolved PyTorch/ATen provenance, so scalar helpers such as `math.sqrt`, unrelated APIs such as `config.max`, and calls through a backend extension validated by its precheck are not rejected solely because of their method name. Imports, aliases, rebinding, scope shadowing, `torch.ops.aten`, timing-function reassignment, exception fallback, threading, lazy tensors, streams, and FP16 downgrade indicators remain separately checked.
+
+Unknown receivers such as `x.sqrt()` pass the static framework-compute check under the B+ policy and are adjudicated by the fail-closed candidate-forward ATen gate. Explicit `.half()`/`.float16()` and `.to(torch.float16)` remain statically forbidden for FP32 tasks because the runtime ATen compatibility allowlist intentionally permits tensor casts and therefore cannot prove that precision was preserved. Calls made while constructing `ModelNew` are outside the current ATen profiling window; constructor-stage unknown-receiver compute is an accepted gap for this change.
 
 ## Regression Tests
 
@@ -132,6 +134,7 @@ If profiling is enabled and returns no kernels, the performance step can retry p
 - A compiled CUDA extension whose wrapper calls `.float()` is correct and is not rejected; the test verifies the modern `aten::to`/`aten::_to_copy` dispatcher path on GPU.
 - All candidate correctness trials are profiled, so a stateful implementation cannot defer an ATen fallback until a later trial.
 - A forbidden ATen fallback remains a hard decoy when its output is also numerically incorrect.
+- An unavailable candidate-forward ATen capture is a fail-closed hard decoy.
 
 `tests/kernelbench/profiling/test_aten_decoy_detection.py` covers the explicit allowlist, CUDA-device-only coverage extraction, low-coverage suspicion, profiler-unavailable behavior, single-forward incorrect-result probes for CUDA-Agent/TVM-FFI, and the no-rerun guards for runtime/non-completed failures.
 
@@ -143,6 +146,8 @@ These tests skip on hosts without PyTorch CUDA.
 - The default path does not isolate reference and custom code in separate processes.
 - The default path does not snapshot or restore every possible PyTorch/CUDA global state mutation by custom code.
 - cuBLAS/cuDNN status returns inside generated extensions cannot be checked by the Python harness unless the extension reports errors.
+- The runtime ATen legality window starts at candidate `forward`; this change intentionally does not profile `ModelNew.__init__`.
+- Explicitly disabling decoy detection or correctness also disables the runtime half of the B+ unknown-receiver policy. Reward-producing defaults enable both checks; those switches remain diagnostic opt-outs.
 - Named CUDA-kernel coverage cannot yet prove whether unmatched GPU time came from extension-internal cuBLAS/cuDNN, so the 0.1% hard coverage gate remains intentionally disabled.
 
 ## Stronger Future Options

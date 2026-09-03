@@ -7,6 +7,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from kernelgym.toolkit.kernelbench import pipeline, profiling
+from kernelgym.toolkit.kernelbench.correctness import apply_aten_detection_policy
 from kernelgym.toolkit.kernelbench.exec_types import KernelExecResult
 
 
@@ -62,6 +63,35 @@ def test_musacoder_source_allowlist_is_kept_separate_from_compat_additions() -> 
 )
 def test_unlisted_aten_compute_is_forbidden(name: str) -> None:
     assert profiling.is_allowed_aten_operator(name) is False
+
+
+def test_unavailable_aten_capture_is_a_fail_closed_policy_violation() -> None:
+    metrics = profiling.extract_aten_operator_metrics(None)
+    assert metrics["aten_detection_valid"] is False
+    metadata: dict = {}
+    apply_aten_detection_policy(metadata, [{"trial": 0, "error": metrics["aten_detection_error"]}])
+    assert metadata["policy_violation"] is True
+    assert metadata["policy_violation_reason"] == "ATEN_DETECTION_UNAVAILABLE"
+
+
+def test_profiler_stop_failure_invalidates_aten_capture(monkeypatch) -> None:
+    class StopFailingProfiler:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            raise RuntimeError("stop failed")
+
+        def key_averages(self):
+            raise AssertionError("invalid capture must not be read")
+
+    monkeypatch.setattr(torch.profiler, "profile", lambda **_kwargs: StopFailingProfiler())
+    with profiling.aten_operator_profiling_context(enabled=True) as capture:
+        pass
+
+    metrics = profiling.extract_aten_operator_metrics(capture)
+    assert metrics["aten_detection_valid"] is False
+    assert "failed to stop: stop failed" in metrics["aten_detection_error"]
 
 
 def test_extract_profiling_metrics_uses_only_cuda_device_events() -> None:

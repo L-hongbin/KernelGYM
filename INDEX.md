@@ -38,6 +38,8 @@ This file indexes stable repository docs and evidence locations.
 | `kernelgym/backend/kernelbench/tvm_ffi_backend.py` | TVM-FFI compile/load backend and compile artifact cache. |
 | `kernelgym/schema/precision.py` | Canonical FP32/FP16/BF16 aliases and fail-closed internal normalization. |
 | `kernelgym/toolkit/kernelbench/pipeline.py` | KernelBench compile/load/correctness/performance pipeline. |
+| `kernelgym/toolkit/kernelbench/static_checker.py` | Language-aware static safety checks for Python models and separately scanned native source files. |
+| `kernelgym/toolkit/validation.py` | CUDA-Agent/TVM-FFI structural prechecks and validated extension-call handoff to static checks. |
 | `kernelgym/toolkit/kernelbench/profiling.py` | CUDA profiling, exact MusaCoder Appendix J plus explicit PyTorch compatibility ATen classification, and named-kernel coverage extraction. |
 | `kernelgym/native/cupti_tsc_shim.cpp` | Version-gated LD_PRELOAD shim suppressing Kineto's CUPTI TSC timestamp callback on affected CUDA versions. |
 | `kernelgym/utils/cupti_tsc_shim.py` | Shim build, state query, and Kineto-TSC-fix verification gates. |
@@ -61,6 +63,7 @@ This file indexes stable repository docs and evidence locations.
 | `tests/kernelbench/profiling/` | CUPTI, profiler capture/trial, and ATen decoy-detection tests. |
 | `tests/kernelbench/timing/` | CUDA timing-window tests. |
 | `tests/kernelbench/workflow/` | Precision propagation and split-stage affinity tests. |
+| `tests/kernelbench/workflow/test_static_checker_language_aware.py` | Static checker false-positive, alias/rebinding, native lexer, and backend-precheck regressions. |
 | `scripts/manage_core_dumps.py` | Move root-level core dumps into the configured directory and keep only the newest retained files. |
 | `scripts/manage_gpu_quarantine.py` | Inspect or explicitly clear a stopped GPU worker's durable safety latch. |
 | `docs/testing/KERNELBENCH_EXECUTION_MODES.md` | Execution-mode regression scope and category-level invocation. |
@@ -80,3 +83,4 @@ Tracked repository evidence artifacts only. Local-only `docs/evidence/`, run log
 | --- | --- |
 | `benchmarks/review_evidence/official_27b_review_evidence.json` | Adversarial review evidence for official 27B 3-binding c3/c8 runs: pairing, sample IDs, coverage, statuses, queue deltas, residuals, and c3/c8 consistency. |
 | `benchmarks/review_evidence/official_27b_perf_step_correctness_summary.json` | Perf-step breakdown split by completed, correct-only, and incorrect-completed rows for official 27B c3/c8 runs. |
+| `benchmarks/review_evidence/static_checker_systematic_fix.md` | Static-checker B+ replay matrix, node17 test results, review fallback, and accepted security boundaries. |

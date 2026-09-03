@@ -85,6 +85,17 @@ ALLOWED_ATEN_OPERATORS = MUSACODER_APPENDIX_J_ALLOWED_ATEN_OPERATORS | KERNELGYM
 ATEN_ALLOWLIST_VERSION = "musacoder_appendix_j_plus_kernelgym_pytorch_2_11_compat_v2"
 
 
+class _AtenProfilerCapture:
+    """Carry profiler lifecycle validity through the context-manager exit."""
+
+    def __init__(self, profiler: Any) -> None:
+        self.profiler = profiler
+        self.stop_error: str | None = None
+
+    def key_averages(self) -> Any:
+        return self.profiler.key_averages()
+
+
 def _safe_metric(evt: Any, names: Tuple[str, ...], default: float = 0.0) -> float:
     for name in names:
         if hasattr(evt, name):
@@ -138,8 +149,10 @@ def aten_operator_profiling_context(enabled: bool = True):
 
     CPU activity is sufficient for detecting ATen dispatcher calls and avoids
     making legality depend on CUPTI CUDA-activity reliability. Initialization
-    failures fail open and are reported as unavailable, never as a decoy.
-    Exceptions raised by the candidate forward still propagate to correctness.
+    failures are reported as unavailable. The correctness gate treats an
+    unavailable or invalid capture as a policy violation when detection is
+    enabled, so it cannot produce a valid reward. Exceptions raised by the
+    candidate forward still propagate to correctness.
     """
 
     if not enabled:
@@ -157,27 +170,37 @@ def aten_operator_profiling_context(enabled: bool = True):
             on_trace_ready=None,
         )
         prof.__enter__()
+        capture = _AtenProfilerCapture(prof)
     except Exception as exc:
         logger.warning("[ATen Detection] Failed to initialize CPU profiler: %s", exc)
         yield None
         return
 
     try:
-        yield prof
+        yield capture
     finally:
         try:
             prof.__exit__(None, None, None)
         except Exception as exc:
+            capture.stop_error = str(exc) or exc.__class__.__name__
             logger.warning("[ATen Detection] Failed to stop CPU profiler: %s", exc)
 
 
-def extract_aten_operator_metrics(prof: Optional["torch.profiler.profile"]) -> Dict[str, Any]:
+def extract_aten_operator_metrics(prof: Optional[Any]) -> Dict[str, Any]:
     """Classify ATen calls captured inside the candidate-forward scope."""
 
     if prof is None:
         return {
             "aten_detection_valid": False,
             "aten_detection_error": "ATen operator profiler unavailable",
+            "aten_allowlist_version": ATEN_ALLOWLIST_VERSION,
+        }
+
+    stop_error = getattr(prof, "stop_error", None)
+    if stop_error:
+        return {
+            "aten_detection_valid": False,
+            "aten_detection_error": f"ATen operator profiler failed to stop: {stop_error}",
             "aten_allowlist_version": ATEN_ALLOWLIST_VERSION,
         }
 
