@@ -10,6 +10,7 @@
 | `CONFIRMATION_GATES.md` | Confirmation gates recorded by user request | User explicitly asks to add a gate |
 
 `RUNTIME.md` and `INDEX.md` are updated proactively and kept under 100 lines each.
+`INDEX.md` is a compact map of stable, high-value entrypoints. Do not list individual implementation files or unit tests; group ordinary code and tests by canonical directory or documentation entry.
 Do not maintain a separate running-status log unless explicitly asked.
 
 ## Working Style
