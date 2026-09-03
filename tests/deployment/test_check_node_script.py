@@ -798,12 +798,91 @@ def test_render_verbose_surfaces_quarantine_scope_and_reason(capsys) -> None:
     check_node.render_verbose(health, workers, max_heartbeat_age_s=180)
 
     out = capsys.readouterr().out
-    assert "health" in out
-    assert "admit" in out
+    assert "health" not in out
+    assert "admit" not in out
     assert "quarantine" in out
     assert "worker_process" in out
     assert "worker_bootstrap_failure" in out
     assert "confirmed-reap bootstrap failed" in out
+
+
+def test_gpu_display_status_collapses_internal_state() -> None:
+    check_node = load_check_node()
+    now = check_node._parse_timestamp("2026-05-27T12:00:00Z")
+    assert now is not None
+
+    assert (
+        check_node._gpu_display_status(
+            {
+                "status": "online",
+                "last_heartbeat": "2026-05-27T11:59:30",
+                "health_state": "healthy",
+                "accepting_tasks": "true",
+            },
+            now,
+            180,
+        )
+        == "online"
+    )
+    assert (
+        check_node._gpu_display_status(
+            {
+                "status": "online",
+                "last_heartbeat": "2026-05-27T11:59:30",
+                "health_state": "degraded_check",
+                "accepting_tasks": "true",
+            },
+            now,
+            180,
+        )
+        == "checking"
+    )
+    assert check_node._gpu_display_status({"health_state": "quarantined"}, now, 180) == "quarantine"
+
+
+def test_render_verbose_hides_fully_disconnected_expected_node(capsys) -> None:
+    check_node = load_check_node()
+    health = {
+        "timestamp": "2026-05-27T12:00:00Z",
+        "gpu_status": {
+            "cuda:0": {"name": "NVIDIA A800", "memory_used": "1.0GB", "available": True},
+            "cuda:1": {"name": "NVIDIA A800", "memory_used": "1.0GB", "available": True},
+        },
+    }
+    workers = {
+        "node-a_gpu_0": {
+            "device": "cuda:0",
+            "hostname": "host-a",
+            "node_id": "node-a",
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+            "health_state": "healthy",
+            "accepting_tasks": "true",
+        },
+        "node-a_cpu_0": {
+            "device": "cpu",
+            "hostname": "host-a",
+            "node_id": "node-a",
+            "status": "online",
+            "last_heartbeat": "2026-05-27T11:59:30",
+        },
+    }
+    expected = {
+        "node-a_gpu_0": {"device": "cuda:0", "hostname": "host-a", "node_id": "node-a"},
+        "node-a_gpu_1": {"device": "cuda:1", "hostname": "host-a", "node_id": "node-a"},
+        "node-a_cpu_0": {"device": "cpu", "hostname": "host-a", "node_id": "node-a"},
+        "node-b_gpu_0": {"device": "cuda:0", "hostname": "host-b", "node_id": "node-b"},
+        "node-b_cpu_0": {"device": "cpu", "hostname": "host-b", "node_id": "node-b"},
+    }
+
+    merged = check_node._merge_expected_workers(workers, expected)
+    check_node.render_verbose(health, merged, max_heartbeat_age_s=180)
+
+    out = capsys.readouterr().out
+    assert "host-a" in out
+    assert "host-b" not in out
+    assert "missing" not in out
+    assert "checking" in out
 
 
 def test_render_verbose_keeps_multi_node_workers_with_same_cuda_device(capsys) -> None:

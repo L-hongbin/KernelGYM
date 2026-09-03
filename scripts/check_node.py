@@ -400,6 +400,7 @@ def _merge_expected_workers(workers: dict[str, object], expected_workers: dict[s
             "online": "false",
             "health_state": "missing",
             "accepting_tasks": "false",
+            "_expected_missing": True,
         }
     return merged
 
@@ -500,6 +501,32 @@ def _worker_is_quarantined(info: object) -> bool:
         str(info.get("health_state") or "").lower() == "quarantined"
         or str(info.get("quarantine_state") or "").lower() == "quarantined"
     )
+
+
+def _worker_node_aliases(info: object) -> set[str]:
+    if not isinstance(info, dict):
+        return set()
+    return {str(info.get(field) or "").strip() for field in ("hostname", "node_id")} - {""}
+
+
+def _expected_worker_is_missing(info: object) -> bool:
+    return isinstance(info, dict) and info.get("_expected_missing") is True
+
+
+def _gpu_display_status(info: object, now: datetime, max_heartbeat_age_s: int) -> str:
+    """Collapse internal worker state into the three operator-facing states."""
+
+    if _worker_is_quarantined(info):
+        return "quarantine"
+    if not isinstance(info, dict):
+        return "checking"
+    if (
+        _worker_is_fresh(info, now, max_heartbeat_age_s)
+        and str(info.get("health_state") or "").lower() == "healthy"
+        and str(info.get("accepting_tasks") or "").lower() == "true"
+    ):
+        return "online"
+    return "checking"
 
 
 def render_summary(
@@ -603,10 +630,24 @@ def render_verbose(health: dict, workers: dict, max_heartbeat_age_s: int) -> Non
     """Render `/health.gpu_status` and `/workers/status` as ASCII tables."""
     now = _parse_timestamp(health.get("timestamp")) or datetime.now()
     gpus = health.get("gpu_status", {}) or {}
+    active_node_aliases: set[str] = set()
+    for info in workers.values():
+        if _expected_worker_is_missing(info):
+            continue
+        if _worker_is_fresh(info, now, max_heartbeat_age_s):
+            active_node_aliases.update(_worker_node_aliases(info))
     gpu_workers = [
         (wid, info)
         for wid, info in workers.items()
-        if isinstance(info, dict) and _is_gpu_worker(wid, info) and info.get("device")
+        if isinstance(info, dict)
+        and _is_gpu_worker(wid, info)
+        and info.get("device")
+        and not (
+            _expected_worker_is_missing(info)
+            and _worker_node_aliases(info)
+            and not (_worker_node_aliases(info) & active_node_aliases)
+            and not _worker_is_quarantined(info)
+        )
     ]
     gpu_rows: list[list[str]] = []
     quarantine_rows: list[list[str]] = []
@@ -624,26 +665,18 @@ def render_verbose(health: dict, workers: dict, max_heartbeat_age_s: int) -> Non
             name = _short_gpu_name(raw) if raw is not None else "?"
             memory_display = "?"
 
-        worker_status = ""
+        display_status = "checking"
         worker_age = ""
         current_task = ""
         node_id = ""
         hostname = ""
-        health_state = ""
-        accepting_tasks = ""
-        quarantine_scope = ""
         if worker_info:
             age_s = _worker_heartbeat_age_s(worker_info, now)
-            worker_status = str(worker_info.get("status", "?"))
+            display_status = _gpu_display_status(worker_info, now, max_heartbeat_age_s)
             worker_age = "?" if age_s is None else f"{age_s:.0f}"
             current_task = _short_task_id(worker_info.get("current_task", ""))
             node_id = str(worker_info.get("node_id", ""))
             hostname = _short_hostname(worker_info.get("hostname", ""))
-            health_state = str(worker_info.get("health_state", ""))
-            accepting_tasks = str(worker_info.get("accepting_tasks", ""))
-            quarantine_scope = str(worker_info.get("quarantine_scope", ""))
-            if not quarantine_scope and health_state == "quarantined":
-                quarantine_scope = "yes"
             if _worker_is_quarantined(worker_info):
                 quarantine_rows.append(
                     [
@@ -661,10 +694,7 @@ def render_verbose(health: dict, workers: dict, max_heartbeat_age_s: int) -> Non
                 dev,
                 name,
                 memory_display,
-                worker_status,
-                health_state,
-                accepting_tasks,
-                quarantine_scope,
+                display_status,
                 worker_age,
                 current_task,
                 node_id,
@@ -693,9 +723,6 @@ def render_verbose(health: dict, workers: dict, max_heartbeat_age_s: int) -> Non
             "name",
             "memory_used",
             "status",
-            "health",
-            "admit",
-            "quarantine",
             "age_s",
             "current_task",
             "node_id",
