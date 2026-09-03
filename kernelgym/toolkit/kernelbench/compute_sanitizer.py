@@ -652,7 +652,6 @@ def run_compute_sanitizer(
     input_seed: Optional[int] = None,
     model_seed: int = 42,
     generate_inputs_on_gpu: bool = True,
-    total_timeout_s: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Run one sanitizer check or the full suite in an isolated process."""
 
@@ -706,31 +705,6 @@ def run_compute_sanitizer(
             )
             for tool in requested_tools:
                 tool_started = perf_counter()
-                remaining_s = None
-                if total_timeout_s is not None:
-                    remaining_s = float(total_timeout_s) - (tool_started - started)
-                if remaining_s is not None and remaining_s <= 0:
-                    result["check_results"].append(
-                        {
-                            "check": tool,
-                            "status": "timeout",
-                            "passed": None,
-                            "process_completed": False,
-                            "target_application_failed": None,
-                            "sanitizer_issue_found": False,
-                            "input_generation": "not_started",
-                            "input_values_exactly_replayed": None,
-                            "return_code": None,
-                            "summary_error_count": 0,
-                            "parsed_issue_count": 0,
-                            "detected_issue_count": 0,
-                            "issues_truncated": False,
-                            "issues": [],
-                            "error": f"Compute Sanitizer suite deadline exhausted before {tool}",
-                            "wall_time_s": 0.0,
-                        }
-                    )
-                    continue
                 # Candidate-kernel filtering excludes PyTorch RNG kernels. For
                 # initcheck, generate inputs on CPU and copy them to the device so
                 # their initialization is visible without instrumenting framework
@@ -749,11 +723,7 @@ def run_compute_sanitizer(
                     completed = _run_sanitizer_command(
                         command,
                         env=sanitizer_env,
-                        timeout_s=(
-                            min(float(timeout_s), max(0.1, remaining_s))
-                            if remaining_s is not None
-                            else float(timeout_s)
-                        ),
+                        timeout_s=float(timeout_s),
                     )
                     output = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
                     parsed = parse_compute_sanitizer_output(output, tool=tool, max_issues=max_issues)

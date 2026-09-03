@@ -677,16 +677,18 @@ def test_run_compute_sanitizer_timeout_is_fail_open_metadata(monkeypatch, tmp_pa
     assert result["check_results"][0]["status"] == "timeout"
 
 
-def test_run_compute_sanitizer_suite_deadline_prevents_new_checks(monkeypatch, tmp_path: Path) -> None:
+def test_run_compute_sanitizer_full_mode_gives_each_check_an_independent_timeout(monkeypatch, tmp_path: Path) -> None:
     fake_tool = tmp_path / "compute-sanitizer"
     fake_tool.write_text("#!/bin/sh\n", encoding="utf-8")
     fake_tool.chmod(0o755)
+    observed_timeouts = []
     monkeypatch.setattr(compute_sanitizer, "_tool_version", lambda _path: "test-version")
-    monkeypatch.setattr(
-        compute_sanitizer,
-        "_run_sanitizer_command",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("deadline must prevent execution")),
-    )
+
+    def run_command(command, *, env, timeout_s):  # noqa: ANN001, ARG001
+        observed_timeouts.append(timeout_s)
+        return subprocess.CompletedProcess(command, 0, stdout="ERROR SUMMARY: 0 errors", stderr="")
+
+    monkeypatch.setattr(compute_sanitizer, "_run_sanitizer_command", run_command)
 
     result = compute_sanitizer.run_compute_sanitizer(
         original_model_src="class Model: pass",
@@ -698,16 +700,15 @@ def test_run_compute_sanitizer_suite_deadline_prevents_new_checks(monkeypatch, t
         kernel_names=[],
         sanitizer_path=str(fake_tool),
         mode="full",
-        timeout_s=60,
-        total_timeout_s=0,
+        timeout_s=7,
         max_kernels=1,
         max_issues=5,
     )
 
-    assert result["status"] == "error"
+    assert result["status"] == "clean"
     assert result["kernel_filter_empty"] is True
-    assert [item["status"] for item in result["check_results"]] == ["timeout"] * 4
-    assert all(item["input_generation"] == "not_started" for item in result["check_results"])
+    assert observed_timeouts == [7.0] * 4
+    assert [item["status"] for item in result["check_results"]] == ["clean"] * 4
 
 
 def test_sanitizer_issues_found_is_a_runtime_failure_response() -> None:

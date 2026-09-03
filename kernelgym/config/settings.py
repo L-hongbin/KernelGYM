@@ -155,7 +155,11 @@ class Settings(BaseSettings):
         default="/usr/local/cuda-12.9/bin/compute-sanitizer",
         env="COMPUTE_SANITIZER_PATH",
     )
-    compute_sanitizer_timeout_s: int = Field(default=60, env="COMPUTE_SANITIZER_TIMEOUT_S")
+    compute_sanitizer_timeout_s: int = Field(
+        default=60,
+        env="COMPUTE_SANITIZER_TIMEOUT_S",
+        description="Independent timeout for each requested Compute Sanitizer check.",
+    )
     compute_sanitizer_max_kernels: int = Field(default=16, env="COMPUTE_SANITIZER_MAX_KERNELS")
     compute_sanitizer_max_issues: int = Field(default=4, env="COMPUTE_SANITIZER_MAX_ISSUES")
     compute_sanitizer_profile_version: str = Field(default="v1", env="COMPUTE_SANITIZER_PROFILE_VERSION")

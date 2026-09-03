@@ -3423,15 +3423,10 @@ class SubprocessWorkerPool:
 
                 async def _complete_deferred_sanitizer(skip_reason: Optional[str] = None) -> None:
                     if has_deferred_sanitizer:
-                        elapsed_s = time.time() - execute_start
-                        remaining_s = max(0.0, float(timeout) - elapsed_s)
-                        if not skip_reason and remaining_s <= 0:
-                            skip_reason = "diagnostic skipped because the task timeout budget was exhausted"
                         await asyncio.to_thread(
                             _run_deferred_compute_sanitizer,
                             result,
                             skip_reason,
-                            remaining_s,
                         )
 
                 if fault_severity != child_fault_severity:
@@ -4172,7 +4167,6 @@ class SubprocessWorkerPool:
 def _run_deferred_compute_sanitizer(
     wrapper: Dict[str, Any],
     skip_reason: Optional[str] = None,
-    total_timeout_s: Optional[float] = None,
 ) -> None:
     """Complete a child-requested diagnostic after its faulting context is reaped."""
 
@@ -4192,7 +4186,7 @@ def _run_deferred_compute_sanitizer(
             raise RuntimeError(skip_reason)
         from kernelgym.toolkit.kernelbench.compute_sanitizer import run_compute_sanitizer
 
-        diagnostic = run_compute_sanitizer(**request, total_timeout_s=total_timeout_s)
+        diagnostic = run_compute_sanitizer(**request)
     except Exception as exc:
         diagnostic = {
             "status": "error",

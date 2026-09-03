@@ -2196,7 +2196,7 @@ def test_deferred_sanitizer_replaces_private_request_with_public_diagnostic(monk
 
     monkeypatch.setattr(compute_sanitizer, "run_compute_sanitizer", run_compute_sanitizer)
 
-    subprocess_pool._run_deferred_compute_sanitizer(wrapper, total_timeout_s=12.5)
+    subprocess_pool._run_deferred_compute_sanitizer(wrapper)
 
     result = wrapper["result"]
     assert "_runtime_sanitizer_request" not in result["metadata"]
@@ -2205,7 +2205,7 @@ def test_deferred_sanitizer_replaces_private_request_with_public_diagnostic(monk
     assert result["metadata"]["kg_kernel_runtime_sanitizer_s"] == 2.5
     assert result["status"] == "failed"
     assert result["error_code"] == "RUNTIME_ERROR"
-    assert observed_request["total_timeout_s"] == 12.5
+    assert "total_timeout_s" not in observed_request
 
 
 def test_deferred_sanitizer_skip_removes_private_request_and_pending_status() -> None:

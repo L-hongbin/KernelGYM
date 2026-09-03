@@ -147,7 +147,7 @@ When enabled and triggered, `runtime_sanitizer` contains the isolated replay res
 | `runtime_sanitizer.selection_mode`, `mode` | Public selection strategy and actual internal execution mode. |
 | `runtime_sanitizer.kernel_filter_empty` | `true` when no backend kernel name was available. In that case no launch-count cap is applied, so framework launches cannot consume the cap before the candidate kernel. |
 
-After a correctness-time CUDA failure, the original evaluation subprocess publishes a deferred diagnostic descriptor without another CUDA synchronization or cleanup call. Its parent freezes and reaps the process group, runs the isolated diagnostic within the remaining task timeout budget, and only then starts fresh-context validation before admitting more work on that GPU. This fault containment remains active when the sanitizer feature is disabled.
+After a correctness-time CUDA failure, the original evaluation subprocess publishes a deferred diagnostic descriptor without another CUDA synchronization or cleanup call. Its parent freezes and reaps the process group, gives each requested diagnostic check its independent `COMPUTE_SANITIZER_TIMEOUT_S` budget, and only then starts fresh-context validation before admitting more work on that GPU. The diagnostic timeout does not inherit the evaluation task's remaining budget; `full` mode may therefore use the per-check timeout up to four times. This fault containment remains active when the sanitizer feature is disabled.
 
 `metadata` is a large dict of server-side timing + caching diagnostics. Notable keys:
 
