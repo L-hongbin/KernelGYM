@@ -32,6 +32,12 @@ def test_functional_reward_profile_matches_runtime_constants() -> None:
     assert values["DEFAULT_BACKEND"] == "auto"
     assert values["SPLIT_COMPILE_AND_EXECUTE"] == "true"
     assert values["KERNELGYM_CORRECTNESS_GPU_INPUTS"] == "true"
+    assert values["ENABLE_COMPUTE_SANITIZER"] == "false"
+    assert values["COMPUTE_SANITIZER_PATH"] == "/usr/local/cuda-12.9/bin/compute-sanitizer"
+    assert values["COMPUTE_SANITIZER_TIMEOUT_S"] == "60"
+    assert values["COMPUTE_SANITIZER_MAX_KERNELS"] == "16"
+    assert values["COMPUTE_SANITIZER_MAX_ISSUES"] == "4"
+    assert values["COMPUTE_SANITIZER_PROFILE_VERSION"] == "v1"
     assert values["LOG_DIR"] == "logs/v1"
     assert values["PY_LOG_DIR"] == "py_logs/v1"
     assert "GPU_MEMORY_LIMIT" not in values

@@ -555,6 +555,87 @@ def test_worker_exits_when_parent_containment_ack_times_out(monkeypatch) -> None
     assert messages[-1]["init_stage"] == "parent_containment_ack"
 
 
+def test_worker_loop_fault_publication_never_commits_or_cleans_cuda(monkeypatch) -> None:
+    import torch
+
+    events = []
+    messages = []
+    real_pid = os.getpid()
+    identity = subprocess_pool._LinuxProcessIdentity(
+        pid=real_pid,
+        start_ticks=456,
+        ppid=os.getppid(),
+        pgid=real_pid,
+        sid=os.getsid(0),
+        state="S",
+    )
+
+    class TaskQueue:
+        task_returned = False
+
+        @classmethod
+        def get(cls, timeout=None):  # noqa: ANN001
+            if timeout is not None:
+                return subprocess_pool._PARENT_CONTAINMENT_ACK
+            assert cls.task_returned is False
+            cls.task_returned = True
+            return {"task_id": "sticky-fault"}
+
+    class ResultQueue:
+        @staticmethod
+        def put(payload):  # noqa: ANN001
+            messages.append(payload)
+
+    class Operations:
+        @staticmethod
+        def publish_and_wait(result):  # noqa: ANN001
+            events.append(("publish", result["fault_severity"]))
+            raise RuntimeError("parent containment wait returned")
+
+        @staticmethod
+        def commit(*_args, **_kwargs):  # noqa: ANN002, ANN003
+            raise AssertionError("fault result must not be committed")
+
+        @staticmethod
+        def commit_and_wait(*_args, **_kwargs):  # noqa: ANN002, ANN003
+            raise AssertionError("fault result must not be committed")
+
+        @staticmethod
+        def classify_error(_error):  # noqa: ANN001
+            raise AssertionError("containment wait error must not be classified through CUDA")
+
+    monkeypatch.setattr(subprocess_pool, "prepare_core_dump_dir", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(subprocess_pool, "_redirect_native_stderr_to_capture_file", lambda _worker_id: None)
+    monkeypatch.setattr(subprocess_pool, "_truncate_native_stderr_capture", lambda: None)
+    monkeypatch.setattr(subprocess_pool.os, "setpgid", lambda _pid, _pgid: None)
+    monkeypatch.setattr(subprocess_pool, "_read_linux_process_identity", lambda _pid: identity)
+    monkeypatch.setattr(subprocess_pool, "_capture_trusted_cuda_task_barrier", lambda *_args: lambda: None)
+    monkeypatch.setattr(subprocess_pool, "_capture_trusted_cuda_task_operations", lambda *_args: Operations())
+    monkeypatch.setattr(
+        subprocess_pool,
+        "_execute_task_in_worker",
+        lambda *_args, **_kwargs: {
+            "success": True,
+            "result": {"status": "completed"},
+            "fault_severity": subprocess_pool.FAULT_CONTEXT,
+            "worker_exiting": True,
+        },
+    )
+    monkeypatch.setattr(
+        subprocess_pool,
+        "_aggressive_gpu_cleanup",
+        lambda *_args, **_kwargs: events.append(("cleanup", None)),
+    )
+    monkeypatch.setattr(torch.cuda, "init", lambda: None)
+    monkeypatch.setattr(torch.cuda, "set_device", lambda _device: None)
+    monkeypatch.setattr(torch, "zeros", lambda *_args, **_kwargs: object())
+
+    subprocess_pool._persistent_worker_loop("fault-boundary", 0, TaskQueue(), ResultQueue(), 1)
+
+    assert events == [("publish", subprocess_pool.FAULT_CONTEXT)]
+    assert [message["status"] for message in messages] == ["CONTAINED", "READY"]
+
+
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux /proc process containment")
 def test_persistent_worker_shutdown_reaps_forked_process_group_descendant() -> None:
     child_code = """
@@ -2013,6 +2094,179 @@ def test_max_task_ordinary_failure_publishes_then_waits_for_parent_reap() -> Non
     assert events == ["send", "wait"]
 
 
+def test_runtime_sanitizer_context_fault_preserves_structured_result_for_parent_containment() -> None:
+    diagnostic = {
+        "status": "failed",
+        "error_message": "Runtime Sanitizer detected an unsafe CUDA kernel",
+        "metadata": {
+            "runtime_error": "CUDA error: illegal memory access",
+            "runtime_sanitizer_trigger": "correctness_runtime_error",
+        },
+        "runtime_sanitizer": {
+            "status": "issues_found",
+            "check_results": [{"check": "memcheck", "issues": [{"message": "Invalid write"}]}],
+        },
+    }
+
+    class Toolkit:
+        @staticmethod
+        def evaluate(_task, backend):  # noqa: ANN001, ARG004
+            return diagnostic
+
+    wrapped = subprocess_pool._execute_task_in_worker(
+        {"toolkit": "kernelbench", "backend_adapter": "kernelbench"},
+        "cuda:0",
+        {},
+        {},
+        lambda _name: Toolkit(),
+        lambda _name: object(),
+    )
+
+    assert wrapped["success"] is True
+    assert wrapped["result"] is diagnostic
+    assert wrapped["worker_exiting"] is True
+    assert wrapped["fault_severity"] == subprocess_pool.FAULT_CONTEXT
+    assert wrapped["error_type"] == "CandidateRuntimeContextFault"
+
+
+def test_candidate_runtime_fault_is_contained_when_sanitizer_is_disabled() -> None:
+    fault_result = {
+        "status": "completed",
+        "error_message": "CUDA error: illegal memory access",
+        "metadata": {
+            "runtime_error": "CUDA error: illegal memory access",
+            "correctness_runtime_error_stage": "custom_forward",
+        },
+    }
+
+    class Toolkit:
+        @staticmethod
+        def evaluate(_task, backend):  # noqa: ANN001, ARG004
+            return fault_result
+
+    wrapped = subprocess_pool._execute_task_in_worker(
+        {"toolkit": "kernelbench", "backend_adapter": "kernelbench"},
+        "cuda:0",
+        {},
+        {},
+        lambda _name: Toolkit(),
+        lambda _name: object(),
+    )
+
+    assert wrapped["success"] is True
+    assert wrapped["result"] is fault_result
+    assert wrapped["worker_exiting"] is True
+    assert wrapped["fault_severity"] == subprocess_pool.FAULT_CONTEXT
+    assert wrapped["error_type"] == "CandidateRuntimeContextFault"
+
+
+def test_deferred_sanitizer_replaces_private_request_with_public_diagnostic(monkeypatch) -> None:
+    from kernelgym.toolkit.kernelbench import compute_sanitizer
+
+    observed_request = {}
+    wrapper = {
+        "success": True,
+        "result": {
+            "status": "completed",
+            "metadata": {
+                "runtime_error": "CUDA error: illegal memory access",
+                "_runtime_sanitizer_request": {
+                    "original_model_src": "reference",
+                    "custom_model_src": "candidate",
+                },
+            },
+            "runtime_sanitizer": {
+                "status": "pending",
+                "selection_mode": "error_based",
+                "mode": "memcheck",
+                "error_classification": "memcheck",
+                "requested_checks": ["memcheck"],
+            },
+        },
+    }
+
+    def run_compute_sanitizer(**request):  # noqa: ANN003
+        observed_request.update(request)
+        return {
+            "status": "issues_found",
+            "detected_issue_count": 1,
+            "check_results": [{"issues": [{"message": "Invalid __global__ write"}]}],
+            "wall_time_s": 2.5,
+        }
+
+    monkeypatch.setattr(compute_sanitizer, "run_compute_sanitizer", run_compute_sanitizer)
+
+    subprocess_pool._run_deferred_compute_sanitizer(wrapper, total_timeout_s=12.5)
+
+    result = wrapper["result"]
+    assert "_runtime_sanitizer_request" not in result["metadata"]
+    assert result["runtime_sanitizer"]["status"] == "issues_found"
+    assert result["runtime_sanitizer"]["selection_mode"] == "error_based"
+    assert result["metadata"]["kg_kernel_runtime_sanitizer_s"] == 2.5
+    assert result["status"] == "failed"
+    assert result["error_code"] == "RUNTIME_ERROR"
+    assert observed_request["total_timeout_s"] == 12.5
+
+
+def test_deferred_sanitizer_skip_removes_private_request_and_pending_status() -> None:
+    wrapper = {
+        "success": True,
+        "result": {
+            "status": "completed",
+            "metadata": {
+                "runtime_error": "CUDA error: unspecified launch failure",
+                "_runtime_sanitizer_request": {"mode": "full"},
+            },
+            "runtime_sanitizer": {
+                "status": "pending",
+                "selection_mode": "error_based",
+                "mode": "full",
+                "requested_checks": ["memcheck", "synccheck", "racecheck", "initcheck"],
+            },
+        },
+    }
+
+    subprocess_pool._run_deferred_compute_sanitizer(
+        wrapper,
+        "diagnostic skipped because the original failure was classified as a device fault",
+    )
+
+    result = wrapper["result"]
+    assert "_runtime_sanitizer_request" not in result["metadata"]
+    assert result["runtime_sanitizer"]["status"] == "error"
+    assert "device fault" in result["runtime_sanitizer"]["error"]
+
+
+def test_context_recycle_runs_deferred_diagnostic_after_reap_before_fresh_spawn(monkeypatch) -> None:
+    async def scenario() -> list[str]:
+        events: list[str] = []
+        pool = _pool_without_processes(pool_size=1)
+        pool.health_state = subprocess_pool.POOL_DEGRADED_CHECK
+        pool.pool_generation = 1
+        worker = FakeWorker("faulted")
+        worker.shutdown = lambda *_args, **_kwargs: events.append("reap") or True  # type: ignore[method-assign]
+        pool.workers = [worker]
+        pool.busy_workers = [worker]
+        monkeypatch.setattr(
+            pool,
+            "_start_replenishment_thread",
+            lambda **_kwargs: events.append("spawn"),
+        )
+
+        async def diagnostic() -> None:
+            events.append("diagnostic")
+
+        await pool._restart_worker(
+            worker,  # type: ignore[arg-type]
+            task_id="deferred-order",
+            validation_generation=1,
+            after_reap_before_replenish=diagnostic,
+        )
+        return events
+
+    assert asyncio.run(scenario()) == ["reap", "diagnostic", "spawn"]
+
+
 @pytest.mark.parametrize(
     ("error_type", "message", "expected"),
     [
@@ -2345,6 +2599,81 @@ def test_stale_context_result_waits_for_real_concurrent_unsafe_recovery() -> Non
 
         assert pool.health_state == subprocess_pool.POOL_QUARANTINED
         assert pool.unsafe_shutdown_reason
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("fault_severity", "validation_generation", "expected_reason"),
+    [
+        (
+            subprocess_pool.FAULT_CONTEXT,
+            subprocess_pool._STALE_HARD_RECOVERY_EPOCH,
+            "stale hard-recovery epoch",
+        ),
+        (
+            subprocess_pool.FAULT_CONTEXT,
+            None,
+            "concurrent context faults required hard recovery",
+        ),
+        (
+            subprocess_pool.FAULT_DEVICE,
+            "unused",
+            "classified as a device fault",
+        ),
+    ],
+)
+def test_execute_task_hard_recovery_skips_deferred_sanitizer(
+    monkeypatch,
+    fault_severity: str,
+    validation_generation: object,
+    expected_reason: str,
+) -> None:
+    async def scenario() -> None:
+        pool = _pool_without_processes(pool_size=1)
+        worker = FakeWorker("hard-recovery")
+        pool.workers = [worker]
+        pool.idle_workers = [worker]
+        recovery_calls: list[str] = []
+
+        def execute(*_args, **_kwargs):  # noqa: ANN002, ANN003
+            return {
+                "success": True,
+                "error_type": "CudaFinalSyncError",
+                "error_message": "CUDA context is unsafe",
+                "fault_severity": fault_severity,
+                "worker_exiting": True,
+                "result": {
+                    "status": "completed",
+                    "metadata": {
+                        "_runtime_sanitizer_request": {"must_not_run": True},
+                    },
+                    "runtime_sanitizer": {
+                        "status": "pending",
+                        "requested_checks": ["memcheck"],
+                    },
+                },
+            }
+
+        async def recover(_worker, *, task_id, reason):  # noqa: ANN001
+            assert task_id == "hard-recovery-skip"
+            recovery_calls.append(reason)
+
+        async def begin_validation(**_kwargs):  # noqa: ANN003
+            return validation_generation
+
+        worker.execute_task = execute  # type: ignore[attr-defined]
+        monkeypatch.setattr(pool, "_recover_from_device_fault", recover)
+        monkeypatch.setattr(pool, "_begin_context_fault_validation", begin_validation)
+
+        result = await pool.execute_task({"task_id": "hard-recovery-skip"}, timeout=1, max_retries=0)
+        payload = result["result"]
+
+        assert recovery_calls
+        assert "_runtime_sanitizer_request" not in payload["metadata"]
+        assert payload["runtime_sanitizer"]["status"] == "error"
+        assert expected_reason in payload["runtime_sanitizer"]["error"]
+        assert payload["metadata"]["runtime_sanitizer_status"] == "error"
 
     asyncio.run(scenario())
 

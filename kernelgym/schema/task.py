@@ -35,6 +35,8 @@ class EvaluationTask:
     use_reference_cache: bool = False
     is_valid: bool = False
     enable_profiling: Optional[bool] = None
+    enable_compute_sanitizer: Optional[bool] = None
+    compute_sanitizer_mode: Optional[str] = None
     enable_triton_detection: Optional[bool] = None
     detect_decoy_kernel: Optional[bool] = None
     measure_performance: Optional[bool] = None
@@ -114,6 +116,8 @@ class KernelEvaluationTask:
     device_preference: Optional[str] = None
     force_refresh: bool = False
     enable_profiling: Optional[bool] = None
+    enable_compute_sanitizer: Optional[bool] = None
+    compute_sanitizer_mode: Optional[str] = None
     enable_triton_detection: Optional[bool] = None
     detect_decoy_kernel: Optional[bool] = None
     measure_performance: Optional[bool] = None

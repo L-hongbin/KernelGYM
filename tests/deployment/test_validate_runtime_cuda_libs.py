@@ -78,3 +78,24 @@ def test_real_environment_resolves_all_required_libs() -> None:
     report = KernelBenchTvmFfiBackend._resolve_cuda_math_libs()
     missing_required = [base for _pkg, base, required, path in report if required and path is None]
     assert missing_required == [], f"unresolved required CUDA math libs in this env: {missing_required}"
+
+
+def test_compute_sanitizer_preflight_is_optional_by_default(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(validate_runtime, "ENABLE_COMPUTE_SANITIZER", False)
+
+    assert validate_runtime._check_compute_sanitizer() is None
+    assert "ENABLE_COMPUTE_SANITIZER=false" in capsys.readouterr().out
+
+
+def test_compute_sanitizer_preflight_reports_enabled_tool(monkeypatch, tmp_path) -> None:
+    executable = tmp_path / "compute-sanitizer"
+    executable.write_text("", encoding="utf-8")
+    monkeypatch.setattr(validate_runtime, "ENABLE_COMPUTE_SANITIZER", True)
+    monkeypatch.setattr(validate_runtime, "PREFERRED_COMPUTE_SANITIZER", executable)
+    monkeypatch.setattr(
+        validate_runtime.subprocess,
+        "check_output",
+        lambda *_args, **_kwargs: "NVIDIA Compute Sanitizer\nVersion test-build\n",
+    )
+
+    assert validate_runtime._check_compute_sanitizer() == "Version test-build"

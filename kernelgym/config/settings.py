@@ -146,6 +146,19 @@ class Settings(BaseSettings):
             "callback, so auto profiling-trial resolution may drop to 1 forward on affected CUPTI versions."
         ),
     )
+    enable_compute_sanitizer: bool = Field(
+        default=False,
+        env="ENABLE_COMPUTE_SANITIZER",
+        description="Run isolated Compute Sanitizer trials after a correctness runtime failure.",
+    )
+    compute_sanitizer_path: str = Field(
+        default="/usr/local/cuda-12.9/bin/compute-sanitizer",
+        env="COMPUTE_SANITIZER_PATH",
+    )
+    compute_sanitizer_timeout_s: int = Field(default=60, env="COMPUTE_SANITIZER_TIMEOUT_S")
+    compute_sanitizer_max_kernels: int = Field(default=16, env="COMPUTE_SANITIZER_MAX_KERNELS")
+    compute_sanitizer_max_issues: int = Field(default=4, env="COMPUTE_SANITIZER_MAX_ISSUES")
+    compute_sanitizer_profile_version: str = Field(default="v1", env="COMPUTE_SANITIZER_PROFILE_VERSION")
 
     reference_cache_dataset_path: str = Field(default="", env="REFERENCE_CACHE_DATASET_PATH")
     val_data_cache_dataset_path: str = Field(default="", env="VAL_DATA_CACHE_DATASET_PATH")

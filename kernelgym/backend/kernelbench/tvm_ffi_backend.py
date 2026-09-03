@@ -169,6 +169,10 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
         return root
 
     @staticmethod
+    def _cuda_compile_flags(nvcc_threads: str) -> list[str]:
+        return ["-O3", "--use_fast_math", "-lineinfo", "--threads", nvcc_threads]
+
+    @staticmethod
     def _artifact_cache_key(
         *,
         model_code: str,
@@ -185,7 +189,9 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
             "cuda_arch": KernelBenchCudaAgentBackend._cuda_arch_fingerprint(),
             "nvcc_threads": os.environ.get(_NVCC_THREADS_ENV, _TVM_FFI_DEFAULT_NVCC_THREADS),
             "extra_cflags": ["-O3"],
-            "extra_cuda_cflags": ["-O3", "--use_fast_math"],
+            "extra_cuda_cflags": KernelBenchTvmFfiBackend._cuda_compile_flags(
+                os.environ.get(_NVCC_THREADS_ENV, _TVM_FFI_DEFAULT_NVCC_THREADS)
+            ),
             "extra_ldflags": KernelBenchTvmFfiBackend._link_flags(),
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
@@ -383,7 +389,7 @@ class KernelBenchTvmFfiBackend(KernelBenchBackendBase):
         ext_name = work_dir.name.replace("-", "_")
         nvcc_threads = os.environ.get(_NVCC_THREADS_ENV, _TVM_FFI_DEFAULT_NVCC_THREADS)
         extra_cflags = ["-O3"]
-        extra_cuda_cflags = ["-O3", "--use_fast_math", "--threads", nvcc_threads]
+        extra_cuda_cflags = KernelBenchTvmFfiBackend._cuda_compile_flags(nvcc_threads)
         extra_ldflags = KernelBenchTvmFfiBackend._link_flags()
         so_path = tvm_ffi_cpp.build(
             name=ext_name,

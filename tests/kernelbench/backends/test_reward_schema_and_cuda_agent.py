@@ -31,6 +31,13 @@ def test_schema_exposes_compile_acceleration_fields() -> None:
     assert "compile_artifact" in fields
     assert "target_node_id" in fields
     assert "target_hostname" in fields
+    assert "enable_compute_sanitizer" in fields
+    assert "compute_sanitizer_mode" in fields
+
+
+def test_cuda_backends_emit_line_information_for_sanitizer_diagnostics() -> None:
+    assert "-lineinfo" in KernelBenchCudaAgentBackend._cuda_compile_flags("4")
+    assert "-lineinfo" in KernelBenchTvmFfiBackend._cuda_compile_flags("4")
 
 
 def test_evaluation_request_defaults_to_auto_backend() -> None:

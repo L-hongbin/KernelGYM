@@ -24,3 +24,4 @@ class KernelExecResult(BaseModel):
     metadata: dict = {}
     runtime: float = -1.0
     runtime_stats: dict = {}
+    runtime_sanitizer: dict = {}

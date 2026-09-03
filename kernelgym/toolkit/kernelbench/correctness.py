@@ -28,6 +28,7 @@ from kernelgym.toolkit.kernelbench.profiling import (
 
 
 logger = logging.getLogger(__name__)
+_FAULTED_CUDA_OBJECTS: list[Any] = []
 _CORRECTNESS_EARLY_STOP_ENV = "KERNELGYM_CORRECTNESS_EARLY_STOP"
 _CORRECTNESS_MAX_WALL_S_ENV = "KERNELGYM_CORRECTNESS_MAX_WALL_S"
 _CORRECTNESS_PASS_ON_BUDGET_ENV = "KERNELGYM_CORRECTNESS_PASS_ON_BUDGET"
@@ -299,6 +300,7 @@ def run_and_check_correctness(
     metadata["correctness_candidate_forward_completed"] = False
     metadata["correctness_candidate_forward_completed_trials"] = []
     metadata["correctness_output_mismatch"] = False
+    metadata["correctness_inputs_generated_on_gpu"] = bool(generate_inputs_on_gpu)
     record_execution_policy(metadata)
     if max_wall_time_s is not None:
         metadata["correctness_max_wall_s"] = max_wall_time_s
@@ -412,6 +414,7 @@ def run_and_check_correctness(
         *,
         trial: int,
         trial_start: float,
+        trial_seed: int,
     ) -> KernelExecResult:
         nonlocal metadata, trials_run
         trials_run = trial + 1
@@ -422,6 +425,8 @@ def run_and_check_correctness(
         metadata = register_and_format_exception("runtime_error", exception, metadata, truncate=False)
         metadata["runtime_error_name"] = get_error_name(exception)
         metadata["correctness_failed_trial"] = trial
+        metadata["correctness_failed_trial_seed"] = int(trial_seed)
+        metadata["correctness_runtime_error_stage"] = metadata.get("correctness_current_substage")
         _record_trial_metadata()
         return _result(correctness=False)
 
@@ -555,12 +560,27 @@ def run_and_check_correctness(
                 del output, output_new
 
             except Exception as e:
+                # Returning normally would decref tensors/models before the
+                # pool parent can kill this sticky-faulted process. Retain the
+                # CUDA-owning objects so implicit destructors cannot call back
+                # into the poisoned context during result serialization.
+                _FAULTED_CUDA_OBJECTS.append(
+                    (
+                        model,
+                        model_new,
+                        locals().get("inputs"),
+                        locals().get("output"),
+                        locals().get("output_new"),
+                        locals().get("aten_prof"),
+                    )
+                )
                 if len(custom_trial_durations) < len(reference_trial_durations):
                     custom_trial_durations.append(perf_counter() - custom_start)
                 return _record_runtime_exception(
                     e,
                     trial=trial,
                     trial_start=trial_start,
+                    trial_seed=trial_seed,
                 )
 
     if verbose:

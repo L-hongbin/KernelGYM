@@ -36,6 +36,49 @@ class KernelBenchToolkit(Toolkit):
     def __init__(self) -> None:
         pass
 
+    @staticmethod
+    def _prepare_contained_fault_metadata(
+        result: Any,
+        *,
+        device: torch.device,
+        backend: str,
+        num_correct_trials: int,
+        num_perf_trials: int,
+    ) -> bool:
+        metadata = result.metadata if isinstance(getattr(result, "metadata", None), dict) else {}
+        candidate_runtime_fault = bool(metadata.get("runtime_error")) and (
+            metadata.get("correctness_runtime_error_stage") == "custom_forward"
+            or metadata.get("runtime_sanitizer_trigger") == "correctness_runtime_error"
+        )
+        if not candidate_runtime_fault:
+            return False
+        hardware = str(metadata.get("hardware") or "unknown")
+        metadata.update(
+            {
+                "device": str(device),
+                "gpu_name": hardware,
+                "backend": backend,
+                "num_correct_trials": num_correct_trials,
+                "num_perf_trials": num_perf_trials,
+                "candidate_runtime_fault_contained": True,
+            }
+        )
+        # Result serialization normally probes missing device metadata with
+        # Torch. A sticky CUDA context must not make another CUDA API call, so
+        # provide a complete safe fallback from already-recorded information.
+        metadata.setdefault(
+            "device_info",
+            {
+                "gpu_name": hardware,
+                "compute_capability": "unknown",
+                "cuda_version": str(torch.version.cuda or "unknown"),
+                "driver_version": "unknown",
+                "nvcc_version": "unknown",
+            },
+        )
+        result.metadata = metadata
+        return True
+
     def _resolve_eval_flags(self, task: Any) -> tuple[bool, bool, bool, bool]:
         run_correctness = task.run_correctness
         if run_correctness is None:
@@ -131,6 +174,9 @@ class KernelBenchToolkit(Toolkit):
             enable_profiling = task.enable_profiling
             if enable_profiling is None:
                 enable_profiling = settings.enable_profiling
+            enable_compute_sanitizer = task.enable_compute_sanitizer
+            if enable_compute_sanitizer is None:
+                enable_compute_sanitizer = settings.enable_compute_sanitizer
 
             num_warmup = getattr(task, "num_warmup", 3)
             perf_trim_count = getattr(task, "perf_trim_count", 0)
@@ -149,6 +195,8 @@ class KernelBenchToolkit(Toolkit):
                 precision=task.precision,
                 entry_point=task.entry_point,
                 enable_profiling=bool(enable_profiling),
+                enable_compute_sanitizer=bool(enable_compute_sanitizer),
+                compute_sanitizer_mode=task.compute_sanitizer_mode,
                 enable_triton_detection=enable_triton_detection,
                 detect_decoy_kernel=detect_decoy_kernel,
                 backend_adapter=backend_adapter,
@@ -171,6 +219,15 @@ class KernelBenchToolkit(Toolkit):
                     error_message="Kernel evaluation failed: empty evaluation result",
                     error_code=ErrorCode.RUNTIME_ERROR,
                 )
+
+            if self._prepare_contained_fault_metadata(
+                result,
+                device=device,
+                backend=task.backend,
+                num_correct_trials=num_correct_trials,
+                num_perf_trials=task.num_perf_trials,
+            ):
+                return EvaluationResult.from_kernel_exec_result(task.task_id, result, 0.0)
 
             if not run_correctness:
                 if result.metadata is None:
@@ -341,6 +398,9 @@ class KernelBenchToolkit(Toolkit):
             num_correct_trials = task.num_correct_trials if run_correctness else 0
             num_warmup = getattr(task, "num_warmup", 3)
             perf_trim_count = getattr(task, "perf_trim_count", 0)
+            enable_compute_sanitizer = task.enable_compute_sanitizer
+            if enable_compute_sanitizer is None:
+                enable_compute_sanitizer = settings.enable_compute_sanitizer
 
             result = kernelbench_pipeline.eval_kernel_against_ref(
                 original_model_src=task.reference_code,
@@ -356,6 +416,8 @@ class KernelBenchToolkit(Toolkit):
                 precision=task.precision,
                 entry_point=task.entry_point,
                 enable_profiling=enable_profiling,
+                enable_compute_sanitizer=bool(enable_compute_sanitizer),
+                compute_sanitizer_mode=task.compute_sanitizer_mode,
                 enable_triton_detection=enable_triton_detection,
                 detect_decoy_kernel=detect_decoy_kernel,
                 backend_adapter=backend_adapter,
@@ -376,6 +438,20 @@ class KernelBenchToolkit(Toolkit):
                     status="failed",
                     error_message="Kernel evaluation failed: empty evaluation result",
                     error_code=ErrorCode.RUNTIME_ERROR,
+                )
+
+            if self._prepare_contained_fault_metadata(
+                result,
+                device=device,
+                backend=task.backend,
+                num_correct_trials=num_correct_trials,
+                num_perf_trials=task.num_perf_trials,
+            ):
+                return KernelEvaluationResult.from_kernel_exec_result(
+                    task.task_id,
+                    task.base_task_id,
+                    result,
+                    verbose_errors=verbose_errors,
                 )
 
             compile_only = str(task.task_stage or "").lower() == "compile" or bool(task.pure_compile_task)

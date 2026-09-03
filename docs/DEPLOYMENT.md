@@ -17,6 +17,8 @@ KernelGYM reward-only supports two deployment modes. Runtime env values come fro
 - Use CUDA 12.9 explicitly:
   - `requirements-cuda129.txt` pins the CUDA-sensitive package versions; all candidates must exist in the offline wheelhouse.
   - `/usr/local/cuda-12.9/bin/nvcc --version` must report CUDA 12.9.
+- NVIDIA Compute Sanitizer is available at `/usr/local/cuda-12.9/bin/compute-sanitizer` but disabled by default. Set `ENABLE_COMPUTE_SANITIZER=true` globally or `enable_compute_sanitizer=true` on a request to diagnose candidate correctness-time CUDA failures. When enabled, runtime validation fails fast if the executable is missing.
+- Sanitizer replay runs in its own process. `error_based` selects one check from a specific failure and falls back to all four checks when ambiguous; `full` always runs `memcheck`, `synccheck`, `racecheck`, and `initcheck`.
 - `set_env.sh` validates and reports the node-local venv and absolute wheelhouse paths. It only reports the deprecated shared `.venv`; it never reads, repairs, deletes, or activates it.
 - Do not reuse older KernelGYM or drkernel virtual environments.
 
@@ -28,7 +30,7 @@ bash ensure_venv.sh --recreate
 source /root/kernelgym-reward-only/.venv/bin/activate
 ```
 
-The script validates `redis-server`, `torch.version.cuda == "12.9"`, and `nvcc` from CUDA 12.9. Common overrides are not needed: it creates and activates the node-local venv with Python 3.12 when missing, then checks `/usr/local/cuda-12.9/bin/nvcc` directly. `KERNELGYM_LOCAL_VENV_DIR`, `KERNELGYM_OFFLINE_WHEEL_DIR`, and `KERNELGYM_OFFLINE_REDIS_DIR` may override the defaults; all must remain absolute paths and the venv must be on local storage. `bash scripts/ensure_redis.sh --verify-bundle` validates checksums, package metadata, platform compatibility, and offline apt dependency resolution without installing or starting anything.
+The script validates `redis-server`, `torch.version.cuda == "12.9"`, and `nvcc` from CUDA 12.9. It also validates Compute Sanitizer when `ENABLE_COMPUTE_SANITIZER=true`. Common overrides are not needed: it creates and activates the node-local venv with Python 3.12 when missing, then checks `/usr/local/cuda-12.9/bin/nvcc` directly. `KERNELGYM_LOCAL_VENV_DIR`, `KERNELGYM_OFFLINE_WHEEL_DIR`, and `KERNELGYM_OFFLINE_REDIS_DIR` may override the defaults; all must remain absolute paths and the venv must be on local storage. `bash scripts/ensure_redis.sh --verify-bundle` validates checksums, package metadata, platform compatibility, and offline apt dependency resolution without installing or starting anything.
 
 Use `--profile v1`:
 

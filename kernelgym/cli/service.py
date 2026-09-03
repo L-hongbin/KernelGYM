@@ -330,6 +330,17 @@ def _write_env_file(path: Path, values: dict[str, str]) -> None:
         ("Core dumps", ("KERNELGYM_CORE_DUMP_DIR", "KERNELGYM_CORE_DUMP_KEEP")),
         ("Metrics", ("ENABLE_METRICS", "METRICS_PORT")),
         ("Profiling", ("ENABLE_PROFILING",)),
+        (
+            "Compute Sanitizer",
+            (
+                "ENABLE_COMPUTE_SANITIZER",
+                "COMPUTE_SANITIZER_PATH",
+                "COMPUTE_SANITIZER_TIMEOUT_S",
+                "COMPUTE_SANITIZER_MAX_KERNELS",
+                "COMPUTE_SANITIZER_MAX_ISSUES",
+                "COMPUTE_SANITIZER_PROFILE_VERSION",
+            ),
+        ),
         ("Errors", ("VERBOSE_ERROR_TRACEBACK",)),
         ("Result persistence", ("SAVE_EVAL_RESULTS", "EVAL_RESULTS_PATH")),
         (

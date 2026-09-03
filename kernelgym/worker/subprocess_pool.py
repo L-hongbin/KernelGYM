@@ -2441,6 +2441,7 @@ class SubprocessWorkerPool:
         task_id: str,
         reason: str,
         worker: Optional[PersistentWorker] = None,
+        allow_speculative_spare: bool = True,
     ) -> Optional[int]:
         """Enter the one-spare context-fault path and return its generation.
 
@@ -2472,9 +2473,10 @@ class SubprocessWorkerPool:
                 task_id=task_id,
                 fault_class=FAULT_CONTEXT,
             )
-            self.speculative_dispatches_remaining = 1
+            self.speculative_dispatches_remaining = 1 if allow_speculative_spare else 0
             logger.warning(
-                f"[GPU {self.device_id}] Context fault: allowing at most one pre-fault spare "
+                f"[GPU {self.device_id}] Context fault: allowing at most "
+                f"{self.speculative_dispatches_remaining} pre-fault spare "
                 f"while generation {self.pool_generation} creates a fresh CUDA context; task={task_id} reason={reason}"
             )
             return self.pool_generation
@@ -3412,6 +3414,26 @@ class SubprocessWorkerPool:
                 )
                 fault_severity = _strongest_cuda_fault(child_fault_severity, parent_fault_severity)
                 result["fault_severity"] = fault_severity
+                result_payload = result.get("result")
+                result_metadata = result_payload.get("metadata") if isinstance(result_payload, dict) else None
+                has_deferred_sanitizer = bool(
+                    isinstance(result_metadata, dict)
+                    and isinstance(result_metadata.get("_runtime_sanitizer_request"), dict)
+                )
+
+                async def _complete_deferred_sanitizer(skip_reason: Optional[str] = None) -> None:
+                    if has_deferred_sanitizer:
+                        elapsed_s = time.time() - execute_start
+                        remaining_s = max(0.0, float(timeout) - elapsed_s)
+                        if not skip_reason and remaining_s <= 0:
+                            skip_reason = "diagnostic skipped because the task timeout budget was exhausted"
+                        await asyncio.to_thread(
+                            _run_deferred_compute_sanitizer,
+                            result,
+                            skip_reason,
+                            remaining_s,
+                        )
+
                 if fault_severity != child_fault_severity:
                     logger.warning(
                         f"[{worker.worker_id}] Parent strengthened child fault classification "
@@ -3423,6 +3445,7 @@ class SubprocessWorkerPool:
                         task_id=task_id,
                         reason=f"{result.get('error_type', 'CUDAError')}: {result.get('error_message', '')}",
                         worker=worker,
+                        allow_speculative_spare=not has_deferred_sanitizer,
                     )
                     if validation_generation == _STALE_HARD_RECOVERY_EPOCH:
                         # The epoch changed because another task owns hard
@@ -3433,6 +3456,7 @@ class SubprocessWorkerPool:
                             task_id=task_id,
                             reason="stale context fault waiting for concurrent hard recovery",
                         )
+                        await _complete_deferred_sanitizer("diagnostic skipped after stale hard-recovery epoch")
                         logger.info(
                             f"[{worker.worker_id}] Context fault belongs to an already retired hard epoch; "
                             "no additional fresh-context probe will be created"
@@ -3446,11 +3470,15 @@ class SubprocessWorkerPool:
                             task_id=task_id,
                             reason="second CUDA context fault before validation completed",
                         )
+                        await _complete_deferred_sanitizer(
+                            "diagnostic skipped because concurrent context faults required hard recovery"
+                        )
                     else:
                         await self._restart_worker(
                             worker,
                             task_id=task_id,
                             validation_generation=validation_generation,
+                            after_reap_before_replenish=_complete_deferred_sanitizer,
                         )
                     total_restart_s += time.time() - restart_start
                 elif fault_severity == FAULT_DEVICE:
@@ -3459,6 +3487,9 @@ class SubprocessWorkerPool:
                         worker,
                         task_id=task_id,
                         reason=f"{result.get('error_type', 'DeviceFault')}: {result.get('error_message', '')}",
+                    )
+                    await _complete_deferred_sanitizer(
+                        "diagnostic skipped because the original failure was classified as a device fault"
                     )
                     total_restart_s += time.time() - restart_start
                 elif not worker.is_alive():
@@ -3875,6 +3906,7 @@ class SubprocessWorkerPool:
         *,
         task_id: str = "",
         validation_generation: Optional[int] = None,
+        after_reap_before_replenish: Optional[Callable[[], Any]] = None,
     ):
         """
         重启一个 worker (non-blocking, warm-spare promotion).
@@ -3971,6 +4003,10 @@ class SubprocessWorkerPool:
                 task_id=task_id or self.health_task_id,
                 worker_id=worker.worker_id,
             )
+
+        if after_reap_before_replenish is not None:
+            _, action_cancelled = await _complete_despite_cancellation(after_reap_before_replenish())
+            cancellation_requested = cancellation_requested or action_cancelled
 
         try:
             if should_replenish:
@@ -4131,6 +4167,65 @@ class SubprocessWorkerPool:
 # ============================================================================
 # Worker Loop (在 subprocess 中运行)
 # ============================================================================
+
+
+def _run_deferred_compute_sanitizer(
+    wrapper: Dict[str, Any],
+    skip_reason: Optional[str] = None,
+    total_timeout_s: Optional[float] = None,
+) -> None:
+    """Complete a child-requested diagnostic after its faulting context is reaped."""
+
+    payload = wrapper.get("result")
+    metadata = payload.get("metadata") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict) or not isinstance(metadata, dict):
+        return
+    request = metadata.pop("_runtime_sanitizer_request", None)
+    if not isinstance(request, dict):
+        return
+
+    placeholder = payload.get("runtime_sanitizer")
+    placeholder = placeholder if isinstance(placeholder, dict) else {}
+    started = time.time()
+    try:
+        if skip_reason:
+            raise RuntimeError(skip_reason)
+        from kernelgym.toolkit.kernelbench.compute_sanitizer import run_compute_sanitizer
+
+        diagnostic = run_compute_sanitizer(**request, total_timeout_s=total_timeout_s)
+    except Exception as exc:
+        diagnostic = {
+            "status": "error",
+            "passed": None,
+            "measurement_complete": False,
+            "requested_checks": list(placeholder.get("requested_checks") or []),
+            "detected_issue_count": 0,
+            "check_results": [],
+            "error": f"{type(exc).__name__}: {exc}",
+            "wall_time_s": time.time() - started,
+        }
+
+    diagnostic.setdefault("selection_mode", placeholder.get("selection_mode"))
+    diagnostic.setdefault("mode", placeholder.get("mode"))
+    diagnostic.setdefault("error_classification", placeholder.get("error_classification"))
+    payload["runtime_sanitizer"] = diagnostic
+    metadata["runtime_sanitizer_status"] = diagnostic.get("status")
+    metadata["runtime_sanitizer_issue_count"] = diagnostic.get("detected_issue_count", 0)
+    metadata["kg_kernel_runtime_sanitizer_s"] = float(diagnostic.get("wall_time_s") or (time.time() - started))
+
+    if diagnostic.get("status") == "issues_found":
+        detail = None
+        for check_result in diagnostic.get("check_results") or []:
+            issues = check_result.get("issues") if isinstance(check_result, dict) else None
+            if isinstance(issues, list) and issues:
+                detail = issues[0].get("message")
+                break
+        message = "Runtime Sanitizer detected an unsafe CUDA kernel"
+        if detail:
+            message = f"{message}: {detail}"
+        payload["status"] = "failed"
+        payload["error_message"] = message
+        payload["error_code"] = "RUNTIME_ERROR"
 
 
 def _persistent_worker_loop(
@@ -4308,6 +4403,18 @@ def _persistent_worker_loop(
                     get_backend,
                 )
 
+                # Preserve the deferred diagnostic descriptor without touching
+                # the original, potentially poisoned CUDA context again. The
+                # parent owns STOP/KILL/reap, sanitizer execution, and the
+                # fresh-context validation transition.
+                if str(result.get("fault_severity") or trusted_fault_none) != trusted_fault_none:
+                    unsafe_cuda_cleanup = True
+                    try:
+                        trusted_task_ops.publish_and_wait(result)
+                    except BaseException:
+                        return
+                    return
+
                 # For long-lived contexts, do cache/GC maintenance before the
                 # commit barrier.  No CUDA API is allowed after a successful
                 # result is published.
@@ -4370,7 +4477,11 @@ def _persistent_worker_loop(
                     # failures already crossed a trusted sync; neither class
                     # makes another CUDA call after publication.  The parent
                     # owns the process group's STOP/KILL/reap transition.
-                    trusted_task_ops.publish_and_wait(error_result)
+                    try:
+                        trusted_task_ops.publish_and_wait(error_result)
+                    except BaseException:
+                        return
+                    return
 
                 else:
                     # 非 CUDA error，返回错误但继续运行
@@ -4503,36 +4614,61 @@ def _execute_task_in_worker(
             else:
                 os.environ[_STAGE_METADATA_PATH_ENV] = previous_stage_metadata_path
 
+        result_metadata = None
         if isinstance(result, dict):
             status = result.get("status")
             error_msg = result.get("error_message")
+            result_metadata = result.get("metadata")
         else:
             status = getattr(result, "status", None)
             error_msg = getattr(result, "error_message", None)
+            result_metadata = getattr(result, "metadata", None)
+
+        candidate_runtime_context_fault = bool(
+            isinstance(result_metadata, dict)
+            and bool(result_metadata.get("runtime_error"))
+            and (
+                result_metadata.get("correctness_runtime_error_stage") == "custom_forward"
+                or result_metadata.get("runtime_sanitizer_trigger") == "correctness_runtime_error"
+            )
+        )
 
         if status == "failed" and error_msg:
-            reported_cuda_error = (
-                "CUDA" in error_msg
-                or "cuda" in error_msg.lower()
-                or "illegal memory access" in error_msg.lower()
-                or "device-side assert" in error_msg.lower()
-            )
-            reported_fault = _classify_cuda_fault(
-                "RuntimeError",
-                str(error_msg),
-                is_cuda_error=reported_cuda_error,
-            )
-            if reported_cuda_error or reported_fault != FAULT_NONE:
-                raise RuntimeError(f"CUDA error detected: {error_msg}")
+            if not candidate_runtime_context_fault:
+                reported_cuda_error = (
+                    "CUDA" in error_msg
+                    or "cuda" in error_msg.lower()
+                    or "illegal memory access" in error_msg.lower()
+                    or "device-side assert" in error_msg.lower()
+                )
+                reported_fault = _classify_cuda_fault(
+                    "RuntimeError",
+                    str(error_msg),
+                    is_cuda_error=reported_cuda_error,
+                )
+                if reported_cuda_error or reported_fault != FAULT_NONE:
+                    raise RuntimeError(f"CUDA error detected: {error_msg}")
 
         if _has_no_cuda_events(result):
             raise RuntimeError("PROFILER_NO_CUDA_EVENTS")
 
-        return {
+        wrapped_result = {
             "success": True,
             "result": result,
-            "worker_exiting": False,
+            "worker_exiting": candidate_runtime_context_fault,
         }
+        if candidate_runtime_context_fault:
+            original_runtime_error = result_metadata.get("runtime_error")
+            wrapped_result.update(
+                {
+                    "error_type": "CandidateRuntimeContextFault",
+                    "error_message": str(original_runtime_error or error_msg or "correctness CUDA runtime failure"),
+                    "cuda_error": True,
+                    "fault_severity": FAULT_CONTEXT,
+                    "device_suspect": True,
+                }
+            )
+        return wrapped_result
 
     except Exception:
         # 这里的异常会被上层捕获并判断是否是 CUDA error

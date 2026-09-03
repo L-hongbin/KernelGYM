@@ -810,6 +810,12 @@ public:
         return KernelBenchCudaAgentBackend._env_flag(_CUDA_AGENT_COMPILE_ARTIFACT_CACHE_ENV, default=False)
 
     @staticmethod
+    def _cuda_compile_flags(nvcc_threads: str) -> list[str]:
+        # Line information lets Compute Sanitizer attribute diagnostics to the
+        # submitted source without changing generated machine code semantics.
+        return ["-O3", "--use_fast_math", "-lineinfo", "--threads", nvcc_threads]
+
+    @staticmethod
     def _artifact_cache_key(
         *,
         model_code: str,
@@ -827,6 +833,9 @@ public:
             "python": sys.version,
             "cuda_arch": KernelBenchCudaAgentBackend._cuda_arch_fingerprint(),
             "nvcc_threads": os.environ.get(_NVCC_THREADS_ENV, _CUDA_AGENT_DEFAULT_NVCC_THREADS),
+            "extra_cuda_cflags": KernelBenchCudaAgentBackend._cuda_compile_flags(
+                os.environ.get(_NVCC_THREADS_ENV, _CUDA_AGENT_DEFAULT_NVCC_THREADS)
+            ),
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -907,7 +916,7 @@ public:
         )
         torch, cpp_ext = _torch_modules()
         extra_cflags = ["-O3", "-std=c++17"]
-        extra_cuda_cflags = ["-O3", "--use_fast_math", "--threads", nvcc_threads]
+        extra_cuda_cflags = KernelBenchCudaAgentBackend._cuda_compile_flags(nvcc_threads)
         ext_name = ext_name_override or work_dir.name.replace("-", "_")
         compile_timing = KernelBenchCudaAgentBackend._new_compile_timing(build_dir, build_backend="manual_ninja")
 

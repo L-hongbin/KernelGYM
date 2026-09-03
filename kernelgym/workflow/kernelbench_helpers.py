@@ -130,6 +130,8 @@ def _create_paired_tasks(
         device_preference=task.device_preference,
         force_refresh=task.force_refresh,
         enable_profiling=task.enable_profiling,
+        enable_compute_sanitizer=task.enable_compute_sanitizer,
+        compute_sanitizer_mode=task.compute_sanitizer_mode,
         enable_triton_detection=task.enable_triton_detection,
         detect_decoy_kernel=task.detect_decoy_kernel,
         measure_performance=task.measure_performance,

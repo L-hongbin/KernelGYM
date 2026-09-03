@@ -13,6 +13,13 @@ import torch
 
 from kernelgym.config import settings
 from kernelgym.toolkit.kernelbench import triton_detect as detect
+from kernelgym.toolkit.kernelbench.compute_sanitizer import (
+    FULL_SANITIZER_TOOLS,
+    SANITIZER_MODE_FULL,
+    classify_compute_sanitizer_error,
+    prepare_compute_sanitizer_request,
+    skipped_compute_sanitizer_result,
+)
 from kernelgym.toolkit.kernelbench.exec_types import KernelExecResult, get_error_name, set_seed
 from kernelgym.toolkit.kernelbench.execution_policy import (
     prepare_model_for_execution,
@@ -47,6 +54,7 @@ _HARD_DECOY_COVERAGE_THRESHOLD = 0.001
 _SUSPECTED_DECOY_COVERAGE_THRESHOLD = 0.30
 _NAMED_KERNEL_PROBE_BACKENDS = frozenset({"cuda_agent", "tvm_ffi"})
 _BACKEND_KERNEL_NOT_OBSERVED_REASON = "BACKEND_CUSTOM_KERNEL_NOT_OBSERVED"
+_FAULTED_PIPELINE_CUDA_OBJECTS: list[Any] = []
 
 
 def _path_is_under_fast_rw_root(path: Path) -> bool:
@@ -510,6 +518,61 @@ def _run_incorrect_backend_usage_probe(
     return True
 
 
+def _is_candidate_correctness_runtime_failure(metadata: Dict[str, Any]) -> bool:
+    return bool(metadata.get("runtime_error")) and metadata.get("correctness_runtime_error_stage") == "custom_forward"
+
+
+def _select_compute_sanitizer_execution_mode(
+    runtime_error: Exception | str,
+    requested_mode: Optional[str],
+) -> tuple[str, Optional[str]]:
+    selection_mode = _normalize_compute_sanitizer_selection_mode(requested_mode)
+    preferred_tool = classify_compute_sanitizer_error(runtime_error)
+    execution_mode = (
+        SANITIZER_MODE_FULL if selection_mode == SANITIZER_MODE_FULL else preferred_tool or SANITIZER_MODE_FULL
+    )
+    return execution_mode, preferred_tool
+
+
+def _normalize_compute_sanitizer_selection_mode(requested_mode: Optional[str]) -> str:
+    selection_mode = str(requested_mode or "error_based").strip().lower()
+    if selection_mode not in {"error_based", SANITIZER_MODE_FULL}:
+        raise ValueError(
+            f"Unsupported Compute Sanitizer selection mode {requested_mode!r}; expected 'error_based' or 'full'"
+        )
+    return selection_mode
+
+
+def _select_compute_sanitizer_kernel_names(
+    metadata: Dict[str, Any],
+    backend_profiling_hints: Optional[Dict[str, Any]],
+    max_kernels: int,
+) -> list[str]:
+    """Return stable, bounded candidate kernel names without running another GPU probe."""
+
+    candidates: list[Any] = []
+    candidates.extend((backend_profiling_hints or {}).get("custom_kernel_names") or [])
+    candidates.extend(metadata.get("custom_kernel_in_profiling") or [])
+    candidates.extend(metadata.get("custom_kernel_names") or [])
+    compile_artifact = metadata.get("compile_artifact")
+    if isinstance(compile_artifact, dict):
+        profiling_hints = compile_artifact.get("profiling_hints")
+        if isinstance(profiling_hints, dict):
+            candidates.extend(profiling_hints.get("custom_kernel_names") or [])
+
+    selected: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        name = str(candidate).strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        selected.append(name[:512])
+        if len(selected) >= max(1, int(max_kernels)):
+            break
+    return selected
+
+
 def _run_triton_detection_step(
     *,
     enable_triton_detection: bool,
@@ -778,6 +841,8 @@ def eval_kernel_against_ref(
     precision: str = "fp32",
     entry_point: str = "Model",
     enable_profiling: bool = True,
+    enable_compute_sanitizer: bool = False,
+    compute_sanitizer_mode: Optional[str] = None,
     enable_triton_detection: bool = True,
     detect_decoy_kernel: bool = True,
     backend_adapter: Optional[Any] = None,
@@ -786,6 +851,7 @@ def eval_kernel_against_ref(
     compile_only: bool = False,
     return_internal_compile_artifact: bool = False,
 ) -> KernelExecResult:
+    selection_mode = _normalize_compute_sanitizer_selection_mode(compute_sanitizer_mode)
     if not compile_only:
         assert torch.cuda.is_available(), "CUDA is not available, cannot run Eval"
     torch.set_printoptions(
@@ -871,6 +937,8 @@ def eval_kernel_against_ref(
         stage="kernel.load_original_src",
         overall_start=overall_start,
     )
+    runtime_sanitizer = skipped_compute_sanitizer_result("not_triggered")
+
     try:
         Model, get_init_inputs, get_inputs = load_original_model_and_inputs(original_model_src, context, entry_point)
     except OriginalModelLoadError as exc:
@@ -944,6 +1012,7 @@ def eval_kernel_against_ref(
     backend_handle = None
     backend_session = None
     backend_profiling_hints: Optional[Dict[str, Any]] = None
+    artifact: Optional[Dict[str, Any]] = None
 
     def _cleanup():
         if backend_session is not None:
@@ -1137,7 +1206,12 @@ def eval_kernel_against_ref(
                 timing_key="kg_kernel_build_custom_model_s",
                 start_time=custom_model_start,
             )
-        return KernelExecResult(compiled=True, correctness=False, metadata=metadata)
+        return KernelExecResult(
+            compiled=True,
+            correctness=False,
+            metadata=metadata,
+            runtime_sanitizer=runtime_sanitizer,
+        )
 
     kernel_exec_result = None
 
@@ -1165,6 +1239,88 @@ def eval_kernel_against_ref(
         timing_key="kg_kernel_correctness_s",
         start_time=correctness_start,
     )
+
+    correctness_runtime_failure = _is_candidate_correctness_runtime_failure(metadata)
+    if not enable_compute_sanitizer:
+        runtime_sanitizer = skipped_compute_sanitizer_result("disabled")
+    elif correctness_runtime_failure:
+        runtime_error = metadata.get("runtime_error", "")
+        execution_mode, preferred_tool = _select_compute_sanitizer_execution_mode(runtime_error, selection_mode)
+        sanitizer_tools = list(FULL_SANITIZER_TOOLS) if execution_mode == SANITIZER_MODE_FULL else [execution_mode]
+        metadata["runtime_sanitizer_trigger"] = "correctness_runtime_error"
+        metadata["runtime_sanitizer_mode"] = selection_mode
+        metadata["runtime_sanitizer_execution_mode"] = execution_mode
+        metadata["runtime_sanitizer_tool_order"] = sanitizer_tools
+        metadata["runtime_sanitizer_error_classification"] = preferred_tool or "ambiguous"
+        metadata["runtime_sanitizer_run_all_checks"] = execution_mode == SANITIZER_MODE_FULL
+        metadata["runtime_sanitizer_execution_location"] = "pool_parent_after_fault_reap"
+        metadata["_runtime_sanitizer_request"] = prepare_compute_sanitizer_request(
+            original_model_src=original_model_src,
+            custom_model_src=custom_model_src,
+            artifact=artifact,
+            backend=backend,
+            entry_point=entry_point,
+            device=device,
+            kernel_names=_select_compute_sanitizer_kernel_names(
+                metadata,
+                backend_profiling_hints,
+                settings.compute_sanitizer_max_kernels,
+            ),
+            sanitizer_path=settings.compute_sanitizer_path,
+            timeout_s=settings.compute_sanitizer_timeout_s,
+            max_kernels=settings.compute_sanitizer_max_kernels,
+            max_issues=settings.compute_sanitizer_max_issues,
+            mode=execution_mode,
+            primary_tool=preferred_tool,
+            input_seed=metadata.get("correctness_failed_trial_seed"),
+            model_seed=seed_num,
+            generate_inputs_on_gpu=bool(metadata.get("correctness_inputs_generated_on_gpu", True)),
+        )
+        runtime_sanitizer = {
+            "status": "pending",
+            "passed": None,
+            "measurement_complete": False,
+            "requested_checks": sanitizer_tools,
+            "detected_issue_count": 0,
+            "check_results": [],
+            "selection_mode": selection_mode,
+            "mode": execution_mode,
+            "error_classification": preferred_tool or "ambiguous",
+        }
+    else:
+        skip_reason = (
+            "correctness_passed" if kernel_exec_result.correctness else "correctness_failed_without_runtime_error"
+        )
+        runtime_sanitizer = skipped_compute_sanitizer_result(skip_reason)
+
+    runtime_sanitizer.setdefault("selection_mode", selection_mode)
+    runtime_sanitizer.setdefault("mode", None)
+    metadata["runtime_sanitizer_status"] = runtime_sanitizer.get("status")
+    metadata["runtime_sanitizer_issue_count"] = runtime_sanitizer.get("detected_issue_count", 0)
+    kernel_exec_result.runtime_sanitizer = runtime_sanitizer
+
+    if correctness_runtime_failure:
+        # The original CUDA context may be sticky-faulted. Return a deferred
+        # request without cleanup or another CUDA API call. The pool parent
+        # reaps this process group before launching the diagnostic and then
+        # validates a fresh context.
+        metadata["kg_kernel_total_s"] = perf_counter() - overall_start
+        _sync_exec_result_metadata(kernel_exec_result, metadata)
+        _FAULTED_PIPELINE_CUDA_OBJECTS.append(
+            (
+                original_model,
+                custom_model,
+                init_inputs,
+                context,
+                backend_handle,
+                backend_session,
+                tempfile_handle,
+                artifact,
+                Model,
+                get_inputs,
+            )
+        )
+        return kernel_exec_result
 
     if kernel_exec_result.decoy_kernel:
         logger.warning(

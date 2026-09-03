@@ -88,6 +88,8 @@ Step toggles (override service defaults):
 |---|---|
 | `run_correctness`, `run_performance`, `run_triton_detection` | Per-call overrides for each evaluation step. |
 | `enable_profiling` | `null` = use server `ENABLE_PROFILING` env, else explicit `true`/`false`. |
+| `enable_compute_sanitizer` | `null` = use server `ENABLE_COMPUTE_SANITIZER` env (default `false`). A fresh diagnostic process is launched only after a candidate `custom_forward` runtime failure. |
+| `compute_sanitizer_mode` | `error_based` (default) selects the relevant internal check and falls back to all checks when ambiguous; `full` always runs all four checks. Individual check names are not accepted in the public payload. |
 | `enable_triton_detection`, `detect_decoy_kernel` | Decoy-kernel checks; see [REWARD_HACKING_DEFENSES](design-doc/REWARD_HACKING_DEFENSES.md). |
 | `measure_performance` | Legacy alias for `run_performance`. |
 | `verbose_errors` | `null` = server default (`VERBOSE_ERROR_TRACEBACK`). |
@@ -132,6 +134,20 @@ Split compile/execute (advanced, see [COMPILE_ACCELERATION](design-doc/COMPILE_A
 ```
 
 `status` values: `pending`, `processing`, `completed`, `failed`, `timeout`.
+
+When enabled and triggered, `runtime_sanitizer` contains the isolated replay result. The field is omitted for ordinary evaluations where the diagnostic is disabled or not triggered.
+
+| Field | Meaning |
+|---|---|
+| `runtime_sanitizer.status` | `clean`, `issues_found`, `partial`, `error`, or `unavailable`. A tool timeout or a safety-driven replay skip is reported as diagnostic `error`, not as a second execution attempt in the original CUDA context. |
+| `runtime_sanitizer.requested_checks`, `executed_checks` | Selected and completed checks among `memcheck`, `synccheck`, `racecheck`, and `initcheck`. |
+| `runtime_sanitizer.check_results[].issues[]` | Bounded, aggregated hazards with kernel/source information, access type, occurrence counts, thread/block ranges, and a short raw excerpt. |
+| `runtime_sanitizer.replayed_input_seed` | Seed from the failed correctness trial. `initcheck` may regenerate inputs on CPU then copy them to the GPU, so exact RNG values can differ while shape, dtype, and seed remain the same. |
+| `runtime_sanitizer.detected_issue_count` | Count for the classified primary check; heterogeneous check counts are not summed. |
+| `runtime_sanitizer.selection_mode`, `mode` | Public selection strategy and actual internal execution mode. |
+| `runtime_sanitizer.kernel_filter_empty` | `true` when no backend kernel name was available. In that case no launch-count cap is applied, so framework launches cannot consume the cap before the candidate kernel. |
+
+After a correctness-time CUDA failure, the original evaluation subprocess publishes a deferred diagnostic descriptor without another CUDA synchronization or cleanup call. Its parent freezes and reaps the process group, runs the isolated diagnostic within the remaining task timeout budget, and only then starts fresh-context validation before admitting more work on that GPU. This fault containment remains active when the sanitizer feature is disabled.
 
 `metadata` is a large dict of server-side timing + caching diagnostics. Notable keys:
 

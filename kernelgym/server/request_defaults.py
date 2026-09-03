@@ -10,10 +10,17 @@ def apply_runtime_defaults(
     *,
     workflow_name: str,
     split_compile_and_execute: bool,
+    enable_compute_sanitizer: bool | None = None,
+    compute_sanitizer_profile_version: str = "",
 ) -> Dict[str, Any]:
     """Apply deployment-level defaults to an external workflow payload."""
     if payload.get("resources") is None:
         payload["resources"] = None
+    if (workflow_name or "kernelbench") == "kernelbench":
+        if payload.get("enable_compute_sanitizer") is None and enable_compute_sanitizer is not None:
+            payload["enable_compute_sanitizer"] = bool(enable_compute_sanitizer)
+        if payload.get("enable_compute_sanitizer") and compute_sanitizer_profile_version:
+            payload["_compute_sanitizer_profile_version"] = compute_sanitizer_profile_version
     if (
         (workflow_name or "kernelbench") == "kernelbench"
         and split_compile_and_execute

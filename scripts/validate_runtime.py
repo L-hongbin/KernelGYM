@@ -28,6 +28,15 @@ import torch
 
 REQUIRED_CUDA = (12, 9)
 PREFERRED_NVCC = Path("/usr/local/cuda-12.9/bin/nvcc")
+PREFERRED_COMPUTE_SANITIZER = Path(
+    os.environ.get("COMPUTE_SANITIZER_PATH", "/usr/local/cuda-12.9/bin/compute-sanitizer")
+)
+ENABLE_COMPUTE_SANITIZER = os.environ.get("ENABLE_COMPUTE_SANITIZER", "false").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
 _RELEASE_RE = re.compile(r"release (\d+)\.(\d+)")
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "20110"))
@@ -76,6 +85,30 @@ def _check_nvcc() -> tuple[str, tuple[int, int]]:
             f"expected nvcc release == {REQUIRED_CUDA[0]}.{REQUIRED_CUDA[1]}, got {version[0]}.{version[1]} at {nvcc}"
         )
     return nvcc, version
+
+
+def _check_compute_sanitizer() -> str | None:
+    if not ENABLE_COMPUTE_SANITIZER:
+        print("compute_sanitizer=skipped (ENABLE_COMPUTE_SANITIZER=false)")
+        return None
+    if PREFERRED_COMPUTE_SANITIZER.exists():
+        executable = str(PREFERRED_COMPUTE_SANITIZER)
+    else:
+        located = shutil.which("compute-sanitizer")
+        if not located:
+            raise SystemExit(
+                "ENABLE_COMPUTE_SANITIZER=true but compute-sanitizer was not found at "
+                f"{PREFERRED_COMPUTE_SANITIZER} or on PATH"
+            )
+        executable = located
+    try:
+        output = subprocess.check_output([executable, "--version"], text=True, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"compute-sanitizer --version failed at {executable}: {exc.output or exc}")
+    version_line = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "unknown")
+    print(f"compute_sanitizer={executable}")
+    print(f"compute_sanitizer_version={version_line}")
+    return version_line
 
 
 def _check_cuda_init() -> int:
@@ -245,6 +278,7 @@ def main() -> int:
     print("\n=== Validate CUDA 12.9 + torch ===")
     _check_torch_cuda()
     nvcc, nvcc_version = _check_nvcc()
+    _check_compute_sanitizer()
     device_count = _check_cuda_init()
     _check_cuda_math_libs()
     _check_redis()

@@ -1,6 +1,6 @@
 """API request/response models for KernelGym server."""
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Literal
 
 from pydantic import BaseModel, Field, root_validator, validator
 
@@ -65,6 +65,21 @@ class EvaluationRequest(BaseModel):
     enable_profiling: Optional[bool] = Field(
         default=None,
         description="Enable torch.profiler for this request. None=use server default, True=enable, False=disable",
+    )
+    enable_compute_sanitizer: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Run isolated NVIDIA Compute Sanitizer trials after a correctness runtime failure. "
+            "None uses the server default."
+        ),
+    )
+    compute_sanitizer_mode: Literal["error_based", "full"] = Field(
+        default="error_based",
+        description=(
+            "Sanitizer selection strategy. error_based selects the most relevant check "
+            "from the correctness runtime error and falls back to all checks when ambiguous; "
+            "full always runs memcheck, synccheck, racecheck, and initcheck."
+        ),
     )
     enable_triton_detection: Optional[bool] = Field(
         default=None,
@@ -182,6 +197,8 @@ class EvaluationRequest(BaseModel):
                 "is_valid": False,
                 "verbose_errors": None,
                 "enable_profiling": None,
+                "enable_compute_sanitizer": None,
+                "compute_sanitizer_mode": "error_based",
             }
         }
 
@@ -197,6 +214,10 @@ class EvaluationResponse(BaseModel):
     reference_runtime: Optional[float] = None
     kernel_runtime: Optional[float] = None
     speedup: Optional[float] = None
+    runtime_sanitizer: Optional[Dict[str, Any]] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     metadata: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
     error_code: Optional[ErrorCode] = None

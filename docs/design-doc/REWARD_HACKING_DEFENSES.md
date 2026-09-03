@@ -80,6 +80,12 @@ For CUDA-Agent and TVM-FFI only, a candidate that completes its forward but retu
 
 If the capture is valid, at least one expected custom kernel name exists, and none of those names is observed, the result is returned with `decoy_kernel=true` and `policy_violation_reason=BACKEND_CUSTOM_KERNEL_NOT_OBSERVED`. Missing expected names, an empty profiler capture, or a profiler error fails open. A correctness runtime error, CUDA fault, or candidate forward that never completed is never rerun. Probe evidence is recorded under `incorrect_backend_usage_probe`.
 
+### Isolated Compute Sanitizer diagnostics
+
+Compute Sanitizer is disabled by default and can be enabled globally or per request. It triggers only when the candidate `custom_forward` raises during correctness; numerical mismatch and successful candidates do not add diagnostic work. The failed trial seed and compile artifact are replayed in a fresh process under `memcheck`, `synccheck`, `racecheck`, or `initcheck`. Specific errors select one check in `error_based` mode, while ambiguous errors and `full` mode run the complete suite.
+
+The original CUDA context is treated as poisoned regardless of whether the replay finds an issue, times out, or is unavailable. The evaluation child performs no CUDA cleanup, final synchronization, or sanitizer launch after recording the fault; CUDA-owning locals are retained so Python teardown cannot implicitly call the poisoned context before SIGKILL. The child publishes a JSON-safe deferred diagnostic descriptor through the subprocess containment channel. The pool parent freezes and reaps the old process group, runs the sanitizer in a dedicated process group inside the monitor-owned session with admission gated, and only then starts fresh-context validation. This keeps diagnostic collection from weakening the existing GPU fault boundary.
+
 ### CUDA synchronization
 
 Correctness and timing paths call `torch.cuda.synchronize(device=device)` after reference, custom, warmup, timing, and profiling loops. This prevents default-stream timing from returning before queued work is finished.
