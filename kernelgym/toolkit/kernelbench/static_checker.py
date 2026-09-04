@@ -64,6 +64,7 @@ _COMPUTE = frozenset(
 _TORCH_MODULES = frozenset(
     {"ReLU", "GELU", "Softmax", "LogSoftmax", "LayerNorm", "BatchNorm1d", "BatchNorm2d", "BatchNorm3d"}
 )
+_TORCH_MODULE_CONTAINERS = frozenset({"ModuleDict", "ModuleList", "Sequential"})
 _NATIVE_SUFFIXES = (".c", ".cc", ".cpp", ".cxx", ".cu", ".cuh", ".h", ".hh", ".hpp")
 _MESSAGES = {
     "code_bypass": "Contains try/except fallback bypass pattern",
@@ -139,8 +140,13 @@ def mask_native_comments(code: str) -> str:
 
 
 class _PythonIssueVisitor(ast.NodeVisitor):
-    def __init__(self, allowed_extension_modules: Collection[str]) -> None:
+    def __init__(
+        self,
+        allowed_extension_modules: Collection[str],
+        module_constructor_entry_points: Collection[str] = ("ModelNew",),
+    ) -> None:
         self.allowed_extensions = frozenset(allowed_extension_modules)
+        self.module_constructor_entry_points = frozenset(module_constructor_entry_points)
         self.aliases: dict[str, tuple[str, tuple[str, ...]]] = {
             "math": ("math", ()),
             "cmath": ("cmath", ()),
@@ -152,6 +158,10 @@ class _PythonIssueVisitor(ast.NodeVisitor):
         self.imported_extensions: set[str] = set()
         self.referenced_extensions: set[str] = set()
         self.extension_calls: set[str] = set()
+        self.class_stack: list[str] = []
+        self.function_stack: list[str] = []
+        self.constructor_module_instances: set[tuple[str, ...]] = set()
+        self.allowed_constructor_calls: set[int] = set()
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -223,6 +233,169 @@ class _PythonIssueVisitor(ast.NodeVisitor):
             return [name for item in target.elts for name in _PythonIssueVisitor._bound_names(item)]
         return []
 
+    def _inside_entry_point_init(self) -> bool:
+        return (
+            len(self.class_stack) == 1
+            and self.class_stack[0] in self.module_constructor_entry_points
+            and self.function_stack == ["__init__"]
+        )
+
+    def _symbol_path(self, node: ast.AST) -> tuple[str, ...] | None:
+        if isinstance(node, ast.Name):
+            return (node.id,)
+        if isinstance(node, ast.Attribute):
+            parent = self._symbol_path(node.value)
+            return (*parent, node.attr) if parent is not None else None
+        if isinstance(node, ast.Subscript):
+            if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
+                if isinstance(node.value, ast.Attribute) and node.value.attr == "__dict__":
+                    parent = self._symbol_path(node.value.value)
+                    return (*parent, node.slice.value) if parent is not None else None
+                if (
+                    isinstance(node.value, ast.Call)
+                    and isinstance(node.value.func, ast.Name)
+                    and node.value.func.id == "vars"
+                    and "vars" not in self.aliases
+                    and "vars" not in self.blocked_names
+                    and node.value.args
+                ):
+                    parent = self._symbol_path(node.value.args[0])
+                    return (*parent, node.slice.value) if parent is not None else None
+            parent = self._symbol_path(node.value)
+            return (*parent, "[]") if parent is not None else None
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and "getattr" not in self.aliases
+            and "getattr" not in self.blocked_names
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+        ):
+            parent = self._symbol_path(node.args[0])
+            return (*parent, node.args[1].value) if parent is not None else None
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "__getattribute__"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            parent = self._symbol_path(node.func.value)
+            return (*parent, node.args[0].value) if parent is not None else None
+        return None
+
+    def _is_torch_module_type_reference(self, node: ast.AST) -> bool:
+        resolved = self._resolved(node)
+        if resolved is None:
+            return False
+        root, attrs = resolved
+        return root == "torch" and bool(attrs) and attrs[-1] in _TORCH_MODULES
+
+    def _is_torch_module_constructor(self, node: ast.AST) -> bool:
+        if not isinstance(node, ast.Call):
+            return False
+        resolved = self._resolved(node.func)
+        if resolved is None:
+            return False
+        root, attrs = resolved
+        return root == "torch" and bool(attrs) and attrs[-1] in _TORCH_MODULES
+
+    def _is_torch_module_container_constructor(self, node: ast.AST) -> bool:
+        if not isinstance(node, ast.Call):
+            return False
+        resolved = self._resolved(node.func)
+        if resolved is None:
+            return False
+        root, attrs = resolved
+        return root == "torch" and bool(attrs) and attrs[-1] in _TORCH_MODULE_CONTAINERS
+
+    def _is_constructor_module_reference(self, node: ast.AST) -> bool:
+        path = self._symbol_path(node)
+        return path is not None and any(
+            path[: len(module_path)] == module_path for module_path in self.constructor_module_instances
+        )
+
+    def _contains_constructor_module_reference(self, node: ast.AST) -> bool:
+        return any(self._is_constructor_module_reference(item) for item in ast.walk(node))
+
+    def _passive_constructor_value(self, node: ast.AST) -> bool:
+        """Track module values through assignments without blessing executable expressions."""
+
+        if self._is_torch_module_constructor(node):
+            self.allowed_constructor_calls.add(id(node))
+            return True
+        if self._is_torch_module_container_constructor(node):
+            item_results = [
+                self._passive_constructor_value(item)
+                for item in [*node.args, *(keyword.value for keyword in node.keywords)]
+            ]
+            return any(item_results)
+        if self._is_constructor_module_reference(node):
+            return True
+        if self._is_torch_module_type_reference(node):
+            self.issues.add("framework_compute")
+            return False
+        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            item_results = [self._passive_constructor_value(item) for item in node.elts]
+            return any(item_results)
+        if isinstance(node, ast.Dict):
+            item_results = [
+                self._passive_constructor_value(item)
+                for item in [*(key for key in node.keys if key is not None), *node.values]
+            ]
+            return any(item_results)
+        if isinstance(node, ast.IfExp):
+            branch_results = [
+                self._passive_constructor_value(node.body),
+                self._passive_constructor_value(node.orelse),
+            ]
+            return any(branch_results)
+        if isinstance(node, ast.NamedExpr):
+            value_is_module = self._passive_constructor_value(node.value)
+            if (target_path := self._symbol_path(node.target)) is not None:
+                if value_is_module:
+                    self._mark_constructor_module_path(target_path)
+                else:
+                    self.constructor_module_instances.discard(target_path)
+            return value_is_module
+        if isinstance(node, (ast.ListComp, ast.SetComp)):
+            return self._passive_constructor_value(node.elt)
+        if isinstance(node, ast.DictComp):
+            item_results = [
+                self._passive_constructor_value(node.key),
+                self._passive_constructor_value(node.value),
+            ]
+            return any(item_results)
+        return False
+
+    def _mark_constructor_module_path(self, path: tuple[str, ...]) -> None:
+        self.constructor_module_instances.add(path)
+        if path[-1:] == ("[]",):
+            self.constructor_module_instances.add(path[:-1])
+
+    def _record_constructor_module_target(self, target: ast.expr, value: ast.AST) -> None:
+        if isinstance(target, (ast.List, ast.Tuple)) and isinstance(value, (ast.List, ast.Tuple)):
+            if len(target.elts) == len(value.elts):
+                for target_item, value_item in zip(target.elts, value.elts, strict=True):
+                    self._record_constructor_module_target(target_item, value_item)
+                return
+        target_path = self._symbol_path(target)
+        if target_path is None:
+            return
+        if self._passive_constructor_value(value):
+            self._mark_constructor_module_path(target_path)
+        else:
+            self.constructor_module_instances.discard(target_path)
+
+    def _record_constructor_module_targets(self, targets: list[ast.expr], value: ast.AST) -> None:
+        if not self._inside_entry_point_init():
+            return
+        for target in targets:
+            self._record_constructor_module_target(target, value)
+
     def _block_targets(self, targets: list[ast.AST]) -> None:
         for target in targets:
             for name in self._bound_names(target):
@@ -272,12 +445,14 @@ class _PythonIssueVisitor(ast.NodeVisitor):
 
     def visit_Assign(self, node: ast.Assign) -> None:
         self._record_assignment_targets(node.targets)
+        self._record_constructor_module_targets(node.targets, node.value)
         self._assign_aliases(node.targets, node.value)
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if node.value is not None:
             self._record_assignment_targets([node.target])
+            self._record_constructor_module_targets([node.target], node.value)
             self._assign_aliases([node.target], node.value)
         self.generic_visit(node)
 
@@ -289,6 +464,7 @@ class _PythonIssueVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+        self._record_constructor_module_targets([node.target], node.value)
         self.visit(node.value)
         self._assign_aliases([node.target], node.value)
 
@@ -371,6 +547,7 @@ class _PythonIssueVisitor(ast.NodeVisitor):
     def _visit_scoped(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda | ast.ClassDef) -> None:
         saved_aliases = self.aliases.copy()
         saved_blocked_names = self.blocked_names.copy()
+        saved_constructor_module_instances = self.constructor_module_instances.copy()
         arguments = getattr(node, "args", None)
         if arguments is not None:
             for argument in [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]:
@@ -385,15 +562,28 @@ class _PythonIssueVisitor(ast.NodeVisitor):
         self.generic_visit(node)
         self.aliases = saved_aliases
         self.blocked_names = saved_blocked_names
+        self.constructor_module_instances = saved_constructor_module_instances
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        self._visit_scoped(node)
+        self.function_stack.append(node.name)
+        try:
+            self._visit_scoped(node)
+        finally:
+            self.function_stack.pop()
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        self._visit_scoped(node)
+        self.function_stack.append(node.name)
+        try:
+            self._visit_scoped(node)
+        finally:
+            self.function_stack.pop()
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
-        self._visit_scoped(node)
+        self.function_stack.append("<lambda>")
+        try:
+            self._visit_scoped(node)
+        finally:
+            self.function_stack.pop()
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         if any(
@@ -404,10 +594,42 @@ class _PythonIssueVisitor(ast.NodeVisitor):
             for base in node.bases
         ):
             self.issues.add("lazy_eval")
-        self._visit_scoped(node)
+        self.class_stack.append(node.name)
+        try:
+            self._visit_scoped(node)
+        finally:
+            self.class_stack.pop()
 
     def visit_Call(self, node: ast.Call) -> None:
         resolved = self._resolved(node.func)
+        passive_setattr_value: ast.AST | None = None
+        if (
+            self._inside_entry_point_init()
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "setattr"
+            and "setattr" not in self.aliases
+            and "setattr" not in self.blocked_names
+            and len(node.args) >= 3
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+            and (parent_path := self._symbol_path(node.args[0])) is not None
+        ):
+            target_path = (*parent_path, node.args[1].value)
+            if self._passive_constructor_value(node.args[2]):
+                self._mark_constructor_module_path(target_path)
+                passive_setattr_value = node.args[2]
+            else:
+                self.constructor_module_instances.discard(target_path)
+        call_arguments = [
+            item for item in [*node.args, *(kw.value for kw in node.keywords)] if item is not passive_setattr_value
+        ]
+        calls_constructed_module = self._contains_constructor_module_reference(node.func) or any(
+            self._contains_constructor_module_reference(item) for item in call_arguments
+        )
+        if any(self._is_torch_module_constructor(item) for item in ast.walk(node.func)):
+            calls_constructed_module = True
+        if calls_constructed_module:
+            self.issues.add("framework_compute")
         # The receiver can be intentionally unknown, but an explicit Torch
         # FP16 dtype is still unambiguous. Check it independently so
         # x.to(torch.float16) cannot evade the FP32 gate.
@@ -435,10 +657,13 @@ class _PythonIssueVisitor(ast.NodeVisitor):
             torch_ops_compute = (
                 root == "torch" and len(attrs) >= 3 and attrs[:2] == ("ops", "aten") and attrs[2] in _COMPUTE
             )
+            forbidden_torch_module_constructor = leaf in _TORCH_MODULES and not (
+                self._inside_entry_point_init() and id(node) in self.allowed_constructor_calls
+            )
             if (
                 extension_target is None
                 and root == "torch"
-                and (leaf in _COMPUTE or leaf in _TORCH_MODULES or torch_ops_compute)
+                and (leaf in _COMPUTE or forbidden_torch_module_constructor or torch_ops_compute)
             ):
                 self.issues.add("framework_compute")
             if leaf == "astype" and any(
@@ -472,12 +697,16 @@ class _PythonIssueVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def _python_issues(code: str, allowed_extension_modules: Collection[str]) -> set[str] | None:
+def _python_issues(
+    code: str,
+    allowed_extension_modules: Collection[str],
+    module_constructor_entry_points: Collection[str] = ("ModelNew",),
+) -> set[str] | None:
     try:
         tree = ast.parse(code)
     except SyntaxError:
         return None
-    visitor = _PythonIssueVisitor(allowed_extension_modules)
+    visitor = _PythonIssueVisitor(allowed_extension_modules, module_constructor_entry_points)
     visitor.visit(tree)
     return visitor.issues
 
@@ -512,10 +741,15 @@ def _native_issues(code: str) -> set[str]:
     return issues
 
 
-def _issues(code: str, language: str = "auto", allowed_extension_modules: Collection[str] = ()) -> set[str]:
+def _issues(
+    code: str,
+    language: str = "auto",
+    allowed_extension_modules: Collection[str] = (),
+    module_constructor_entry_points: Collection[str] = ("ModelNew",),
+) -> set[str]:
     if language == "native":
         return _native_issues(code)
-    parsed = _python_issues(code, allowed_extension_modules)
+    parsed = _python_issues(code, allowed_extension_modules, module_constructor_entry_points)
     return parsed if parsed is not None else _native_issues(code)
 
 
@@ -572,6 +806,7 @@ def validate_kernel_static(
     warnings: list[str] | None = None,
     source_map: Mapping[str, str] | None = None,
     allowed_extension_modules: Collection[str] = (),
+    entry_point: str = "ModelNew",
 ) -> StaticCheckResult:
     """Validate model code and separately supplied native source files.
 
@@ -587,7 +822,14 @@ def validate_kernel_static(
         for filename, content in (source_map or {}).items()
     ]
     for language, snippet in snippets:
-        found.update(_issues(snippet, language, allowed_extension_modules if language == "python" else ()))
+        found.update(
+            _issues(
+                snippet,
+                language,
+                allowed_extension_modules if language == "python" else (),
+                (entry_point,),
+            )
+        )
     if normalized != "fp32":
         found.discard("precision_downgrade")
     errors = [f"{name}: {_MESSAGES[name]}" for name in all_checks if name in found and name in forbidden_checks]

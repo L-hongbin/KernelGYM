@@ -160,6 +160,7 @@ def _run_submission_static_check(
     model_code: str,
     source_map: dict[str, str],
     *,
+    entry_point: str,
     precision: str,
     allowed_extension_modules: set[str],
 ) -> Tuple[str, Optional[ErrorCode], dict[str, Any]] | None:
@@ -168,6 +169,7 @@ def _run_submission_static_check(
         precision=precision,
         source_map=source_map,
         allowed_extension_modules=allowed_extension_modules,
+        entry_point=entry_point,
     )
     precheck["static_check"] = result.to_dict()
     if result.valid:
@@ -285,6 +287,7 @@ def precheck_cuda_agent_submission(
             precheck,
             model_code,
             source_map,
+            entry_point=entry_point,
             precision=precision,
             allowed_extension_modules={"cuda_extension"},
         )
@@ -448,6 +451,7 @@ def precheck_tvm_ffi_submission(
             precheck,
             model_code,
             source_map,
+            entry_point=entry_point,
             precision=precision,
             allowed_extension_modules={"tvm_ffi_extension"},
         )

@@ -35,6 +35,217 @@ def test_provable_torch_compute_and_exception_fallback_remain_blocked() -> None:
     assert "code_bypass" in validate_kernel_static(fallback).errors[0]
 
 
+@pytest.mark.parametrize(
+    ("module_name", "arguments"),
+    [
+        ("ReLU", ""),
+        ("GELU", ""),
+        ("Softmax", "dim=-1"),
+        ("LogSoftmax", "dim=-1"),
+        ("LayerNorm", "16"),
+        ("BatchNorm1d", "16"),
+        ("BatchNorm2d", "16"),
+        ("BatchNorm3d", "16"),
+    ],
+)
+def test_torch_module_construction_in_model_init_is_allowed(module_name: str, arguments: str) -> None:
+    code = f"""import torch
+import torch.nn as nn
+class ModelNew(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.operation = nn.{module_name}({arguments})
+
+    def forward(self, x):
+        return x
+"""
+
+    assert validate_kernel_static(code).valid is True
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "self.operations = [nn.ReLU(), nn.GELU()]",
+        "(self.relu, self.gelu) = (nn.ReLU(), nn.GELU())",
+        "self.operation = (operation := nn.ReLU())",
+        "self.operation = nn.ReLU() if enabled else nn.GELU()",
+        "self.operations = nn.ModuleList([nn.ReLU(), nn.GELU()])",
+        "self.operations = [nn.ReLU() for _ in range(2)]",
+        'setattr(self, "operation", nn.ReLU())',
+    ],
+)
+def test_passively_stored_torch_modules_in_model_init_are_allowed(body: str) -> None:
+    code = f"""import torch.nn as nn
+class ModelNew:
+    def __init__(self, enabled=True):
+        {body}
+
+    def forward(self, x):
+        return x
+"""
+
+    assert validate_kernel_static(code).valid is True
+
+
+@pytest.mark.parametrize("module_name", ["ReLU", "GELU", "Softmax", "LayerNorm", "BatchNorm1d"])
+def test_torch_module_construction_outside_model_init_remains_blocked(module_name: str) -> None:
+    code = f"""import torch.nn as nn
+class ModelNew:
+    def forward(self, x):
+        operation = nn.{module_name}()
+        return operation(x)
+"""
+
+    result = validate_kernel_static(code)
+
+    assert result.valid is False
+    assert any(error.startswith("framework_compute:") for error in result.errors)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "self.cached = nn.ReLU()(x)",
+        "self.operation = nn.ReLU()\n        self.cached = self.operation(x)",
+        "self.operation = nn.ReLU()\n        self.cached = self.operation.forward(x)",
+        "self.operation = nn.ReLU()\n        self.cached = self.operation.__call__(x)",
+        'self.operation = nn.ReLU()\n        self.cached = getattr(self.operation, "forward")(x)',
+        "operation = nn.ReLU()\n        alias = operation\n        self.cached = alias(x)",
+        "self.operation = nn.ReLU()\n        apply = self.operation.forward\n        self.cached = apply(x)",
+        "self.cached = (operation := nn.ReLU())(x)",
+        ("self.operation = (operation := nn.ReLU())\n        self.cached = self.operation(x)"),
+        "(operation,) = (nn.ReLU(),)\n        self.cached = operation(x)",
+        "operations = [nn.ReLU()]\n        self.cached = operations[0](x)",
+        "self.operations = nn.Sequential(nn.ReLU())\n        self.cached = self.operations(x)",
+        "self.operation = nn.ReLU()\n        operations = [self.operation]\n        self.cached = operations[0](x)",
+        (
+            "self.operations = [None]\n"
+            "        self.operations[0] = nn.ReLU()\n"
+            "        self.cached = self.operations.__getitem__(0)(x)"
+        ),
+        ('setattr(self, "operation", nn.ReLU())\n        self.cached = getattr(self, "operation")(x)'),
+        "self.operation = nn.ReLU()\n        self.cached = self.__dict__['operation'](x)",
+        'self.operation = nn.ReLU()\n        self.cached = vars(self)["operation"](x)',
+        ('self.operation = nn.ReLU()\n        self.cached = self.__getattribute__("operation")(x)'),
+        (
+            "self.operation = nn.ReLU()\n"
+            "        def apply(value):\n"
+            "            return self.operation(value)\n"
+            "        self.cached = apply(x)"
+        ),
+    ],
+)
+def test_calling_a_constructed_torch_module_inside_model_init_remains_blocked(body: str) -> None:
+    code = f"""import torch.nn as nn
+class ModelNew:
+    def __init__(self, x):
+        {body}
+
+    def forward(self, x):
+        return x
+"""
+
+    result = validate_kernel_static(code)
+
+    assert result.valid is False
+    assert any(error.startswith("framework_compute:") for error in result.errors)
+
+
+def test_constructor_exemption_is_limited_to_the_selected_entry_point_class() -> None:
+    helper = """import torch.nn as nn
+class Helper:
+    def __init__(self):
+        self.operation = nn.ReLU()
+class ModelNew:
+    def forward(self, x):
+        return x
+"""
+    custom_entry_point = """import torch.nn as nn
+class CustomKernel:
+    def __init__(self):
+        self.operation = nn.ReLU()
+    def forward(self, x):
+        return x
+"""
+
+    assert validate_kernel_static(helper).valid is False
+    assert validate_kernel_static(custom_entry_point, entry_point="CustomKernel").valid is True
+
+
+def test_nested_class_does_not_inherit_entry_point_constructor_exemption() -> None:
+    code = """import torch.nn as nn
+class ModelNew:
+    def __init__(self):
+        class Helper:
+            operation = nn.ReLU()
+        self.helper_type = Helper
+
+    def forward(self, x):
+        return x
+"""
+
+    assert validate_kernel_static(code).valid is False
+
+
+def test_storing_a_constructor_type_cannot_hide_constructor_stage_execution() -> None:
+    code = """import torch.nn as nn
+class ModelNew:
+    def __init__(self, x):
+        self.operation_type = nn.ReLU
+        self.operation = self.operation_type()
+        self.cached = self.operation(x)
+
+    def forward(self, x):
+        return x
+"""
+
+    assert validate_kernel_static(code).valid is False
+
+
+def test_reassigned_init_module_attribute_is_not_treated_as_torch_compute() -> None:
+    code = """import torch.nn as nn
+class ModelNew:
+    def __init__(self, x, custom):
+        self.operation = nn.ReLU()
+        self.operation = custom
+        self.cached = self.operation(x)
+
+    def forward(self, x):
+        return x
+"""
+
+    assert validate_kernel_static(code).valid is True
+
+
+@pytest.mark.parametrize(
+    ("body", "category"),
+    [
+        ("self.cached = torch.softmax(x, dim=-1)", "framework_compute"),
+        ("self.cached = x.half()", "precision_downgrade"),
+        (
+            "try:\n            self.cached = custom(x)\n        except Exception:\n            self.cached = x",
+            "code_bypass",
+        ),
+        ("torch.cuda.synchronize = lambda: None", "timing_event_patch"),
+    ],
+)
+def test_non_constructor_safety_checks_remain_active_in_model_init(body: str, category: str) -> None:
+    code = f"""import torch
+class ModelNew:
+    def __init__(self, x):
+        {body}
+
+    def forward(self, x):
+        return x
+"""
+
+    result = validate_kernel_static(code)
+
+    assert result.valid is False
+    assert any(error.startswith(f"{category}:") for error in result.errors)
+
+
 def test_validated_extension_alias_is_allowed_but_rebinding_is_not() -> None:
     allowed = "import tvm_ffi_extension as ext\nclass ModelNew:\n    def forward(self, x): return ext.gelu(x)\n"
     rebound = "import tvm_ffi_extension as ext\nimport torch\next = torch\nclass ModelNew:\n    def forward(self, x): return ext.sum(x)\n"
@@ -202,11 +413,15 @@ def test_native_scanner_ignores_literals_comments_and_only_blocks_provable_aten(
     )
 
 
-def test_cuda_agent_precheck_allows_math_and_extension_alias() -> None:
+def test_cuda_agent_precheck_allows_math_extension_alias_and_init_module_constructor() -> None:
     model = """import math as m
 import torch
 import cuda_extension as ext
 class ModelNew(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.activation = torch.nn.GELU()
+
     def forward(self, x): return ext.gelu(x) * m.sqrt(0.5)
 """
     sources = {
@@ -218,6 +433,28 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) { m.def("gelu", &gelu); }""",
     error, error_code, info = precheck_cuda_agent_submission(model, sources, entry_point="ModelNew")
     assert error == "" and error_code is None and info["passed"] is True
     assert info["detected_extension_calls"] == ["gelu"]
+
+
+def test_cuda_agent_precheck_passes_custom_entry_point_to_static_checker() -> None:
+    model = """import torch.nn as nn
+import cuda_extension as ext
+class CustomKernel:
+    def __init__(self):
+        self.activation = nn.GELU()
+
+    def forward(self, x):
+        return ext.gelu(x)
+"""
+    sources = {
+        "kernels/generated.cu": "__global__ void kernel(float* x) {}",
+        "kernels/generated_binding.cpp": """#include <torch/extension.h>
+torch::Tensor gelu(torch::Tensor x) { return x; }
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) { m.def("gelu", &gelu); }""",
+    }
+
+    error, error_code, info = precheck_cuda_agent_submission(model, sources, entry_point="CustomKernel")
+
+    assert error == "" and error_code is None and info["passed"] is True
 
 
 @pytest.mark.parametrize(
@@ -245,10 +482,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) { m.def("gelu", &gelu); }""",
     assert info["detected_extension_calls"] == ["gelu"]
 
 
-def test_tvm_ffi_precheck_allows_exported_gelu_alias_and_math() -> None:
+def test_tvm_ffi_precheck_allows_exported_gelu_alias_math_and_init_module_constructor() -> None:
     model = """import math as m
+import torch.nn as nn
 from tvm_ffi_extension import gelu as fused_gelu
 class ModelNew:
+    def __init__(self):
+        self.activation = nn.GELU()
+
     def forward(self, x): return fused_gelu(x) * m.sqrt(0.5)
 """
     sources = {
