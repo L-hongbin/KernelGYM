@@ -411,6 +411,54 @@ class SpeedTestResponse(BaseModel):
     runs: List[SpeedTestRunResponse]
 
 
+class SpeedupNoiseFloorCalibrationRequest(BaseModel):
+    """Configuration for the fixed ten-kernel noise-floor calibration suite."""
+
+    blocks_per_kernel: int = Field(default=10, ge=5, le=50)
+    heldout_blocks_per_kernel: int = Field(default=2, ge=1, le=10)
+    num_warmup: int = Field(default=3, ge=0, le=100)
+    num_perf_trials: int = Field(default=50, ge=10, le=1000)
+    refer_num_perf_trials: Optional[int] = Field(default=None, ge=10, le=1000)
+    perf_trim_count: int = Field(default=0, ge=0, le=50)
+    random_seed: int = 20260909
+    global_percentile: float = Field(default=75.0, ge=0.0, le=100.0)
+    one_sided_z: float = Field(default=1.645, gt=0.0, le=5.0)
+    timeout: int = Field(default=300, ge=10, le=3600)
+    target_node_id: Optional[str] = Field(default=None, max_length=255)
+    target_hostname: Optional[str] = Field(default=None, max_length=255)
+    persist_artifact: bool = True
+
+    @root_validator(skip_on_failure=True)
+    def validate_calibration_split(cls, values):
+        blocks = values.get("blocks_per_kernel")
+        heldout = values.get("heldout_blocks_per_kernel")
+        trim = values.get("perf_trim_count")
+        trials = values.get("num_perf_trials")
+        reference_trials = values.get("refer_num_perf_trials") or trials
+        if blocks is not None and heldout is not None and heldout > blocks - 2:
+            raise ValueError("heldout_blocks_per_kernel must leave at least two calibration blocks")
+        if trim is not None and trials is not None and trim * 2 >= trials:
+            raise ValueError("perf_trim_count must leave at least one kernel timing trial")
+        if trim is not None and reference_trials is not None and trim * 2 >= reference_trials:
+            raise ValueError("perf_trim_count must leave at least one reference timing trial")
+        return values
+
+
+class SpeedupNoiseFloorCalibrationResponse(BaseModel):
+    calibration_status: Literal["passed", "partial", "failed"]
+    calibration_id: str
+    suite_name: str
+    started_at: str
+    completed_at: str
+    total_end_to_end_s: float
+    config: Dict[str, Any]
+    cases: List[Dict[str, Any]]
+    schedule: List[Dict[str, Any]]
+    blocks: List[Dict[str, Any]]
+    analysis: Dict[str, Any]
+    artifact_path: Optional[str] = None
+
+
 class BatchEvaluationRequest(BaseModel):
     """Request model for batch evaluation."""
 

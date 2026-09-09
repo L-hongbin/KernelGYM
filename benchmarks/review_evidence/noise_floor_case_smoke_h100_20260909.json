@@ -1,0 +1,318 @@
+{
+  "captured_at": "2026-09-09T16:37:49.675319+00:00",
+  "gpu": "NVIDIA H100 PCIe",
+  "protocol": "fresh process per case; 1 correctness, 1 warmup, 2 performance trials",
+  "source_dataset": "/nfs/FM/lihongbin/datasets/KernelData/KernelBench/data/level_1-00000-of-00001.parquet",
+  "passed": 10,
+  "total": 10,
+  "results": [
+    {
+      "case_id": "gemm_rmsnorm",
+      "case": {
+        "case_id": "gemm_rmsnorm",
+        "name": "GEMM + RMSNorm",
+        "runtime_class": "short",
+        "backend": "tvm_ffi",
+        "precision": "fp32",
+        "input_shapes": {
+          "lhs": [
+            512,
+            512
+          ],
+          "rhs": [
+            512,
+            512
+          ]
+        },
+        "dataset_path": null,
+        "dataset_problem_id": null,
+        "dataset_name": null,
+        "shape_policy": "existing_speed_test"
+      },
+      "gpu": "NVIDIA H100 PCIe",
+      "compiled": true,
+      "correctness": true,
+      "kernel_runtime_ms": 0.29,
+      "error_code": null,
+      "error_message": null,
+      "elapsed_s": 3.41008232999593,
+      "child_return_code": 0
+    },
+    {
+      "case_id": "batch_norm",
+      "case": {
+        "case_id": "batch_norm",
+        "name": "BatchNorm inference",
+        "runtime_class": "medium",
+        "backend": "tvm_ffi",
+        "precision": "fp32",
+        "input_shapes": {
+          "x": [
+            64,
+            64,
+            128,
+            128
+          ]
+        },
+        "dataset_path": null,
+        "dataset_problem_id": null,
+        "dataset_name": null,
+        "shape_policy": "fixed_calibration"
+      },
+      "gpu": "NVIDIA H100 PCIe",
+      "compiled": true,
+      "correctness": true,
+      "kernel_runtime_ms": 0.433,
+      "error_code": null,
+      "error_message": null,
+      "elapsed_s": 4.386172775994055,
+      "child_return_code": 0
+    },
+    {
+      "case_id": "conv2d",
+      "case": {
+        "case_id": "conv2d",
+        "name": "Conv2D 11x11 stride 4",
+        "runtime_class": "long",
+        "backend": "tvm_ffi",
+        "precision": "fp32",
+        "input_shapes": {
+          "x": [
+            256,
+            3,
+            224,
+            224
+          ],
+          "weight": [
+            96,
+            3,
+            11,
+            11
+          ],
+          "bias": [
+            96
+          ]
+        },
+        "dataset_path": null,
+        "dataset_problem_id": null,
+        "dataset_name": null,
+        "shape_policy": "fixed_calibration"
+      },
+      "gpu": "NVIDIA H100 PCIe",
+      "compiled": true,
+      "correctness": true,
+      "kernel_runtime_ms": 23.7,
+      "error_code": null,
+      "error_message": null,
+      "elapsed_s": 4.136484434013255,
+      "child_return_code": 0
+    },
+    {
+      "case_id": "kb_19_relu",
+      "case": {
+        "case_id": "kb_19_relu",
+        "name": "ReLU",
+        "runtime_class": "short",
+        "backend": "tvm_ffi",
+        "precision": "fp32",
+        "input_shapes": {
+          "x": [
+            4096,
+            256
+          ]
+        },
+        "dataset_path": "/nfs/FM/lihongbin/datasets/KernelData/KernelBench/data/level_1-00000-of-00001.parquet",
+        "dataset_problem_id": 19,
+        "dataset_name": "19_ReLU",
+        "shape_policy": "fixed_calibration"
+      },
+      "gpu": "NVIDIA H100 PCIe",
+      "compiled": true,
+      "correctness": true,
+      "kernel_runtime_ms": 0.191,
+      "error_code": null,
+      "error_message": null,
+      "elapsed_s": 2.9899187210248783,
+      "child_return_code": 0
+    },
+    {
+      "case_id": "kb_12_diagonal_matmul",
+      "case": {
+        "case_id": "kb_12_diagonal_matmul",
+        "name": "Diagonal matrix multiplication",
+        "runtime_class": "medium",
+        "backend": "tvm_ffi",
+        "precision": "fp32",
+        "input_shapes": {
+          "diagonal": [
+            4096
+          ],
+          "matrix": [
+            4096,
+            4096
+          ]
+        },
+        "dataset_path": "/nfs/FM/lihongbin/datasets/KernelData/KernelBench/data/level_1-00000-of-00001.parquet",
+        "dataset_problem_id": 12,
+        "dataset_name": "12_Matmul_with_diagonal_matrices_",
+        "shape_policy": "fixed_calibration"
+      },
+      "gpu": "NVIDIA H100 PCIe",
+      "compiled": true,
+      "correctness": true,
+      "kernel_runtime_ms": 0.138,
+      "error_code": null,
+      "error_message": null,
+      "elapsed_s": 3.379666763008572,
+      "child_return_code": 0
+    },
+    {
+      "case_id": "kb_88_mingpt_gelu",
+      "case": {
+        "case_id": "kb_88_mingpt_gelu",
+        "name": "MinGPT GELU",
+        "runtime_class": "long",
+        "backend": "tvm_ffi",
+        "precision": "fp32",
+        "input_shapes": {
+          "x": [
+            8192,
+            8192
+          ]
+        },
+        "dataset_path": "/nfs/FM/lihongbin/datasets/KernelData/KernelBench/data/level_1-00000-of-00001.parquet",
+        "dataset_problem_id": 88,
+        "dataset_name": "88_MinGPTNewGelu",
+        "shape_policy": "fixed_calibration"
+      },
+      "gpu": "NVIDIA H100 PCIe",
+      "compiled": true,
+      "correctness": true,
+      "kernel_runtime_ms": 0.371,
+      "error_code": null,
+      "error_message": null,
+      "elapsed_s": 4.210884007974528,
+      "child_return_code": 0
+    },
+    {
+      "case_id": "kb_47_sum_dim1",
+      "case": {
+        "case_id": "kb_47_sum_dim1",
+        "name": "Sum reduction dim=1",
+        "runtime_class": "long",
+        "backend": "tvm_ffi",
+        "precision": "fp32",
+        "input_shapes": {
+          "x": [
+            128,
+            512,
+            1024
+          ]
+        },
+        "dataset_path": "/nfs/FM/lihongbin/datasets/KernelData/KernelBench/data/level_1-00000-of-00001.parquet",
+        "dataset_problem_id": 47,
+        "dataset_name": "47_Sum_reduction_over_a_dimension",
+        "shape_policy": "fixed_calibration"
+      },
+      "gpu": "NVIDIA H100 PCIe",
+      "compiled": true,
+      "correctness": true,
+      "kernel_runtime_ms": 0.213,
+      "error_code": null,
+      "error_message": null,
+      "elapsed_s": 3.9278329969383776,
+      "child_return_code": 0
+    },
+    {
+      "case_id": "kb_44_avg_pool1d",
+      "case": {
+        "case_id": "kb_44_avg_pool1d",
+        "name": "Average Pooling 1D",
+        "runtime_class": "medium",
+        "backend": "tvm_ffi",
+        "precision": "fp32",
+        "input_shapes": {
+          "x": [
+            32,
+            64,
+            8192
+          ]
+        },
+        "dataset_path": "/nfs/FM/lihongbin/datasets/KernelData/KernelBench/data/level_1-00000-of-00001.parquet",
+        "dataset_problem_id": 44,
+        "dataset_name": "44_Average_Pooling_1D",
+        "shape_policy": "fixed_calibration"
+      },
+      "gpu": "NVIDIA H100 PCIe",
+      "compiled": true,
+      "correctness": true,
+      "kernel_runtime_ms": 0.142,
+      "error_code": null,
+      "error_message": null,
+      "elapsed_s": 3.425934606930241,
+      "child_return_code": 0
+    },
+    {
+      "case_id": "kb_40_layer_norm",
+      "case": {
+        "case_id": "kb_40_layer_norm",
+        "name": "LayerNorm",
+        "runtime_class": "medium",
+        "backend": "tvm_ffi",
+        "precision": "fp32",
+        "input_shapes": {
+          "x": [
+            4096,
+            1024
+          ]
+        },
+        "dataset_path": "/nfs/FM/lihongbin/datasets/KernelData/KernelBench/data/level_1-00000-of-00001.parquet",
+        "dataset_problem_id": 40,
+        "dataset_name": "40_LayerNorm",
+        "shape_policy": "fixed_calibration"
+      },
+      "gpu": "NVIDIA H100 PCIe",
+      "compiled": true,
+      "correctness": true,
+      "kernel_runtime_ms": 0.0756,
+      "error_code": null,
+      "error_message": null,
+      "elapsed_s": 3.118865494034253,
+      "child_return_code": 0
+    },
+    {
+      "case_id": "kb_3_batched_matmul",
+      "case": {
+        "case_id": "kb_3_batched_matmul",
+        "name": "Batched matrix multiplication",
+        "runtime_class": "medium",
+        "backend": "tvm_ffi",
+        "precision": "fp32",
+        "input_shapes": {
+          "a": [
+            32,
+            128,
+            64
+          ],
+          "b": [
+            32,
+            64,
+            128
+          ]
+        },
+        "dataset_path": "/nfs/FM/lihongbin/datasets/KernelData/KernelBench/data/level_1-00000-of-00001.parquet",
+        "dataset_problem_id": 3,
+        "dataset_name": "3_Batched_matrix_multiplication",
+        "shape_policy": "fixed_calibration"
+      },
+      "gpu": "NVIDIA H100 PCIe",
+      "compiled": true,
+      "correctness": true,
+      "kernel_runtime_ms": 0.0997,
+      "error_code": null,
+      "error_message": null,
+      "elapsed_s": 3.0385050079785287,
+      "child_return_code": 0
+    }
+  ]
+}

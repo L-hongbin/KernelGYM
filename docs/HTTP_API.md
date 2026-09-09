@@ -19,6 +19,7 @@ For a quick end-to-end probe, run `bash test_reward.sh` (single CUDA-Agent add) 
 | GET | `/metrics` | Performance / resource / queue / error counters |
 | POST | `/evaluate` | **Submit one kernel evaluation (primary endpoint)** |
 | POST | `/benchmark/speed-test` | Run the fixed correct end-to-end speed test three times |
+| POST | `/benchmark/speedup-noise-floor` | Calibrate block-level log-speedup noise with ten fixed TVM-FFI cases |
 | POST | `/evaluate/batch` | Submit a batch of evaluations |
 | POST | `/workflow/submit` | Submit any workflow with an arbitrary payload |
 | POST | `/debug/validate` | Dry-run request validation (does not run) |
@@ -354,6 +355,60 @@ When split compile/execute is enabled, `stage_timings.kernel_compile_s` and `com
 ```
 
 The example abbreviates `runs`; a real response always contains three objects.
+
+## `POST /benchmark/speedup-noise-floor` — offline speedup-noise calibration
+
+Runs ten fixed correct FP32 CUDA TVM-FFI candidates in a round-wise shuffled order. The suite contains GEMM + RMSNorm, BatchNorm, Conv2D, and seven operations selected from the configured KernelBench level-1 parquet: ReLU, diagonal matrix multiplication, MinGPT GELU, sum reduction, average pooling 1D, LayerNorm, and batched matrix multiplication. The reference, CUDA, binding, and fixed input definitions are embedded in `noise_floor_cases.py`; runtime calibration never reads the parquet. Its path and problem ids are provenance metadata only. Fixed calibration shapes span short, medium, and long runtimes; the source problem id and any shape override are returned in `cases`.
+
+The minimum default protocol makes 100 independent evaluator requests: ten kernels by ten blocks. Every request has a unique task id, performs one correctness trial, then three warmups and 50 candidate/reference timing trials, forces fresh result/timing measurement, never uses the reference cache, and deletes its Redis task records afterward. The ten fixed CUDA sources are identical across blocks, so their compiled shared objects may be reused through the compile-artifact cache; compile latency is not part of the speedup statistic. Two rounds per kernel are held out by default, leaving eight for floor estimation. The schedule shuffles all ten kernels separately in each round so adjacent requests do not repeatedly measure one case. With the deployment default `MAX_TASKS_PER_WORKER=1`, each evaluator request also runs in a fresh CUDA subprocess; the returned PID and timestamp fields allow this to be audited.
+
+```bash
+curl -sS -X POST http://127.0.0.1:20111/benchmark/speedup-noise-floor \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "blocks_per_kernel": 10,
+    "heldout_blocks_per_kernel": 2,
+    "num_warmup": 3,
+    "num_perf_trials": 50,
+    "global_percentile": 75
+  }'
+```
+
+Important request fields:
+
+| Field | Default | Meaning |
+|---|---:|---|
+| `blocks_per_kernel` | 10 | Total independently submitted blocks for each of the ten fixed cases. |
+| `heldout_blocks_per_kernel` | 2 | Final numbered rounds excluded from fitting and used only for validation. |
+| `num_warmup` | 3 | Warmups inside every evaluator request. Set this to the training protocol value. |
+| `num_perf_trials` | 50 | Candidate CUDA-event samples in each block. |
+| `refer_num_perf_trials` | null | Reference samples; null means use `num_perf_trials`. |
+| `perf_trim_count` | 0 | Samples trimmed from each tail before mean/std reporting. |
+| `random_seed` | 20260909 | Reproducible round-wise interleaving order. |
+| `global_percentile` | 75 | Percentile of valid per-kernel floors used as the global floor. |
+| `one_sided_z` | 1.645 | One-sided LCB and held-out coverage threshold. |
+| `target_node_id`, `target_hostname` | null | Route every block to the intended calibration node, such as the A800 node. |
+| `persist_artifact` | true | Atomically save the full response under `<LOG_DIR>/noise_floor/`. |
+
+For block `b` of kernel `q`, the response computes `log_speedup = log(speedup)` and
+
+```text
+within_log_speedup_variance = kernel_cv^2 / kernel_num_trials
+                              + reference_cv^2 / reference_num_trials
+```
+
+The calibration endpoint always measures the reference afresh, so both terms are present. For each kernel, fitting uses the sample variance of calibration-block log speedups:
+
+```text
+noise_floor = sqrt(max(
+    variance(log_speedup) - mean(within_log_speedup_variance),
+    0
+))
+```
+
+`analysis.global.noise_floor` is the requested percentile (p75 by default) across valid kernel floors. `noise_floor_multiplicative_percent = 100 * (exp(noise_floor) - 1)` gives a more intuitive multiplicative scale. The response also reports p75 by measured runtime bucket (`<0.1 ms`, `0.1–1 ms`, `>1 ms`), held-out one-sided lower-bound coverage, and the false-positive rate among kernels whose last calibration-block LCB claims `speedup > 1`.
+
+Every `blocks[]` record contains `kernel_id`, block/schedule indexes, `speedup`, candidate and reference mean/std/trial counts, CVs, within-block variance, cache status, UTC times, end-to-end latency, device metadata/index, and candidate/reference execution PID, hostname, and epoch timestamp. `analysis.execution_environment` reports whether all blocks actually used one host/device and whether each observed candidate block had a unique process. Failed compile/correctness/performance requests remain in the artifact with their error information and are excluded from fitting. `calibration_status=passed` requires all blocks, all ten kernel estimates, and Redis cleanup to succeed; partial data returns `partial` and is still analyzable.
 
 ## `POST /evaluate/batch`
 

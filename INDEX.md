@@ -52,7 +52,7 @@ This file indexes stable repository docs and evidence locations.
 | `kernelgym/utils/page_user_notifier.py` | Mode-restricted page-user MCP client for physical-GPU quarantine and worker-process exclusion alerts. |
 | `kernelgym/cli/service.py` | Service lifecycle with admission-first shutdown, process-generation fencing, whole-group drain proof, and fail-closed replacement startup. |
 | `kernelgym/workflow/kernelbench.py` | Server-side KernelBench workflow orchestration. |
-| `kernelgym/server/api/speed_test.py` | Fixed correct TVM-FFI GEMM + RMSNorm case and timing-field extraction for the three-run speed-test endpoint. |
+| `kernelgym/server/api/speed_test.py`, `kernelgym/server/api/noise_floor.py`, `kernelgym/server/api/noise_floor_cases.py` | Fixed TVM-FFI speed probe plus the ten-case interleaved block-level noise-floor suite, request construction, result extraction, p75/bucket estimation, and held-out LCB validation. |
 | `kernelgym/server/task_manager.py` | Redis task queue and worker coordination. |
 | `kernelgym/worker/gpu_worker.py` | Worker-side task execution and failure handling. |
 | `kernelgym/worker/subprocess_pool.py` | Persistent GPU subprocess pool, crash containment proof, fresh-context recovery, recycle, timeout, and pool-size enforcement. |

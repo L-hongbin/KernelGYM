@@ -5,7 +5,8 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
@@ -48,12 +49,21 @@ from .models import (
     SpeedTestAverageResponse,
     SpeedTestResponse,
     SpeedTestRunResponse,
+    SpeedupNoiseFloorCalibrationRequest,
+    SpeedupNoiseFloorCalibrationResponse,
     SystemHealthResponse,
     TaskStatusResponse,
     WorkflowRequest,
     WorkflowResponse,
 )
 from .monitoring_routes import router as monitoring_router
+from .noise_floor import (
+    analyze_calibration,
+    build_calibration_payload,
+    build_interleaved_schedule,
+    extract_block_result,
+)
+from .noise_floor_cases import get_noise_floor_cases
 from .speed_test import BACKEND as SPEED_TEST_BACKEND
 from .speed_test import CASE_NAME as SPEED_TEST_CASE_NAME
 from .speed_test import INPUT_SHAPES as SPEED_TEST_INPUT_SHAPES
@@ -656,6 +666,155 @@ async def benchmark_speed_test(task_mgr: TaskManager = Depends(get_task_manager)
         ),
         runs=runs,
     )
+
+
+@app.post("/benchmark/speedup-noise-floor", response_model=SpeedupNoiseFloorCalibrationResponse)
+async def benchmark_speedup_noise_floor(
+    request: SpeedupNoiseFloorCalibrationRequest,
+    task_mgr: TaskManager = Depends(get_task_manager),
+):
+    """Calibrate block-level log-speedup noise with ten fixed CUDA TVM-FFI cases."""
+    cases = get_noise_floor_cases()
+    calibration_id = f"noise-floor-{uuid4().hex[:12]}"
+    suite_started = time.perf_counter()
+    started_at = datetime.now(timezone.utc).isoformat()
+    schedule_pairs = build_interleaved_schedule(cases, request.blocks_per_kernel, request.random_seed)
+    schedule = [
+        {
+            "schedule_index": index,
+            "kernel_id": case.case_id,
+            "block_index": block_index,
+        }
+        for index, (case, block_index) in enumerate(schedule_pairs, start=1)
+    ]
+    blocks: list[dict[str, Any]] = []
+    cleanup_errors: list[dict[str, str]] = []
+    reference_trials = request.refer_num_perf_trials or request.num_perf_trials
+
+    for schedule_index, (case, block_index) in enumerate(schedule_pairs, start=1):
+        task_id = f"nf-{calibration_id[-12:]}-{case.case_id[:24]}-{block_index:02d}"
+        payload = build_calibration_payload(
+            case,
+            task_id=task_id,
+            warmup=request.num_warmup,
+            trials=request.num_perf_trials,
+            reference_trials=reference_trials,
+            trim_count=request.perf_trim_count,
+            timeout=request.timeout,
+            target_node_id=request.target_node_id,
+            target_hostname=request.target_hostname,
+        )
+        block_started_mono = time.perf_counter()
+        block_started_at = datetime.now(timezone.utc).isoformat()
+        result: dict[str, Any]
+        status_value: Any = TaskStatus.FAILED
+        try:
+            _, result, status_value = await _execute_workflow(
+                task_mgr=task_mgr,
+                workflow_name="kernelbench",
+                payload=payload,
+                task_id=task_id,
+                force_refresh=True,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Noise-floor calibration failed case=%s block=%s", case.case_id, block_index
+            )
+            error_code = classify_error(str(exc), "system")
+            result = {
+                "compiled": False,
+                "correctness": False,
+                "speedup": None,
+                "metadata": {},
+                "error_code": error_code.value,
+                "error_message": str(exc),
+            }
+
+        status_text = status_value.value if hasattr(status_value, "value") else str(status_value)
+        result_error_code = result.get("error_code")
+        if hasattr(result_error_code, "value"):
+            result = dict(result)
+            result["error_code"] = result_error_code.value
+        blocks.append(
+            extract_block_result(
+                case=case,
+                block_index=block_index,
+                schedule_index=schedule_index,
+                task_id=task_id,
+                status=status_text,
+                result=result,
+                started_at=block_started_at,
+                completed_at=datetime.now(timezone.utc).isoformat(),
+                end_to_end_s=round(time.perf_counter() - block_started_mono, 6),
+            )
+        )
+
+        ephemeral_task_ids = (task_id, f"{task_id}_compile", f"{task_id}_kernel", f"{task_id}_ref")
+        try:
+            await task_mgr.discard_task_records(ephemeral_task_ids)
+        except Exception as exc:
+            logger.exception("Could not discard noise-floor task records for %s", task_id)
+            cleanup_errors.append({"task_id": task_id, "error": str(exc)})
+
+    analysis = analyze_calibration(
+        cases,
+        blocks,
+        heldout_blocks_per_kernel=request.heldout_blocks_per_kernel,
+        global_percentile=request.global_percentile,
+        z_value=request.one_sided_z,
+    )
+    analysis["cleanup_errors"] = cleanup_errors
+    passed_blocks = sum(1 for block in blocks if block.get("passed") is True)
+    valid_kernels = int(analysis["global"]["valid_kernel_count"])
+    expected_blocks = len(cases) * request.blocks_per_kernel
+    calibration_status = (
+        "passed"
+        if passed_blocks == expected_blocks and valid_kernels == len(cases) and not cleanup_errors
+        else "partial" if passed_blocks > 0
+        else "failed"
+    )
+    completed_at = datetime.now(timezone.utc).isoformat()
+    artifact_path = None
+    if request.persist_artifact:
+        artifact_path = str(Path(settings.log_dir) / "noise_floor" / f"{calibration_id}.json")
+
+    response_payload = {
+        "calibration_status": calibration_status,
+        "calibration_id": calibration_id,
+        "suite_name": "kernelbench_tvm_ffi_noise_floor_v1",
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "total_end_to_end_s": round(time.perf_counter() - suite_started, 6),
+        "config": {
+            **request.model_dump(),
+            "kernel_count": len(cases),
+            "expected_evaluator_requests": expected_blocks,
+            "calibration_blocks_per_kernel": request.blocks_per_kernel
+            - request.heldout_blocks_per_kernel,
+            "effective_reference_perf_trials": reference_trials,
+            "schedule_policy": "round-wise seeded shuffle",
+        },
+        "cases": [case.public_metadata() for case in cases],
+        "schedule": schedule,
+        "blocks": blocks,
+        "analysis": analysis,
+        "artifact_path": artifact_path,
+    }
+    response = SpeedupNoiseFloorCalibrationResponse(**response_payload)
+    if artifact_path is not None:
+        path = Path(artifact_path)
+        temporary_path = path.with_suffix(".json.tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary_path.write_text(response.model_dump_json(indent=2) + "\n", encoding="utf-8")
+            temporary_path.replace(path)
+        except Exception as exc:
+            logger.exception("Could not persist noise-floor artifact %s", path)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Noise-floor artifact persistence failed: {exc}",
+            ) from exc
+    return response
 
 
 @app.post("/evaluate/batch", response_model=BatchEvaluationResponse)
