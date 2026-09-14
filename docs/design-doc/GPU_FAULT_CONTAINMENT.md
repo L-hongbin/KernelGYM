@@ -49,6 +49,8 @@ Each inner CUDA worker leads a dedicated PGID while remaining inside the outer G
 
 A missing leader PID alone is never a drain proof. Any scan, D-state/freeze, generation, or drain uncertainty causes physical quarantine, page-user notification, retained process-map ownership, and replacement refusal. The existing startup command and flags are unchanged; monitor restarts use `start_new_session=True` and the default stop grace is the configured worker drain window plus 30 seconds.
 
+Quarantine disables restart, not reconciliation of an exited generation. Before its health/restart checks, the monitor scans retained process maps independently of heartbeat presence and queued restarts. `reconcile_recorded_process_generation()` requires positive local host ownership and explicit PID start ticks, PGID, and SID; it authenticates any remaining leader, checks the complete recorded session including separate child process groups, and deletes only the unchanged generation through the existing Redis CAS. Live processes, PID reuse, conflicting identities, incomplete legacy records, permissions failures, inspection failures, and CAS mismatches all retain the map. Authenticated zombies may be reaped without signalling; a complete zombie-only session uses the existing drained-session rule, while previously observed groups outside that snapshot still require ESRCH. This path never clears quarantine, releases a frozen claim, signals a live process, or starts a worker.
+
 Shutdown closes admission locally and in Redis before draining. A still-running task is only marked failed and made retryable after every child CUDA context is proven terminated and reaped. If containment cannot be proven, or the terminal Redis transaction fails, the worker quarantines the GPU and retains the inflight claim for replacement-worker recovery. This prevents work from running concurrently on an unsafe old context and a retry.
 
 ## Page-user notification
@@ -73,12 +75,15 @@ First diagnose and repair the host/device. Stop the affected worker before clear
 python scripts/manage_gpu_quarantine.py inspect \
   --worker-id node21_gpu_0 --device cuda:0 --hostname ai-16-21
 
+python scripts/manage_gpu_quarantine.py reconcile \
+  --worker-id node21_gpu_0 --device cuda:0 --hostname ai-16-21
+
 python scripts/manage_gpu_quarantine.py clear \
   --worker-id node21_gpu_0 --device cuda:0 --hostname ai-16-21 \
   --confirm ai-16-21/cuda:0
 ```
 
-For a latch whose fault class records an unproven process-group or CUDA-context reap, the clear additionally requires `--confirm-unsafe-orphan ai-16-21/cuda:0/NO_GPU_PROCESSES` after an operator has verified that no process remains on that GPU. Clear is refused while any matching supervisor generation map remains, even if its leader PID is already gone; the monitor must first prove the whole SID drained and CAS-delete that map.
+For a latch whose fault class records an unproven process-group or CUDA-context reap, the clear additionally requires `--confirm-unsafe-orphan ai-16-21/cuda:0/NO_GPU_PROCESSES` after an operator has verified that no process remains on that GPU. Clear is refused while any matching supervisor generation map remains, even if its leader PID is already gone. Run `reconcile` for each retained worker ID on its recorded host, in the same PID namespace with visibility of the worker's `/proc` entries; it calls the monitor's exact reconciliation method, including the SID drain proof and generation CAS. Exit code `0` means the map is absent or was safely deleted, `4` means it was retained, and `6` rejects a mismatching host/device. Reconciliation leaves the latch and frozen claims intact, so it does not replace explicit manual clear or authorize a service restart. Missing host/generation fields require operator investigation; they are not guessed from an absent PID.
 
 After clearing, restart the worker through the normal deployment workflow so all CUDA contexts are fresh. Service restart still requires explicit operator approval.
 

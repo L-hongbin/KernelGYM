@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect or manually clear a KernelGYM GPU safety latch."""
+"""Inspect, reconcile exited worker records, or manually clear a GPU safety latch."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import redis.asyncio as redis
 
 from kernelgym.config import settings
 from kernelgym.utils.gpu_quarantine import clear_gpu_quarantine, read_gpu_quarantine
+from kernelgym.worker.worker_monitor import WorkerMonitor
 
 
 _UNSAFE_ORPHAN_FAULT_CLASSES = {
@@ -121,6 +122,23 @@ async def _run(args: argparse.Namespace) -> int:
         print(json.dumps(record, indent=2, sort_keys=True))
         if args.command == "inspect":
             return 0
+        if args.command == "reconcile":
+            if args.hostname != socket.gethostname():
+                print("Refusing reconcile: run on the recorded worker host in its PID namespace.")
+                return 6
+            process_map = _decode_hash(
+                await client.hgetall(f"{settings.redis_key_prefix}:worker_process:{args.worker_id}")
+            )
+            if process_map and process_map.get("device") != args.device:
+                print("Refusing reconcile: recorded device is missing or does not match --device.")
+                return 6
+            monitor = WorkerMonitor(client, install_signal_handlers=False)
+            reconciled = await monitor.reconcile_recorded_process_generation(args.worker_id)
+            print(
+                "Process map reconciled." if reconciled else "Process map retained: exit/identity could not be proven."
+            )
+            print("Quarantine and frozen claims unchanged; no worker started.")
+            return 0 if reconciled else 4
 
         confirmation = f"{args.hostname}/{args.device}"
         if args.confirm != confirmation:
@@ -139,7 +157,8 @@ async def _run(args: argparse.Namespace) -> int:
             print(
                 "Refusing clear while supervised worker PIDs remain live or unverifiable: "
                 + ", ".join(live_processes)
-                + ". Stop and reap them first."
+                + ". Stop them first. For an exited generation, run the reconcile command for each retained "
+                "worker ID on its recorded host/PID namespace; it uses the monitor's generation and drain checks."
             )
             return 4
         if _requires_unsafe_orphan_confirmation(record):
@@ -165,7 +184,7 @@ async def _run(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for name in ("inspect", "clear"):
+    for name in ("inspect", "reconcile", "clear"):
         command = subparsers.add_parser(name)
         command.add_argument("--worker-id", required=True)
         command.add_argument("--device", required=True, help="CUDA device such as cuda:0")

@@ -9,6 +9,9 @@ from kernelgym.schema.task import EvaluationTask
 
 
 class FakeScheduler:
+    async def is_cancelled(self, task_id: str) -> bool:
+        return False
+
     def __init__(self) -> None:
         self.submissions: list[dict[str, Any]] = []
         self.selection_kwargs: dict[str, Any] = {}

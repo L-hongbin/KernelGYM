@@ -116,6 +116,9 @@ def test_discard_task_records_removes_current_and_legacy_cache_entries():
             self.deleted_keys = keys
             return len(keys)
 
+        async def hgetall(self, key):
+            return {}
+
     manager = TaskManager.__new__(TaskManager)
     manager.redis = FakeRedis()
     manager.key_prefix = "kernelgym:v1"

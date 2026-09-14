@@ -1,4 +1,5 @@
 import asyncio
+import fnmatch
 import importlib.util
 import subprocess
 import sys
@@ -9,6 +10,301 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture
+def reconciliation_case(monkeypatch):
+    module = load_worker_monitor()
+    redis = FakeRedis()
+    monitor = module.WorkerMonitor(redis, install_signal_handlers=False)
+    worker_id = "reconcile_gpu_0"
+    key = f"{module.KEY_PREFIX}:worker_process:{worker_id}"
+    redis.hashes[key] = {
+        b"pid": b"4242",
+        b"proc_start_ticks": b"88",
+        b"process_group": b"4242",
+        b"session_id": b"4242",
+        b"device": b"cuda:0",
+    }
+    redis.hashes[f"{module.KEY_PREFIX}:expected_worker:{worker_id}"] = {
+        b"hostname": monitor.hostname.encode(),
+        b"device": b"cuda:0",
+    }
+    redis.hashes["untouched_quarantine"] = {b"state": b"quarantined"}
+    redis.hashes["untouched_claim"] = {b"state": b"frozen", b"token": b"original"}
+    monkeypatch.setattr(monitor, "_read_process_identity", lambda pid: None)
+    monkeypatch.setattr(monitor, "_live_session_members", lambda sid: [])
+    monkeypatch.setattr(monitor, "_cmdline_matches_worker", lambda pid, wid: True)
+
+    def absent_group(pgid, signum):
+        assert signum == 0, "reconciliation must not signal any process"
+        raise ProcessLookupError
+
+    async def forbidden_restart(*args, **kwargs):
+        raise AssertionError("reconciliation must not kill or restart a worker")
+
+    monkeypatch.setattr(module.os, "killpg", absent_group)
+    monkeypatch.setattr(monitor, "_kill_worker_process", forbidden_restart)
+    monkeypatch.setattr(monitor, "_restart_worker", forbidden_restart)
+    return module, monitor, redis, worker_id, key
+
+
+def test_reconcile_drained_generation_only_deletes_map(reconciliation_case):
+    _, monitor, redis, worker_id, key = reconciliation_case
+    before = {k: dict(v) for k, v in redis.hashes.items() if k != key}
+    assert asyncio.run(monitor.reconcile_recorded_process_generation(worker_id))
+    assert redis.hashes == before
+    assert monitor.restart_queue.empty()
+    assert asyncio.run(monitor.reconcile_recorded_process_generation(worker_id))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {b"pid": b"1"},
+        {b"pid": b"bad"},
+        {b"proc_start_ticks": b""},
+        {b"proc_start_ticks": b"bad"},
+        {b"process_group": b"4243"},
+        {b"session_id": b"4243"},
+        {b"proc_start_ticks": None},
+        {b"process_group": None},
+        {b"session_id": None},
+    ],
+)
+def test_reconcile_retains_incomplete_or_malformed_identity(reconciliation_case, mutation):
+    _, monitor, redis, worker_id, key = reconciliation_case
+    for field, value in mutation.items():
+        if value is None:
+            redis.hashes[key].pop(field)
+        else:
+            redis.hashes[key][field] = value
+    before = {k: dict(v) for k, v in redis.hashes.items()}
+    assert not asyncio.run(monitor.reconcile_recorded_process_generation(worker_id))
+    assert redis.hashes == before
+
+
+@pytest.mark.parametrize("owner", [b"another-host", b""])
+def test_reconcile_requires_positive_local_ownership(reconciliation_case, owner):
+    module, monitor, redis, worker_id, key = reconciliation_case
+    redis.hashes[f"{module.KEY_PREFIX}:expected_worker:{worker_id}"][b"hostname"] = owner
+    assert not asyncio.run(monitor.reconcile_recorded_process_generation(worker_id))
+    assert key in redis.hashes
+
+
+@pytest.mark.parametrize(
+    "identity_args",
+    [
+        (4242, "88", "S", 4242, 4242),
+        (4242, "99", "Z", 4242, 4242),
+        (4242, "88", "Z", 4243, 4242),
+        (4242, "88", "Z", 4242, 4243),
+    ],
+)
+def test_reconcile_retains_live_reused_or_moved_leader(reconciliation_case, monkeypatch, identity_args):
+    module, monitor, redis, worker_id, key = reconciliation_case
+    monkeypatch.setattr(monitor, "_read_process_identity", lambda pid: module.ProcessIdentity(*identity_args))
+    assert not asyncio.run(monitor.reconcile_recorded_process_generation(worker_id))
+    assert key in redis.hashes
+
+
+def test_reconcile_checks_separate_child_process_groups(reconciliation_case, monkeypatch):
+    module, monitor, redis, worker_id, key = reconciliation_case
+    monkeypatch.setattr(
+        monitor, "_live_session_members", lambda sid: [module.ProcessIdentity(4243, "89", "S", 4243, sid)]
+    )
+    assert not asyncio.run(monitor.reconcile_recorded_process_generation(worker_id))
+    assert key in redis.hashes
+
+
+def test_zombie_only_session_does_not_hide_live_recorded_group(reconciliation_case, monkeypatch):
+    module, monitor, redis, worker_id, key = reconciliation_case
+    monkeypatch.setattr(
+        monitor, "_live_session_members", lambda sid: [module.ProcessIdentity(4243, "89", "Z", 4243, sid)]
+    )
+    monkeypatch.setattr(module.os, "killpg", lambda pgid, signum: None)
+    assert not asyncio.run(monitor.reconcile_recorded_process_generation(worker_id))
+    assert key in redis.hashes
+
+
+@pytest.mark.parametrize("stage", ["_read_process_identity", "_live_session_members", "_process_group_is_drained"])
+@pytest.mark.parametrize("error", [PermissionError, RuntimeError, ValueError])
+def test_reconcile_inspection_errors_retain_map(reconciliation_case, monkeypatch, stage, error):
+    _, monitor, redis, worker_id, key = reconciliation_case
+
+    def fail(*args):
+        raise error("inspection failed")
+
+    monkeypatch.setattr(monitor, stage, fail)
+    assert not asyncio.run(monitor.reconcile_recorded_process_generation(worker_id))
+    assert key in redis.hashes
+
+
+@pytest.mark.parametrize("field", [b"pid", b"proc_start_ticks", b"process_group", b"session_id"])
+def test_reconcile_cas_preserves_replacement_generation(reconciliation_case, monkeypatch, field):
+    _, monitor, redis, worker_id, key = reconciliation_case
+    original_eval = redis.eval
+
+    async def race(*args):
+        redis.hashes[key][field] = b"9999"
+        return await original_eval(*args)
+
+    monkeypatch.setattr(redis, "eval", race)
+    assert not asyncio.run(monitor.reconcile_recorded_process_generation(worker_id))
+    assert redis.hashes[key][field] == b"9999"
+
+
+def test_reconcile_detects_pid_reuse_during_scope_scan(reconciliation_case, monkeypatch):
+    module, monitor, redis, worker_id, key = reconciliation_case
+    identities = iter([None, module.ProcessIdentity(4242, "99", "S", 4242, 4242)])
+    monkeypatch.setattr(monitor, "_read_process_identity", lambda pid: next(identities))
+    assert not asyncio.run(monitor.reconcile_recorded_process_generation(worker_id))
+    assert key in redis.hashes
+
+
+def test_reconcile_preserves_map_on_redis_cas_error(reconciliation_case, monkeypatch):
+    _, monitor, redis, worker_id, key = reconciliation_case
+
+    async def fail(*args):
+        raise ConnectionError("Redis unavailable before CAS")
+
+    monkeypatch.setattr(redis, "eval", fail)
+    assert not asyncio.run(monitor.reconcile_recorded_process_generation(worker_id))
+    assert key in redis.hashes
+
+
+def test_reconcile_retains_conflicting_local_child_generation(reconciliation_case):
+    module, monitor, redis, worker_id, key = reconciliation_case
+    monitor.spawned_identities[worker_id] = module.ProcessIdentity(4242, "99", "Z", 4242, 4242)
+    assert not asyncio.run(monitor.reconcile_recorded_process_generation(worker_id))
+    assert key in redis.hashes
+
+
+def test_reconcile_authenticated_unreapable_zombie_is_drained(reconciliation_case, monkeypatch):
+    module, monitor, redis, worker_id, key = reconciliation_case
+    zombie = module.ProcessIdentity(4242, "88", "Z", 4242, 4242)
+    monkeypatch.setattr(monitor, "_read_process_identity", lambda pid: zombie)
+    monkeypatch.setattr(monitor, "_live_session_members", lambda sid: [zombie])
+
+    def not_our_child(pid, flags):
+        assert pid == 4242 and flags == module.os.WNOHANG
+        raise ChildProcessError
+
+    monkeypatch.setattr(module.os, "waitpid", not_our_child)
+    assert asyncio.run(monitor.reconcile_recorded_process_generation(worker_id))
+    assert key not in redis.hashes
+
+
+@pytest.mark.parametrize("heartbeat_present", [False, True])
+@pytest.mark.parametrize("persistent", [False, True])
+def test_quarantine_monitor_reconciles_even_with_queued_restart(
+    reconciliation_case, monkeypatch, heartbeat_present, persistent
+):
+    module, monitor, redis, worker_id, key = reconciliation_case
+    monitor.persistent = persistent
+    monitor.restart_in_progress.add(worker_id)
+    if heartbeat_present:
+        redis.hashes[f"{module.KEY_PREFIX}:worker:{worker_id}"] = {
+            b"hostname": monitor.hostname.encode(),
+            b"device": b"cuda:0",
+            b"online": b"false",
+        }
+
+    async def quarantined(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(monitor, "_is_worker_quarantined", quarantined)
+    asyncio.run(monitor._check_workers())
+    assert key not in redis.hashes
+    assert redis.hashes["untouched_quarantine"][b"state"] == b"quarantined"
+    assert redis.hashes["untouched_claim"][b"state"] == b"frozen"
+    assert monitor.restart_queue.empty()
+
+
+@pytest.mark.parametrize("retained", [False, True])
+def test_manual_reconcile_uses_monitor_proof_without_clearing(reconciliation_case, monkeypatch, retained):
+    from types import SimpleNamespace
+    from scripts import manage_gpu_quarantine
+
+    _, monitor, redis, worker_id, key = reconciliation_case
+
+    async def quarantine(*args, **kwargs):
+        return {"state": "quarantined"}
+
+    def forbidden_clear(*args, **kwargs):
+        raise AssertionError("reconcile must never clear quarantine")
+
+    monkeypatch.setattr(manage_gpu_quarantine, "read_gpu_quarantine", quarantine)
+    monkeypatch.setattr(manage_gpu_quarantine, "clear_gpu_quarantine", forbidden_clear)
+    monkeypatch.setattr(manage_gpu_quarantine.redis, "from_url", lambda url: redis)
+    monkeypatch.setattr(manage_gpu_quarantine, "WorkerMonitor", lambda *a, **kw: monitor)
+    if retained:
+        monkeypatch.setattr(monitor, "_session_is_drained", lambda sid, groups: False)
+    args = SimpleNamespace(command="reconcile", worker_id=worker_id, device="cuda:0", hostname=monitor.hostname)
+    assert asyncio.run(manage_gpu_quarantine._run(args)) == (4 if retained else 0)
+    assert (key in redis.hashes) == retained
+    assert redis.hashes["untouched_claim"][b"state"] == b"frozen"
+
+
+@pytest.mark.parametrize("field,value", [("hostname", "another-host"), ("device", "cuda:1")])
+def test_manual_reconcile_refuses_wrong_host_or_device(reconciliation_case, monkeypatch, field, value):
+    from types import SimpleNamespace
+    from scripts import manage_gpu_quarantine
+
+    _, monitor, redis, worker_id, key = reconciliation_case
+
+    async def quarantine(*args, **kwargs):
+        return {"state": "quarantined"}
+
+    monkeypatch.setattr(manage_gpu_quarantine, "read_gpu_quarantine", quarantine)
+    monkeypatch.setattr(manage_gpu_quarantine.redis, "from_url", lambda url: redis)
+    args = SimpleNamespace(command="reconcile", worker_id=worker_id, device="cuda:0", hostname=monitor.hostname)
+    setattr(args, field, value)
+    assert asyncio.run(manage_gpu_quarantine._run(args)) == 6
+    assert key in redis.hashes
+
+
+def test_reconciliation_constructor_does_not_replace_signal_handlers(monkeypatch):
+    module = load_worker_monitor()
+
+    def forbidden(*args):
+        raise AssertionError("CLI inspector must not replace signal handlers")
+
+    monkeypatch.setattr(module.signal, "signal", forbidden)
+    module.WorkerMonitor(FakeRedis(), install_signal_handlers=False)
+
+
+def test_reconcile_real_cpu_process_generation_exits_without_signals():
+    module = load_worker_monitor()
+    monitor = module.WorkerMonitor(FakeRedis(), install_signal_handlers=False)
+    worker_id = "reconcile_cpu_fixture"
+    # Exact module/worker argv, but only a disposable CPU stdin reader runs.
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import sys; sys.stdin.readline()", "kernelgym.worker.cpu_worker", worker_id],
+        stdin=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        identity = monitor._read_process_identity(process.pid)
+        assert identity is not None
+        assert identity.process_group == identity.session_id == process.pid
+
+        async def scenario():
+            await monitor.redis.hset(
+                f"{module.KEY_PREFIX}:expected_worker:{worker_id}", mapping={"hostname": monitor.hostname}
+            )
+            assert await monitor._register_spawned_process(worker_id, "cpu", identity)
+            assert not await monitor.reconcile_recorded_process_generation(worker_id)
+            process.communicate("\n", timeout=5)
+            assert process.returncode == 0
+            assert await monitor.reconcile_recorded_process_generation(worker_id)
+            assert not await monitor.redis.hgetall(f"{module.KEY_PREFIX}:worker_process:{worker_id}")
+
+        asyncio.run(scenario())
+    finally:
+        if process.poll() is None:
+            process.communicate("\n", timeout=5)
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +338,17 @@ class FakeRedis:
         if isinstance(key, bytes):
             key = key.decode()
         return dict(self.hashes.get(key, {}))
+
+    async def scan_iter(self, pattern, count=500):  # noqa: ARG002
+        for key in list(self.hashes):
+            if fnmatch.fnmatchcase(key, pattern):
+                yield key.encode()
+
+    async def smembers(self, key):  # noqa: ARG002
+        return set()
+
+    async def aclose(self):
+        pass
 
     async def hset(self, key, mapping):
         if isinstance(key, bytes):

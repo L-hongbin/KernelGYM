@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import math
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -33,6 +34,7 @@ from kernelgym.utils.error_classifier import classify_error
 from kernelgym.utils.device_info import current_device_info
 from kernelgym.utils.task_status import task_status_from_result_payload
 from kernelgym.workflow import get_workflow_controller
+from kernelgym.server.workflow_lifecycle import WorkflowConflictError
 from kernelgym.workflow.kernelbench_helpers import set_reference_cache
 from kernelgym.workflow.reference_cache import build_reference_runtime_cache
 
@@ -94,7 +96,7 @@ async def lifespan(app: FastAPI):
     # Initialize Redis connection with readiness wait (handle RDB/AOF loading)
     async def _wait_for_redis_ready(url: str, timeout_sec: float = 60.0, interval_sec: float = 0.5):
         start = asyncio.get_event_loop().time()
-        client = redis.from_url(url)
+        client = redis.from_url(url, socket_connect_timeout=5, socket_timeout=5)
         last_err = None
         while True:
             try:
@@ -412,6 +414,10 @@ async def _execute_workflow(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_id is required")
     request_hash_value = request_hash(workflow_name or "kernelbench", payload)
 
+    for prefix in task_mgr._prefixes_for_read():
+        if await task_mgr.redis.exists(task_mgr._tombstone_key(task_id, prefix)):
+            raise HTTPException(status_code=409, detail=f"Task {task_id} was cancelled; use a new ID")
+
     if not force_refresh:
         existing = await task_mgr.get_task_result(task_id, expected_request_hash=request_hash_value)
         if existing:
@@ -419,16 +425,38 @@ async def _execute_workflow(
             existing.setdefault("task_id", task_id)
             return task_id, existing, _result_status(existing)
 
-    scheduler = TaskManagerScheduler(task_mgr)
     try:
         controller = get_workflow_controller(workflow_name or "kernelbench")
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    result = await controller.handle_request(payload, scheduler)
-    if isinstance(result, dict):
-        result.setdefault("task_id", task_id)
-    await task_mgr.complete_task(task_id, result, request_hash=request_hash_value)
+    timeout = payload.get("workflow_timeout")
+    try:
+        timeout = settings.workflow_timeout if timeout is None else float(timeout)
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("workflow_timeout must be positive and finite")
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="workflow_timeout must be positive and finite") from exc
+    try:
+        owner, record = await task_mgr.workflows.accept(
+            task_id, request_hash_value, workflow_name or "kernelbench", timeout, force_refresh
+        )
+        if owner:
+            scheduler = TaskManagerScheduler(task_mgr, workflow=record)
+            task = asyncio.create_task(
+                task_mgr.workflows.run(task_id, record, lambda: controller.handle_request(payload, scheduler))
+            )
+            task_mgr._workflow_tasks.add(task)
+
+            def finished(completed):
+                task_mgr._workflow_tasks.discard(completed)
+                if not completed.cancelled() and completed.exception() is not None:
+                    logger.error("Workflow owner failed for %s: %s", task_id, completed.exception())
+
+            task.add_done_callback(finished)
+        result = await task_mgr.workflows.wait(task_id, record["workflow_generation"])
+    except WorkflowConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return task_id, result, _result_status(result)
 
 
@@ -580,7 +608,8 @@ async def benchmark_speed_test(task_mgr: TaskManager = Depends(get_task_manager)
             compile_metadata = None
             if (result.get("metadata") or {}).get("split_compile_and_execute") is True:
                 try:
-                    compile_result = await task_mgr.get_task_result(f"{task_id}_compile")
+                    compile_id = (result.get("workflow_children") or {}).get("compile", f"{task_id}_compile")
+                    compile_result = await task_mgr.get_task_result(compile_id)
                     if isinstance(compile_result, dict):
                         compile_metadata = compile_result.get("metadata")
                 except Exception as exc:
@@ -619,11 +648,12 @@ async def benchmark_speed_test(task_mgr: TaskManager = Depends(get_task_manager)
                 )
             )
         if workflow_finished:
+            children = result.get("workflow_children") or {}
             ephemeral_task_ids = (
                 task_id,
-                f"{task_id}_compile",
-                f"{task_id}_kernel",
-                f"{task_id}_ref",
+                children.get("compile", f"{task_id}_compile"),
+                children.get("kernel", f"{task_id}_kernel"),
+                children.get("ref", f"{task_id}_ref"),
             )
             try:
                 await task_mgr.discard_task_records(ephemeral_task_ids)
@@ -749,7 +779,13 @@ async def benchmark_speedup_noise_floor(
             )
         )
 
-        ephemeral_task_ids = (task_id, f"{task_id}_compile", f"{task_id}_kernel", f"{task_id}_ref")
+        children = result.get("workflow_children") or {}
+        ephemeral_task_ids = (
+            task_id,
+            children.get("compile", f"{task_id}_compile"),
+            children.get("kernel", f"{task_id}_kernel"),
+            children.get("ref", f"{task_id}_ref"),
+        )
         try:
             await task_mgr.discard_task_records(ephemeral_task_ids)
         except Exception as exc:
@@ -990,7 +1026,7 @@ async def get_task_results(task_id: str, task_mgr: TaskManager = Depends(get_tas
 
 @app.delete("/tasks/{task_id}")
 async def cancel_task(task_id: str, task_mgr: TaskManager = Depends(get_task_manager)):
-    """Cancel a task."""
+    """Persist cancellation, including for IDs whose POST has not arrived."""
     try:
         success = await task_mgr.cancel_task(task_id)
         if not success:
@@ -998,7 +1034,7 @@ async def cancel_task(task_id: str, task_mgr: TaskManager = Depends(get_task_man
                 status_code=status.HTTP_404_NOT_FOUND, detail=f"Task {task_id} not found or cannot be cancelled"
             )
 
-        return {"message": f"Task {task_id} cancelled successfully"}
+        return {"message": f"Cancellation recorded for task {task_id}", "cancellation_recorded": True}
 
     except HTTPException:
         raise

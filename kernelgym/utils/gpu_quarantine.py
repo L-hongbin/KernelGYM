@@ -604,6 +604,7 @@ async def read_gpu_quarantine(
     *,
     device: str = "",
     hostname: str = "",
+    read_only: bool = False,
 ) -> Optional[Dict[str, str]]:
     # Read durable state even when Redis has a value.  A successful page is
     # recorded durably before Redis is updated, so returning Redis early could
@@ -614,8 +615,11 @@ async def read_gpu_quarantine(
         hostname=hostname,
         device=device,
     )
-    if record is None:
-        return None
+    # Business waiters only need a positive observation. Do not make their
+    # completion depend on acquiring the physical recovery lock or repairing
+    # latch replicas. Admission/recovery callers retain the default behavior.
+    if record is None or read_only:
+        return record
 
     write_device, write_worker, _ = _redis_rehydration_needed(
         record,

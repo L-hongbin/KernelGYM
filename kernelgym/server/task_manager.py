@@ -1,6 +1,6 @@
 """Core TaskManager for KernelGym server.
 
-This is a minimal, generic scheduler-backed task manager without workflow semantics.
+Redis-backed scheduling, claim fencing, and parent workflow lifecycle coordination.
 """
 
 from __future__ import annotations
@@ -21,6 +21,14 @@ from kernelgym.common import TaskStatus, Priority, ErrorCode
 from kernelgym.config import settings
 from kernelgym.backend import list_backends
 from kernelgym.server.code_retry_manager import CodeRetryManager
+from kernelgym.server.workflow_lifecycle import (
+    CANCEL_TASK_LUA,
+    DISCARD_WORKFLOW_RECORDS_LUA,
+    WORKFLOW_GUARD_LUA,
+    WORKFLOW_TASK_ALIVE_LUA,
+    WorkflowLifecycle,
+    WorkflowStoppedError,
+)
 from kernelgym.toolkit import list_toolkits
 from kernelgym.utils.gpu_quarantine import read_gpu_quarantine
 from kernelgym.utils.task_status import task_status_from_result_payload
@@ -60,7 +68,9 @@ class TaskClaim:
     worker_instance: str
 
 
-_CLAIM_GPU_TASK_LUA = r"""
+_CLAIM_GPU_TASK_LUA = (
+    WORKFLOW_GUARD_LUA
+    + r"""
 -- kernelgym:claim-gpu-task-v2
 -- KEYS: source queue, worker inflight queue
 -- ARGV: token, worker id, worker instance, task-key prefix, scan limit
@@ -78,7 +88,7 @@ for _ = 1, scan_limit do
     if redis.call('EXISTS', task_key) == 1 then
         local status = redis.call('HGET', task_key, 'status')
         local current_token = redis.call('HGET', task_key, 'claim_token')
-        if status == 'pending' and (not current_token or current_token == '') then
+        if status == 'pending' and (not current_token or current_token == '') and workflow_task_allowed(task_key) then
             local entry = ARGV[1] .. '|' .. task_id
             redis.call('LPUSH', KEYS[2], entry)
             redis.call(
@@ -98,9 +108,12 @@ for _ = 1, scan_limit do
 end
 return false
 """
+)
 
 
-_SUBMIT_TASK_IF_ABSENT_LUA = r"""
+_SUBMIT_TASK_IF_ABSENT_LUA = (
+    WORKFLOW_GUARD_LUA
+    + r"""
 -- kernelgym:submit-task-if-absent-v1
 -- KEYS: task hash, destination queue
 -- ARGV: task id, task mapping JSON
@@ -108,20 +121,27 @@ _SUBMIT_TASK_IF_ABSENT_LUA = r"""
 -- Creating the hash and publishing its queue id are one Redis operation.  A
 -- retry or concurrent submit observes either the complete task or no task; it
 -- can never observe a pending hash whose queue publication was skipped.
+local task_mapping = cjson.decode(ARGV[2])
+if not workflow_allowed(task_mapping) then return -5 end
 if redis.call('EXISTS', KEYS[1]) == 1 then
     return 0
 end
-local task_mapping = cjson.decode(ARGV[2])
 for field, value in pairs(task_mapping) do
     redis.call('HSET', KEYS[1], field, value)
 end
 redis.call('LREM', KEYS[2], 0, ARGV[1])
 redis.call('LPUSH', KEYS[2], ARGV[1])
+if task_mapping.workflow_children_key then
+    redis.call('SADD', task_mapping.workflow_children_key, ARGV[1])
+end
 return 1
 """
+)
 
 
-_FORCE_REFRESH_TASK_LUA = r"""
+_FORCE_REFRESH_TASK_LUA = (
+    WORKFLOW_GUARD_LUA
+    + r"""
 -- kernelgym:force-refresh-task-v1
 -- KEYS: task hash, result hash, destination queue, cleanup queues...
 -- ARGV: task id, replacement task mapping JSON, worker-queue prefix
@@ -131,6 +151,8 @@ _FORCE_REFRESH_TASK_LUA = r"""
 -- fully released.  Pending/processing tasks and every tokenized/frozen claim
 -- are immutable here, so a concurrent GPU claim either wins before this script
 -- and fences the refresh, or runs afterwards against the replacement payload.
+local replacement_mapping = cjson.decode(ARGV[2])
+if not workflow_allowed(replacement_mapping) then return -5 end
 local task_exists = redis.call('EXISTS', KEYS[1]) == 1
 if task_exists then
     if redis.call('HGET', KEYS[1], 'claim_recovery_state') == 'frozen' then
@@ -157,16 +179,21 @@ for index = 3, #KEYS do
     redis.call('LREM', KEYS[index], 0, ARGV[1])
 end
 redis.call('DEL', KEYS[1], KEYS[2])
-local replacement_mapping = cjson.decode(ARGV[2])
 for field, value in pairs(replacement_mapping) do
     redis.call('HSET', KEYS[1], field, value)
 end
 redis.call('LPUSH', KEYS[3], ARGV[1])
+if replacement_mapping.workflow_children_key then
+    redis.call('SADD', replacement_mapping.workflow_children_key, ARGV[1])
+end
 return task_exists and 2 or 1
 """
+)
 
 
-_QUEUE_WAIT_REQUEUE_LUA = r"""
+_QUEUE_WAIT_REQUEUE_LUA = (
+    WORKFLOW_GUARD_LUA
+    + r"""
 -- kernelgym:queue-wait-requeue-v2
 -- KEYS: task hash, source worker queue, destination resource queue,
 --       task cancel, optional workflow-parent cancel
@@ -206,7 +233,8 @@ local claim_token = redis.call('HGET', KEYS[1], 'claim_token')
 if claim_token and claim_token ~= '' then
     return -1
 end
-if redis.call('EXISTS', KEYS[4]) == 1 or redis.call('EXISTS', KEYS[5]) == 1 then
+if not workflow_task_allowed(KEYS[1]) or
+    redis.call('EXISTS', KEYS[4]) == 1 or redis.call('EXISTS', KEYS[5]) == 1 then
     return -2
 end
 if redis.call('LREM', KEYS[2], 1, ARGV[1]) ~= 1 then
@@ -237,9 +265,12 @@ redis.call(
 redis.call('LPUSH', KEYS[3], ARGV[1])
 return 1
 """
+)
 
 
-_CONDITIONAL_REQUEUE_LUA = r"""
+_CONDITIONAL_REQUEUE_LUA = (
+    WORKFLOW_GUARD_LUA
+    + r"""
 -- kernelgym:conditional-requeue-v2
 -- KEYS: task hash, destination queue, worker inflight queue, task cancel,
 --       optional workflow-parent cancel
@@ -284,7 +315,8 @@ if status == 'completed' or status == 'failed' or status == 'timeout' then
     clear_claim()
     return -1
 end
-if redis.call('EXISTS', KEYS[4]) == 1 or redis.call('EXISTS', KEYS[5]) == 1 then
+if not workflow_task_allowed(KEYS[1]) or
+    redis.call('EXISTS', KEYS[4]) == 1 or redis.call('EXISTS', KEYS[5]) == 1 then
     redis.call('LREM', KEYS[3], 1, ARGV[2])
     clear_claim()
     return -2
@@ -313,9 +345,12 @@ redis.call(
 redis.call('LPUSH', KEYS[2], ARGV[1])
 return 1
 """
+)
 
 
-_MARK_CLAIM_PROCESSING_LUA = r"""
+_MARK_CLAIM_PROCESSING_LUA = (
+    WORKFLOW_GUARD_LUA
+    + r"""
 -- kernelgym:mark-claim-processing-v3
 -- KEYS: task hash, inflight queue, task cancel, optional parent cancel
 -- ARGV: task id, claim entry, token, started timestamp, worker id,
@@ -344,7 +379,8 @@ if status ~= 'pending' then
     clear_claim()
     return 0
 end
-if redis.call('EXISTS', KEYS[3]) == 1 or redis.call('EXISTS', KEYS[4]) == 1 then
+if not workflow_task_allowed(KEYS[1]) or
+    redis.call('EXISTS', KEYS[3]) == 1 or redis.call('EXISTS', KEYS[4]) == 1 then
     redis.call('LREM', KEYS[2], 1, ARGV[2])
     clear_claim()
     return -1
@@ -363,9 +399,24 @@ redis.call(
 )
 return 1
 """
+)
+
+_MARK_WORKFLOW_CPU_PROCESSING_LUA = (
+    WORKFLOW_GUARD_LUA
+    + r"""
+-- kernelgym:mark-cpu-processing-v1
+if redis.call('HGET', KEYS[1], 'status') ~= 'pending' then return 0 end
+if not workflow_task_allowed(KEYS[1]) then return 0 end
+if redis.call('EXISTS', KEYS[2]) == 1 or redis.call('EXISTS', KEYS[3]) == 1 then return 0 end
+redis.call('HSET', KEYS[1], 'status', 'processing', 'started_at', ARGV[1])
+return 1
+"""
+)
 
 
-_RETURN_CLAIM_LUA = r"""
+_RETURN_CLAIM_LUA = (
+    WORKFLOW_GUARD_LUA
+    + r"""
 -- kernelgym:return-claim-v2
 -- KEYS: source queue, inflight queue, task hash
 -- ARGV: task id, claim entry, token
@@ -376,7 +427,7 @@ if not current_token or current_token ~= ARGV[3] then
 end
 redis.call('LREM', KEYS[2], 1, ARGV[2])
 redis.call('LREM', KEYS[1], 0, ARGV[1])
-redis.call('LPUSH', KEYS[1], ARGV[1])
+if workflow_task_allowed(KEYS[3]) then redis.call('LPUSH', KEYS[1], ARGV[1]) end
 redis.call(
     'HSET', KEYS[3],
     'claim_token', '',
@@ -390,6 +441,7 @@ redis.call(
 )
 return 1
 """
+)
 
 
 _ACK_CLAIM_LUA = r"""
@@ -560,6 +612,8 @@ class TaskManager:
         self.worker_load_balancer = WorkerLoadBalancer()
         self.retry_manager = CodeRetryManager(redis_client)
         self._background_tasks: list[asyncio.Task] = []
+        self.workflows = WorkflowLifecycle(self)
+        self._workflow_tasks: set[asyncio.Task] = set()
         # GPU dequeues use an atomic source->inflight claim.  The in-memory
         # index is only an optimization; the Redis list is the crash-recovery
         # authority and survives a worker-process exit at every dequeue point.
@@ -703,6 +757,10 @@ class TaskManager:
         self._start_background_tasks()
 
     async def shutdown(self):
+        for task in list(self._workflow_tasks):
+            task.cancel()
+        if self._workflow_tasks:
+            await asyncio.gather(*self._workflow_tasks, return_exceptions=True)
         for task in list(self._background_tasks):
             task.cancel()
         for task in list(self._background_tasks):
@@ -714,6 +772,7 @@ class TaskManager:
         self._background_tasks.clear()
 
     def _start_background_tasks(self) -> None:
+        self._background_tasks.append(asyncio.create_task(self.workflows.watch()))
         timeout_sec = getattr(settings, "worker_queue_wait_timeout_sec", 0)
         interval_raw = getattr(settings, "worker_queue_wait_monitor_interval", 20)
         if timeout_sec > 0 and interval_raw > 0:
@@ -1075,7 +1134,25 @@ class TaskManager:
             "submitted_at": submitted_at.isoformat(),
             "assigned_worker": assigned_worker,
             "assigned_at": assigned_at,
+            "cancellation_keys": json.dumps(
+                [self._tombstone_key(task_id)]
+                + ([self._tombstone_key(task_data["base_task_id"])] if task_data.get("base_task_id") else [])
+                + (
+                    [self._tombstone_key(task_data["workflow_source_task_id"])]
+                    if task_data.get("workflow_source_task_id")
+                    else []
+                )
+            ),
         }
+        for field in (
+            "workflow_generation",
+            "workflow_parent_key",
+            "workflow_lease_key",
+            "workflow_deadline",
+            "workflow_children_key",
+        ):
+            if field in task_data:
+                task_mapping[field] = task_data[field]
         if force_refresh:
             refresh_result = await self._force_refresh_task(
                 task_id,
@@ -1115,6 +1192,8 @@ class TaskManager:
             task_id,
             json.dumps(task_mapping),
         )
+        if int(created) == -5:
+            raise WorkflowStoppedError(f"Parent workflow no longer admits task {task_id}")
         return int(created) == 1
 
     async def _force_refresh_task(
@@ -1151,6 +1230,8 @@ class TaskManager:
             )
         )
         if result < 0:
+            if result == -5:
+                raise WorkflowStoppedError(f"Parent workflow no longer admits task {task_id}")
             reason = {
                 -1: "an active claim token exists",
                 -2: "claim recovery is frozen pending safe GPU containment",
@@ -1500,11 +1581,8 @@ class TaskManager:
                         ):
                             continue
                     else:
-                        started_at = datetime.now().isoformat()
-                        await self.redis.hset(
-                            task_key,
-                            mapping={"status": TaskStatus.PROCESSING.value, "started_at": started_at},
-                        )
+                        if not await self._mark_cpu_processing(prefix, task_key, task_id, task_json):
+                            continue
                     return task_json
                 # Cancelled/terminal/missing: discard it and fall through to the
                 # resource queues instead of handing a dead task to the worker.
@@ -1566,11 +1644,8 @@ class TaskManager:
                             ):
                                 continue
                         else:
-                            started_at = datetime.now().isoformat()
-                            await self.redis.hset(
-                                task_key,
-                                mapping={"status": TaskStatus.PROCESSING.value, "started_at": started_at},
-                            )
+                            if not await self._mark_cpu_processing(prefix, task_key, task_id, task_json):
+                                continue
                         return task_json
                 finally:
                     for deferred_task_id in deferred_claims:
@@ -1578,6 +1653,19 @@ class TaskManager:
                     for deferred_task_id in deferred_task_ids:
                         await self.redis.lpush(queue_key, deferred_task_id)
         return None
+
+    async def _mark_cpu_processing(self, prefix: str, task_key: str, task_id: str, task_json: Dict[str, Any]) -> bool:
+        started_at = datetime.now().isoformat()
+        return bool(
+            await self.redis.eval(
+                _MARK_WORKFLOW_CPU_PROCESSING_LUA,
+                3,
+                task_key,
+                self._cancel_key(task_id, prefix),
+                self._cancel_key(task_json.get("base_task_id") or task_id, prefix),
+                started_at,
+            )
+        )
 
     async def _finalize_task_records(
         self,
@@ -1596,6 +1684,8 @@ class TaskManager:
         if claim is None:
             existing_task = await self.redis.hgetall(task_key)
             decoded = self._decode_redis_hash(existing_task)
+            if decoded.get("workflow_generation") and not decoded.get("workflow_parent_key"):
+                raise StaleTaskClaimError(f"Workflow parent {task_id} requires a generation-fenced terminal commit")
             current_token = str(decoded.get("claim_token") or "")
             if current_token:
                 if not allow_control_plane_claim:
@@ -1765,6 +1855,20 @@ class TaskManager:
             self.active_tasks[task_id].error_message = error_message
 
     async def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
+        parent = await self.workflows.read(task_id)
+        if parent.get("workflow_generation") and not parent.get("workflow_parent_key"):
+            parent = await self.workflows.reconcile(task_id)
+            return {
+                "task_id": task_id,
+                "status": parent["status"],
+                "submitted_at": parent.get("submitted_at"),
+                "started_at": parent.get("started_at"),
+                "completed_at": parent.get("completed_at"),
+                "error_message": parent.get("error_message"),
+                "workflow_generation": parent["workflow_generation"],
+                "workflow_deadline": float(parent["workflow_deadline"]),
+                "children": json.loads(parent.get("children", "{}")),
+            }
         for prefix in self._prefixes_for_read():
             result_data = await self.redis.hgetall(f"{prefix}:result:{task_id}")
             if result_data:
@@ -1858,8 +1962,41 @@ class TaskManager:
             return 0
 
         keys = []
+        retained_ids = set()
+        deleted = 0
         for prefix in self._prefixes_for_read():
             for task_id in normalized_ids:
+                record = self._decode_redis_hash(await self.redis.hgetall(f"{prefix}:task:{task_id}"))
+                if record.get("workflow_generation") and (
+                    record.get("claim_token") or record.get("status") not in _TERMINAL_TASK_STATUSES
+                ):
+                    # Parent termination does not prove a running CUDA child
+                    # reaped. Ephemeral benchmark cleanup must retain ownership.
+                    retained_ids.add(task_id)
+                    continue
+                if record.get("workflow_generation"):
+                    generation = record["workflow_generation"]
+                    generation_keys = [
+                        f"{prefix}:task:{task_id}",
+                        f"{prefix}:result:{task_id}",
+                        f"{prefix}:status:{task_id}",
+                        self._cancel_key(task_id, prefix),
+                        self._workflow_key(task_id, prefix),
+                    ]
+                    if not record.get("workflow_parent_key"):
+                        generation_keys.append(f"{prefix}:workflow_children:{task_id}:{generation}")
+                    removed = int(
+                        await self.redis.eval(
+                            DISCARD_WORKFLOW_RECORDS_LUA,
+                            len(generation_keys),
+                            *generation_keys,
+                            generation,
+                        )
+                    )
+                    deleted += removed
+                    if not removed:
+                        retained_ids.add(task_id)
+                    continue
                 keys.extend(
                     (
                         f"{prefix}:task:{task_id}",
@@ -1870,8 +2007,10 @@ class TaskManager:
                     )
                 )
 
-        deleted = int(await self.redis.delete(*keys))
+        deleted += int(await self.redis.delete(*keys)) if keys else 0
         for task_id in normalized_ids:
+            if task_id in retained_ids:
+                continue
             self.active_tasks.pop(task_id, None)
             self._task_claims.pop(task_id, None)
         return deleted
@@ -1890,6 +2029,9 @@ class TaskManager:
         base = prefix or self.key_prefix
         return f"{base}:cancel:{task_id}"
 
+    def _tombstone_key(self, task_id: str, prefix: Optional[str] = None) -> str:
+        return f"{prefix or self.key_prefix}:cancelled:{task_id}"
+
     def _workflow_key(self, base_id: str, prefix: Optional[str] = None) -> str:
         base = prefix or self.key_prefix
         return f"{base}:workflow:{base_id}"
@@ -1906,34 +2048,20 @@ class TaskManager:
             await self.redis.expire(result_key, result_ttl)
 
     async def _mark_task_cancelled(self, task_id: str, prefix: str) -> None:
-        """Publish a short-lived cancellation marker that running workers poll."""
-        try:
-            await self.redis.set(self._cancel_key(task_id, prefix), "1", ex=self._marker_ttl())
-        except Exception as exc:  # pragma: no cover - best effort marker
-            logger.warning("Failed to set cancellation marker for %s: %s", task_id, exc)
-
-    async def register_workflow(self, base_id: str) -> None:
-        """Mark a workflow (whose parent id has no task hash mid-flight) active.
-
-        This lets ``cancel_task`` recognize an in-flight ``/evaluate`` parent id
-        and publish a cancellation marker that its running sub-tasks poll via
-        their ``base_task_id``.
-        """
-        if not base_id:
-            return
-        try:
-            await self.redis.set(self._workflow_key(base_id), "1", ex=self._marker_ttl())
-        except Exception as exc:  # pragma: no cover - best effort registration
-            logger.warning("Failed to register workflow %s: %s", base_id, exc)
-
-    async def unregister_workflow(self, base_id: str) -> None:
-        if not base_id:
-            return
-        for prefix in self._prefixes_for_read():
-            try:
-                await self.redis.delete(self._workflow_key(base_id, prefix))
-            except Exception:  # pragma: no cover - best effort cleanup
-                continue
+        """Persist admission fences and stop only attempts that have not started."""
+        await self.redis.eval(
+            CANCEL_TASK_LUA,
+            4,
+            f"{prefix}:task:{task_id}",
+            f"{prefix}:result:{task_id}",
+            self._tombstone_key(task_id, prefix),
+            self._cancel_key(task_id, prefix),
+            task_id,
+            datetime.now().isoformat(),
+            prefix,
+            settings.terminal_task_ttl_sec,
+            settings.terminal_result_ttl_sec,
+        )
 
     async def _is_workflow_active(self, base_id: str) -> bool:
         for prefix in self._prefixes_for_read():
@@ -1945,13 +2073,16 @@ class TaskManager:
         return False
 
     async def is_task_cancelled(self, task_id: str) -> bool:
-        """Whether a cancellation has been requested for ``task_id`` (any prefix)."""
+        """Check markers and workflow fences; propagate storage uncertainty."""
         for prefix in self._prefixes_for_read():
-            try:
-                if await self.redis.exists(self._cancel_key(task_id, prefix)):
-                    return True
-            except Exception:  # pragma: no cover - treat redis hiccup as "not cancelled"
-                continue
+            if await self.redis.exists(self._cancel_key(task_id, prefix), self._tombstone_key(task_id, prefix)):
+                return True
+            task_key = f"{prefix}:task:{task_id}"
+            task_data = await self.redis.hgetall(task_key)
+            if task_data.get(b"workflow_generation"):
+                return not bool(
+                    await self.redis.eval(WORKFLOW_TASK_ALIVE_LUA, 2, task_key, self._workflow_key(task_id, prefix))
+                )
         return False
 
     async def _dequeued_task_cancelled(self, prefix: str, task_id: str, base_id: str = "") -> bool:
@@ -1961,13 +2092,11 @@ class TaskManager:
         marker, so a sub-task whose parent ``/evaluate`` was cancelled while it sat
         queued is dropped instead of dispatched.
         """
-        keys = [self._cancel_key(task_id, prefix)]
+        keys = [self._cancel_key(task_id, prefix), self._tombstone_key(task_id, prefix)]
         if base_id and base_id != task_id:
             keys.append(self._cancel_key(base_id, prefix))
-        try:
-            return bool(await self.redis.exists(*keys))
-        except Exception:  # pragma: no cover
-            return False
+            keys.append(self._tombstone_key(base_id, prefix))
+        return bool(await self.redis.exists(*keys))
 
     async def _remove_task_from_queues(self, task_id: str, prefix: str, assigned_worker: str = "") -> int:
         """Remove a pending task id from every queue it could be waiting in."""
@@ -1991,58 +2120,25 @@ class TaskManager:
         return removed
 
     async def cancel_task(self, task_id: str) -> bool:
-        """Cancel a task or an in-flight ``/evaluate`` workflow.
+        """Fence even IDs not yet submitted; success does not prove GPU exit.
 
-        Direct task: pulled from the queue if pending (never dispatched) and
-        recorded with a terminal cancelled result; if running, a cancellation
-        marker lets the worker kill its CUDA subprocess promptly.
-
-        Workflow parent id (no task hash while sub-tasks run): a cancellation
-        marker is published under the parent id, which its running sub-tasks
-        poll via their ``base_task_id`` and abort.
-
-        Returns False only for unknown or already-terminal ids.
+        Running/frozen claims remain owned by the worker's safe-reap path.
+        Tombstones survive result cleanup and cannot be bypassed by force refresh.
         """
         for prefix in self._prefixes_for_read():
-            task_data = await self.redis.hgetall(f"{prefix}:task:{task_id}")
-            if not task_data:
-                continue
-            status = task_data.get(b"status", b"").decode()
-            if status in _TERMINAL_TASK_STATUSES:
-                return False
-            assigned_worker = task_data.get(b"assigned_worker", b"").decode()
-            # 1. Publish a cancellation marker so a worker already running this
-            #    task can detect it and kill its CUDA subprocess promptly.
             await self._mark_task_cancelled(task_id, prefix)
-            # 2. Pull the task out of any pending queue so it is never dispatched.
-            await self._remove_task_from_queues(task_id, prefix, assigned_worker)
-            # 3. Record the terminal cancelled result/status.
-            await self.fail_task(
-                task_id,
-                "Task cancelled",
-                ErrorCode.SYSTEM_ERROR,
-                prefix=prefix,
-                adopt_current_claim=True,
-            )
-            cancelled_at = datetime.now().isoformat()
-            await self.redis.hset(f"{prefix}:task:{task_id}", mapping={"cancelled_at": cancelled_at})
-            logger.info(
-                "Cancelled task %s (prior_status=%s, assigned_worker=%s)",
-                task_id,
-                status or "pending",
-                assigned_worker or "-",
-            )
-            return True
-
-        # No direct task hash. If this is the parent id of an in-flight workflow,
-        # publish a cancellation marker that its running sub-tasks (which carry
-        # base_task_id == task_id) poll and act on. The workflow controller
-        # writes the parent's terminal result when it aborts.
-        if await self._is_workflow_active(task_id):
-            await self._mark_task_cancelled(task_id, self.key_prefix)
-            logger.info("Cancelled in-flight workflow %s (no direct task; marked base scope)", task_id)
-            return True
-        return False
+        for prefix in self._prefixes_for_read():
+            task_data = await self.redis.hgetall(f"{prefix}:task:{task_id}")
+            if task_data.get(b"workflow_generation") and not task_data.get(b"workflow_parent_key"):
+                if prefix != self.key_prefix:
+                    raise RuntimeError("Cancel this workflow through its owning namespace")
+                await self.workflows.finish(
+                    task_id,
+                    task_data[b"workflow_generation"].decode(),
+                    self.workflows.failure(task_id, "Task cancelled"),
+                    "Task cancelled",
+                )
+        return True
 
     async def get_queue_status(self) -> Dict[str, Any]:
         pending = 0

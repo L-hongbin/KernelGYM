@@ -94,6 +94,7 @@ Trial budget:
 | `perf_trim_count` | 0–50 | 0 | Trim N highest + N lowest perf samples before mean. |
 | `memory_ratio_threshold` | >1 or null | 1.8 | Add `memory.comparison.warning` when Kernel total-task peak allocated memory is greater than or equal to this multiple of the reference. `null` disables the warning. The warning can be used by downstream reward shaping without changing correctness or task status. |
 | `timeout` | 10–3600 s | 300 (model default) / 180 (v1 deployment) | Per-task wall budget. Hard kill once exceeded. |
+| `workflow_timeout` | Positive finite seconds | `WORKFLOW_TIMEOUT`, default 1800 | Independent end-to-end parent budget, including CPU/GPU queue wait and all stages. Does not change `timeout` or `DEFAULT_TIMEOUT`. |
 
 Caching / dedup:
 
@@ -444,19 +445,31 @@ Validates the request shape and runs the workflow's `validate_request` step with
 
 | Endpoint | Returns |
 |---|---|
-| `GET /status/{task_id}` | `TaskStatusResponse`: `status`, `progress`, `queue_position`, `assigned_device`, `estimated_completion`. 404 if unknown. |
+| `GET /status/{task_id}` | `TaskStatusResponse`: status and timing fields; workflow parents additionally expose `workflow_generation`, Unix `workflow_deadline`, and planned `children` IDs. Available from acceptance, including queue wait. 404 if unknown/expired. |
 | `GET /results/{task_id}` | Full `EvaluationResponse` (404 if not yet stored). |
-| `DELETE /tasks/{task_id}` | Cancels if pending/in-flight. 404 if unknown or already terminal. |
+| `DELETE /tasks/{task_id}` | Idempotently records cancellation, including unknown/terminal IDs. Returns 200 only after the fence is persisted; storage failure returns 500. Does not certify GPU process exit. |
 
 ### `DELETE /tasks/{task_id}` — cancellation semantics
 
-Cancellation is a real interrupt, not just a status flag. `/evaluate` runs as a workflow that decomposes the parent `task_id` into sub-tasks (`{id}_compile` on CPU, then `{id}_kernel` + `{id}_ref` on GPU, each carrying `base_task_id == {id}`). Cancelling the parent id propagates to whichever sub-task is in flight.
+The synchronous POST contract is unchanged, but acceptance atomically creates a parent `pending` record before execution. One Redis-owned generation runs the controller, renewing a separate active lease (`WORKFLOW_LEASE_SECONDS`, default 60 seconds). The parent becomes `processing` while the controller runs, including waits for children; it has no result-retention TTL until terminal commit. Redis time establishes the absolute deadline, so queue wait consumes the same end-to-end budget as execution. Deadline/lease checks are enforced again atomically when publishing a child, claiming/dispatching GPU work, and dispatching CPU compile work. An API watchdog and status/wait queries terminalize expired deadlines or abandoned owners without launching a replacement workflow.
 
-- **Pending / queued** — the id is removed from its resource/worker queue, and (for a workflow parent) a cancellation marker is published. A worker that later dequeues a task whose own id **or** `base_task_id` is cancelled drops it instead of running it, and the in-flight `/evaluate` request returns promptly (its wait is cancellation-aware) rather than blocking until a worker frees up.
+Concurrent same-ID, same-content POSTs join the existing generation, even when `force_refresh=true`; only one controller submits children. Conflicting content while active returns HTTP 409. A terminal task that was not explicitly cancelled can be rerun with `force_refresh=true`, which creates new generation-scoped child IDs. Ordinary cached results retain request-hash validation. Disconnecting one HTTP waiter does not cancel a workflow shared with other callers; use `DELETE /tasks/{id}` for explicit cancellation. Owner shutdown records failure, and a crashed owner is fenced by lease expiry.
+
+Cancellation is a real interrupt, not just a status flag. `/evaluate` decomposes the parent into generation-scoped sub-tasks such as `{id}_compile_{generation}`, `{id}_kernel_{generation}`, and `{id}_ref_{generation}`, each carrying `base_task_id == {id}`. Read `/status/{id}.children` instead of constructing suffixes. These IDs are reserved at acceptance; a cached/skipped stage may never create its child record. Cancelling the parent propagates to in-flight children and fences future stages, including late CPU completions from an older generation.
+
+- **Pending / queued** — the parent terminal commit atomically publishes cancellation, removes known child queue entries, and finalizes children that have not crossed the execution fence. A worker that already popped a child rechecks the parent generation/deadline at dispatch and cannot start it after cancellation. The synchronous POST returns the parent's terminal result without waiting for a worker to free up.
 - **Running on GPU** — the GPU worker running the task polls the cancellation marker (~1 s) and, on seeing it, kills the CUDA subprocess executing the task (the pool spawns a clean replacement) instead of letting it run to its `timeout`.
 - **Running CPU compile** — the compile stage is not preemptively killed (it finishes on its own, usually quickly), but the workflow returns the cancelled result immediately without waiting for the GPU stages.
 
-Either way the task ends terminal with `error_message: "Task cancelled"` (`error_code: SYSTEM_ERROR`); a direct task also records a `cancelled_at` timestamp. Cancelling a task that is already `completed`/`failed`/`timeout`, or an unknown id, returns 404. There is an inherent race where a task that finishes within the poll window may still record its real result.
+Explicit cancellation normally produces `error_message: "Task cancelled"` (`error_code: SYSTEM_ERROR`); an already-expired workflow records `timeout` / `TIMEOUT_ERROR`. A direct task also records `cancelled_at`. The first generation-fenced parent terminal commit wins: a later controller result cannot overwrite cancellation/timeout. Running or frozen GPU claims are not released by parent or direct-child cancellation; the worker's existing safe-reap/containment path owns that cleanup. Worker polling may observe cancellation after the current GPU operation finishes, but the parent terminal result remains immutable. Result and task retention use the existing `TERMINAL_RESULT_TTL_SEC` / `TERMINAL_TASK_TTL_SEC` settings, starting at terminal commit.
+
+DELETE returns `{"message": "Cancellation recorded for task <id>", "cancellation_recorded": true}` even if POST has not arrived. The separate `{prefix}:cancelled:{id}` tombstone has no TTL and is excluded from result/ephemeral cleanup. Subsequent same-ID POSTs return HTTP 409, including cached results and `force_refresh=true`; retries must use a new ID. Parent and planned child IDs, legacy stage aliases, and child submissions carrying `base_task_id` are fenced. Both enqueue and CPU/GPU execution gates check cancellation atomically. A status/result 404 merely means no retained record exists; it does not indicate that future execution is impossible. Cancelling an already-terminal ID preserves its existing GET result while prohibiting future execution under that ID.
+
+Tombstones are Redis coordination state, not a filesystem journal: preserving them across Redis loss requires Redis persistence and no destructive namespace reset. They intentionally do not auto-expire because an unknown delayed submission has no bounded arrival time. Normal result TTL cleanup is not authorization to remove cancellation tombstones; each cancelled ID requires a new ID for future requests.
+
+If a registered child is frozen or its bound worker is quarantined, parent reconciliation returns `failed` / `SYSTEM_ERROR` with an explicit `Infrastructure failure` message and stops later stages. This does not publish a normal terminal result for a frozen child, clear its claim/inflight entry, or lift quarantine. Quarantine observation is read-only (including durable latch lookup after worker heartbeat expiry) and does not wait for the physical recovery lock. Business completion and safe GPU containment remain separate lifecycles.
+
+For `/workflow/submit`, put a per-request `workflow_timeout` inside `payload`. Read-only status waits and Redis connection/command waits are bounded; increasing `DEFAULT_TIMEOUT` is not required to keep an active workflow visible.
 
 See [TASK_CANCELLATION](design-doc/TASK_CANCELLATION.md) for the full design (markers, the worker watcher, and workflow propagation).
 

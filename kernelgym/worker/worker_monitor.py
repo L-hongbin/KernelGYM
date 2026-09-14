@@ -188,7 +188,7 @@ def _clear_restart_budget_file(path: Path) -> None:
 class WorkerMonitor:
     """Monitors worker health and manages restarts."""
 
-    def __init__(self, redis_client: redis.Redis, persistent: bool = False):
+    def __init__(self, redis_client: redis.Redis, persistent: bool = False, *, install_signal_handlers: bool = True):
         self.redis = redis_client
         self.running = False
         self.monitored_workers: Dict[str, Dict[str, Any]] = {}
@@ -229,8 +229,9 @@ class WorkerMonitor:
         )
 
         # Signal handlers
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        if install_signal_handlers:
+            signal.signal(signal.SIGINT, self._signal_handler)
+            signal.signal(signal.SIGTERM, self._signal_handler)
 
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals."""
@@ -547,7 +548,10 @@ class WorkerMonitor:
         members = self._live_session_members(session_id)
         observed_process_groups.update(member.process_group for member in members)
         if members:
-            return all(member.state == "Z" for member in members)
+            session_groups = {member.process_group for member in members}
+            return all(member.state == "Z" for member in members) and all(
+                self._process_group_is_drained(group) for group in observed_process_groups - session_groups
+            )
         return all(self._process_group_is_drained(group) for group in observed_process_groups)
 
     async def _wait_for_session_drain(
@@ -885,6 +889,115 @@ class WorkerMonitor:
             "1" if map_session_id is not None else "0",
         )
         return bool(deleted)
+
+    async def reconcile_recorded_process_generation(self, worker_id: str) -> bool:
+        """Remove only a proven-drained local generation; never recover the GPU.
+
+        Return False on any uncertainty, including incomplete legacy records.
+        This path may reap an authenticated zombie, but never signals a live
+        process, releases claims, changes quarantine, or schedules a restart.
+        The manual recovery CLI uses this same proof and generation CAS.
+        """
+
+        try:
+            proc_info = self._decode_hash(await self.redis.hgetall(f"{KEY_PREFIX}:worker_process:{worker_id}"))
+            if not proc_info:
+                return True
+            expected = self._decode_hash(await self.redis.hgetall(f"{KEY_PREFIX}:expected_worker:{worker_id}"))
+            heartbeat = self._decode_hash(await self.redis.hgetall(f"{KEY_PREFIX}:worker:{worker_id}"))
+            owners = {info["hostname"] for info in (proc_info, expected, heartbeat) if info.get("hostname")}
+            if owners != {self.hostname}:
+                raise ProcessIdentityMismatch("recorded host is missing, conflicting, or not local")
+
+            # Do not infer missing generation/containment fields from a PID.
+            pid = int(proc_info["pid"])
+            map_ticks = proc_info["proc_start_ticks"]
+            map_group = proc_info["process_group"]
+            map_session = proc_info["session_id"]
+            process_group, session_id = int(map_group), int(map_session)
+            if pid <= 1 or process_group != pid or session_id != pid or int(map_ticks) <= 0:
+                raise ProcessIdentityMismatch("invalid recorded PID/start ticks/PGID/SID")
+            retained = self.spawned_identities.get(worker_id)
+            if retained is not None and (
+                retained.pid != pid
+                or retained.start_ticks != map_ticks
+                or retained.process_group != process_group
+                or retained.session_id != session_id
+            ):
+                raise ProcessIdentityMismatch("locally retained generation differs from the process map")
+            spawned = self.spawned_processes.get(worker_id)
+            if spawned is not None and (retained is None or spawned.pid != pid):
+                raise ProcessIdentityMismatch("locally retained child has no matching authenticated generation")
+
+            identity = self._verified_process_identity(pid, worker_id, map_ticks)
+            if identity is not None:
+                if identity.process_group != process_group or identity.session_id != session_id:
+                    raise ProcessIdentityMismatch("recorded PGID/SID no longer matches the leader")
+                if identity.state != "Z":
+                    raise RuntimeError(f"recorded generation is still live (state={identity.state})")
+                self._reap_exact_zombie(worker_id, pid, map_ticks)
+
+            # Includes children in separate PGIDs inside the recorded SID, not
+            # just the leader's group. Inspection failures propagate closed.
+            observed_groups = {process_group}
+            if not self._session_is_drained(session_id, observed_groups):
+                raise RuntimeError(f"recorded SID {session_id} / PGIDs {sorted(observed_groups)} are not drained")
+            # Detect leader reuse during the drain inspection as well.
+            final_identity = self._verified_process_identity(pid, worker_id, map_ticks)
+            if final_identity is not None and (
+                final_identity.state != "Z"
+                or final_identity.process_group != process_group
+                or final_identity.session_id != session_id
+            ):
+                raise ProcessIdentityMismatch("leader identity changed during drain inspection")
+            deleted = await self._compare_and_delete_process_map(
+                worker_id,
+                pid=pid,
+                map_start_ticks=map_ticks,
+                map_process_group=map_group,
+                map_session_id=map_session,
+            )
+            if not deleted:
+                logger.warning("Retaining worker %s process map: generation CAS did not match", worker_id)
+                return False
+            logger.info(
+                "Reconciled exited worker %s generation %s/%s; quarantine and claims unchanged",
+                worker_id,
+                pid,
+                map_ticks,
+            )
+            return True
+        except Exception as exc:
+            logger.warning(
+                "Retaining worker %s process map during reconciliation: %s: %s", worker_id, type(exc).__name__, exc
+            )
+            return False
+
+    async def _reconcile_quarantined_process_maps(self) -> None:
+        """Check retained maps independently of heartbeat and restart queues."""
+
+        prefix = f"{KEY_PREFIX}:worker_process:"
+        async for raw_key in self.redis.scan_iter(f"{prefix}*", count=500):
+            key = raw_key.decode() if isinstance(raw_key, bytes) else str(raw_key)
+            if not key.startswith(prefix):
+                continue
+            worker_id = key[len(prefix) :]
+            try:
+                proc_info = self._decode_hash(await self.redis.hgetall(key))
+                expected = self._decode_hash(await self.redis.hgetall(f"{KEY_PREFIX}:expected_worker:{worker_id}"))
+                heartbeat = self._decode_hash(await self.redis.hgetall(f"{KEY_PREFIX}:worker:{worker_id}"))
+                owners = {info["hostname"] for info in (proc_info, expected, heartbeat) if info.get("hostname")}
+                if owners != {self.hostname}:
+                    continue
+                device = proc_info.get("device") or expected.get("device") or heartbeat.get("device", "")
+                if await self._is_worker_quarantined(worker_id, device=device, hostname=self.hostname):
+                    await self.reconcile_recorded_process_generation(worker_id)
+                    # Reconciliation is independent of every restart path.
+                    continue
+            except Exception as exc:
+                logger.warning(
+                    "Could not reconcile quarantined worker %s; retaining its process map: %s", worker_id, exc
+                )
 
     async def _register_spawned_process(
         self,
@@ -1229,6 +1342,10 @@ class WorkerMonitor:
     async def _check_workers(self):
         """Check health of all workers."""
         try:
+            # Quarantine suppresses restart below, not stale-generation cleanup.
+            # Scan maps independently so missing heartbeat/expected entries and
+            # queued restarts cannot hide an exited quarantined generation.
+            await self._reconcile_quarantined_process_maps()
             # Get all worker keys
             worker_keys = [key async for key in self.redis.scan_iter(f"{KEY_PREFIX}:worker:*", count=500)]
             # In persistent mode, load expected workers set once per cycle

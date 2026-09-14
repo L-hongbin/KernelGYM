@@ -118,6 +118,8 @@ class FakeRedis:
         self.strings[key] = self._bytes(value)
         if ex is not None:
             self.expirations[key] = ex
+        else:
+            self.expirations.pop(key, None)
 
     async def expire(self, key: str, ttl: int) -> bool:
         if key not in self.hashes and key not in self.strings and key not in self.sets:
@@ -180,9 +182,67 @@ class FakeRedis:
                 },
             )
 
+        if "kernelgym:cancel-task-v2" in script:
+            task_key, result_key, tombstone, cancel = keys
+            task_id, timestamp, prefix, task_ttl, result_ttl = argv
+            await self.set(tombstone, timestamp)
+            await self.set(cancel, "1")
+            for stage in ("compile", "kernel", "ref"):
+                await self.set(f"{prefix}:cancelled:{task_id}_{stage}", timestamp)
+            task_hash = self.hashes.get(task_key)
+            if not task_hash:
+                return 1
+            await self.hset(task_key, mapping={"cancelled_at": timestamp})
+            for queue in (f"{prefix}:queue:resource:cpu", f"{prefix}:queue:resource:gpu"):
+                await self.lrem(queue, 0, task_id)
+            worker = hash_field(task_hash, "assigned_worker")
+            if worker:
+                await self.lrem(f"{prefix}:queue:worker:{worker}", 0, task_id)
+            if hash_field(task_hash, "status") != "pending" or hash_field(task_hash, "claim_recovery_state"):
+                return 1
+            token = hash_field(task_hash, "claim_token")
+            inflight = hash_field(task_hash, "claim_inflight_queue")
+            if token and inflight:
+                await self.lrem(inflight, 1, f"{token}|{task_id}")
+            await clear_claim(task_key)
+            await self.hset(task_key, mapping={"status": "failed", "completed_at": timestamp})
+            await self.hset(
+                result_key,
+                mapping={
+                    "result": json.dumps(
+                        {
+                            "task_id": task_id,
+                            "status": "failed",
+                            "error_message": "Task cancelled",
+                            "error_code": "SYSTEM_ERROR",
+                        }
+                    ),
+                    "error": "Task cancelled",
+                    "error_code": "SYSTEM_ERROR",
+                    "completed_at": timestamp,
+                },
+            )
+            for key, ttl in ((task_key, task_ttl), (result_key, result_ttl)):
+                if int(ttl) > 0:
+                    await self.expire(key, int(ttl))
+            return 1
+
+        if "kernelgym:mark-cpu-processing-v1" in script:
+            task_key, own_cancel, parent_cancel = keys
+            task_hash = self.hashes.get(task_key, {})
+            cancellation_keys = json.loads(hash_field(task_hash, "cancellation_keys") or "[]")
+            if hash_field(task_hash, "status") != "pending" or await self.exists(
+                own_cancel, parent_cancel, *cancellation_keys
+            ):
+                return 0
+            await self.hset(task_key, mapping={"status": "processing", "started_at": argv[0]})
+            return 1
+
         if "kernelgym:submit-task-if-absent-v1" in script:
             task_key, destination = keys
             task_id, task_mapping_json = argv
+            if await self.exists(*json.loads(json.loads(task_mapping_json).get("cancellation_keys", "[]"))):
+                return -5
             if task_key in self.hashes:
                 return 0
             await self.hset(task_key, mapping=json.loads(task_mapping_json))
@@ -193,6 +253,8 @@ class FakeRedis:
         if "kernelgym:force-refresh-task-v1" in script:
             task_key, result_key, destination, *cleanup_queues = keys
             task_id, replacement_mapping_json, worker_queue_prefix = argv
+            if await self.exists(*json.loads(json.loads(replacement_mapping_json).get("cancellation_keys", "[]"))):
+                return -5
             task_hash = self.hashes.get(task_key)
             task_exists = bool(task_hash)
             if task_exists:
@@ -770,7 +832,7 @@ def test_fail_task_does_not_adopt_unknown_active_claim_by_default(monkeypatch) -
     asyncio.run(scenario())
 
 
-def test_cancel_task_explicitly_adopts_and_finalizes_active_claim(monkeypatch) -> None:
+def test_cancel_task_preserves_active_execution_claim_until_safe_reap(monkeypatch) -> None:
     async def scenario() -> None:
         _patch_registry(monkeypatch)
         redis = FakeRedis()
@@ -784,9 +846,11 @@ def test_cancel_task_explicitly_adopts_and_finalizes_active_claim(monkeypatch) -
         assert await controller.cancel_task("cancel-active") is True
 
         task_hash = await redis.hgetall(f"{worker.task_prefix}cancel-active")
-        assert task_hash[b"status"] == TaskStatus.FAILED.value.encode()
-        assert task_hash[b"claim_token"] == b""
-        assert redis.lists[active_claim.inflight_queue] == []
+        assert task_hash[b"status"] == TaskStatus.PROCESSING.value.encode()
+        assert task_hash[b"claim_token"] == active_claim.token.encode()
+        assert task_hash[b"claim_recovery_state"] == b"execution_fenced"
+        assert redis.lists[active_claim.inflight_queue] == [active_claim.entry]
+        assert await controller.is_task_cancelled("cancel-active")
 
     asyncio.run(scenario())
 
@@ -2025,7 +2089,8 @@ def test_cancel_task_removes_pending_queue_and_records_terminal_result(monkeypat
         assert result_hash[b"error"] == b"Task cancelled"
         assert redis.expirations[f"{manager.task_prefix}cancel-task"] == 123
         assert redis.expirations[f"{manager.result_prefix}cancel-task"] == 456
-        assert redis.expirations[f"{manager.key_prefix}:cancel:cancel-task"] == manager._marker_ttl()
+        assert manager._tombstone_key("cancel-task") not in redis.expirations
+        assert manager._cancel_key("cancel-task") not in redis.expirations
 
     asyncio.run(scenario())
 

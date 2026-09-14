@@ -48,27 +48,14 @@ class KernelBenchWorkflowController(WorkflowController):
         return validation
 
     async def _is_cancelled(self, scheduler: SchedulerAPI, base_id: str) -> bool:
-        try:
-            return bool(base_id) and await scheduler.is_cancelled(base_id)
-        except Exception:  # pragma: no cover - cancellation check is best effort
-            return False
+        return bool(base_id) and await scheduler.is_cancelled(base_id)
 
     def _cancelled_result(self, task_id: str) -> Dict[str, Any]:
         return self._failed_result(task_id, "Task cancelled", ErrorCode.SYSTEM_ERROR.value)
 
     async def handle_request(self, input_data: Dict[str, Any], scheduler: SchedulerAPI) -> Dict[str, Any]:
-        # Register the workflow so its parent id (which has no task hash while
-        # sub-tasks run) is recognizable as cancellable by cancel_task.
-        base_id = str(input_data.get("task_id") or "")
-        if base_id:
-            await scheduler.begin_workflow(base_id)
-        try:
-            return await self._run_workflow(input_data, scheduler)
-        finally:
-            if base_id:
-                await scheduler.end_workflow(base_id)
-
-    async def _run_workflow(self, input_data: Dict[str, Any], scheduler: SchedulerAPI) -> Dict[str, Any]:
+        # Parent acceptance, deadline, lease, and terminal commit belong to the
+        # server lifecycle owner, not individual controller stages.
         eval_task = EvaluationTask.from_dict(input_data)
         self._resolve_auto_backend(eval_task)
         state = WorkflowState({"base_task_id": eval_task.task_id})

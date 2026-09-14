@@ -53,10 +53,10 @@ This file indexes stable repository docs and evidence locations.
 | `kernelgym/cli/service.py` | Service lifecycle with admission-first shutdown, process-generation fencing, whole-group drain proof, and fail-closed replacement startup. |
 | `kernelgym/workflow/kernelbench.py` | Server-side KernelBench workflow orchestration. |
 | `kernelgym/server/api/speed_test.py`, `kernelgym/server/api/noise_floor.py`, `kernelgym/server/api/noise_floor_cases.py` | Fixed TVM-FFI speed probe plus the ten-case interleaved block-level noise-floor suite, request construction, result extraction, p75/bucket estimation, and held-out LCB validation. |
-| `kernelgym/server/task_manager.py` | Redis task queue and worker coordination. |
+| `kernelgym/server/task_manager.py`, `kernelgym/server/workflow_lifecycle.py` | Redis queues, parent lifecycle/deadline/lease, cancellation tombstones and frozen-child business completion; evidence: `benchmarks/review_evidence/workflow_lifecycle_p02.md`, `benchmarks/review_evidence/workflow_cancellation_p03.md`. |
 | `kernelgym/worker/gpu_worker.py` | Worker-side task execution and failure handling. |
 | `kernelgym/worker/subprocess_pool.py` | Persistent GPU subprocess pool, crash containment proof, fresh-context recovery, recycle, timeout, and pool-size enforcement. |
-| `kernelgym/worker/worker_monitor.py` | Generation-fenced worker supervision, bounded restart, and unsafe process-group quarantine. |
+| `kernelgym/worker/worker_monitor.py` | Generation-fenced supervision, bounded restart, quarantine, and safe exited-generation reconciliation; P01 evidence: `benchmarks/review_evidence/quarantine_reconciliation_p01.md`. |
 | `tests/deployment/` | Deployment scripts, service CLI, runtime validation, static profiles, and reward-smoke tests. |
 | `tests/server/` | API, request defaults, task-manager queues, Redis integration, and heartbeat-route tests. |
 | `tests/workers/` | CPU/GPU worker, subprocess-pool, monitor, shutdown-drain, and quarantine tests. |
@@ -68,7 +68,7 @@ This file indexes stable repository docs and evidence locations.
 | `tests/kernelbench/timing/` | CUDA timing-window tests. |
 | `tests/kernelbench/workflow/` | Precision propagation and split-stage affinity tests. |
 | `scripts/manage_core_dumps.py` | Move root-level core dumps into the configured directory and keep only the newest retained files. |
-| `scripts/manage_gpu_quarantine.py` | Inspect or explicitly clear a stopped GPU worker's durable safety latch. |
+| `scripts/manage_gpu_quarantine.py` | Inspect latches, reconcile exited maps using the monitor's proof/CAS, or explicitly clear a stopped GPU worker's latch. |
 | `docs/testing/KERNELBENCH_EXECUTION_MODES.md` | Execution-mode regression scope and category-level invocation. |
 
 ## External Source References

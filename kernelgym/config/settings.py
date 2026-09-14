@@ -88,6 +88,8 @@ class Settings(BaseSettings):
 
     default_num_trials: int = Field(default=100, env="DEFAULT_NUM_TRIALS")
     default_timeout: int = Field(default=180, env="DEFAULT_TIMEOUT")
+    workflow_timeout: float = Field(default=1800, gt=0, allow_inf_nan=False, env="WORKFLOW_TIMEOUT")
+    workflow_lease_seconds: float = Field(default=60, ge=3, allow_inf_nan=False, env="WORKFLOW_LEASE_SECONDS")
     default_backend: str = Field(default="auto", env="DEFAULT_BACKEND")
     default_toolkit: str = Field(default="kernelbench", env="DEFAULT_TOOLKIT")
     default_backend_adapter: str = Field(default="kernelbench", env="DEFAULT_BACKEND_ADAPTER")

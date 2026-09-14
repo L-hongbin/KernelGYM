@@ -77,6 +77,12 @@ class EvaluationRequest(BaseModel):
         ),
     )
     timeout: int = Field(default=300, ge=10, le=3600, description="Task timeout in seconds")
+    workflow_timeout: Optional[float] = Field(
+        default=None,
+        gt=0,
+        allow_inf_nan=False,
+        description="End-to-end workflow deadline in seconds, including all queues; defaults to WORKFLOW_TIMEOUT",
+    )
     priority: Priority = Field(default=Priority.NORMAL, description="Task priority")
     device_preference: Optional[str] = Field(default=None, description="Preferred GPU device")
     target_node_id: Optional[str] = Field(
@@ -509,6 +515,14 @@ class TaskStatusResponse(BaseModel):
 
     task_id: str
     status: TaskStatus
+    submitted_at: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    workflow_generation: Optional[str] = None
+    workflow_deadline: Optional[float] = Field(
+        default=None, description="Absolute Unix deadline, including queue time"
+    )
+    children: Optional[Dict[str, str]] = None
     progress: Optional[float] = Field(default=None, description="Progress percentage (0-100)")
     estimated_completion: Optional[str] = Field(default=None, description="Estimated completion time")
     queue_position: Optional[int] = Field(default=None, description="Position in queue")

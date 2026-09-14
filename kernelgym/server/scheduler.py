@@ -8,12 +8,24 @@ from typing import Any, Dict, Optional
 
 from ..core.scheduler import SchedulerAPI
 from ..core.types import TaskSpec
+from .workflow_lifecycle import WorkflowStoppedError
 
 
 class TaskManagerScheduler(SchedulerAPI):
-    def __init__(self, task_manager: Any, poll_interval: float = 0.5):
+    def __init__(self, task_manager: Any, poll_interval: float = 0.5, *, workflow: Optional[Dict[str, str]] = None):
         self._task_manager = task_manager
         self._poll_interval = poll_interval
+        self._workflow = workflow
+
+    async def _check_workflow(self) -> None:
+        if self._workflow is None:
+            return
+        record = await self._task_manager.workflows.reconcile(self._workflow["task_id"])
+        if record.get("workflow_generation") != self._workflow["workflow_generation"] or record.get("status") not in {
+            "pending",
+            "processing",
+        }:
+            raise WorkflowStoppedError("Parent workflow is no longer active")
 
     async def submit(self, task: TaskSpec) -> str:
         payload = task.payload
@@ -21,6 +33,28 @@ class TaskManagerScheduler(SchedulerAPI):
             raise ValueError("TaskSpec.payload must be a dict")
         if "task_id" not in payload:
             raise ValueError("TaskSpec.payload must include task_id")
+        if self._workflow is not None:
+            await self._check_workflow()
+            payload = dict(payload)
+            base_id = self._workflow["task_id"]
+            generation = self._workflow["workflow_generation"]
+            keys = self._task_manager.workflows.keys(base_id)
+            # Generation-scoped child IDs isolate force-refresh and late CPU
+            # completions from the next invocation of the same parent ID.
+            original_id = payload["task_id"]
+            if original_id == base_id:
+                original_id = f"{base_id}_kernel"
+            payload.update(
+                task_id=f"{original_id}_{generation}",
+                base_task_id=base_id,
+                force_refresh=False,
+                workflow_generation=generation,
+                workflow_source_task_id=original_id,
+                workflow_parent_key=keys[0],
+                workflow_lease_key=keys[2],
+                workflow_deadline=self._workflow["workflow_deadline"],
+                workflow_children_key=self._task_manager.workflows.children_key(base_id, generation),
+            )
         if task.resources is not None and isinstance(payload, dict) and "resources" not in payload:
             payload = dict(payload)
             payload["resources"] = task.resources
@@ -31,6 +65,7 @@ class TaskManagerScheduler(SchedulerAPI):
     async def wait(self, task_id: str, timeout: Optional[float] = None) -> Dict[str, Any]:
         start = time.monotonic()
         while True:
+            await self._check_workflow()
             result = await self._task_manager.get_task_result(task_id)
             if result:
                 return result
@@ -45,12 +80,6 @@ class TaskManagerScheduler(SchedulerAPI):
     async def cancel(self, task_id: str) -> bool:
         return await self._task_manager.cancel_task(task_id)
 
-    async def begin_workflow(self, base_id: str) -> None:
-        await self._task_manager.register_workflow(base_id)
-
-    async def end_workflow(self, base_id: str) -> None:
-        await self._task_manager.unregister_workflow(base_id)
-
     async def is_cancelled(self, task_id: str) -> bool:
         return await self._task_manager.is_task_cancelled(task_id)
 
@@ -59,6 +88,7 @@ class TaskManagerScheduler(SchedulerAPI):
     ) -> Optional[Dict[str, Any]]:
         start = time.monotonic()
         while True:
+            await self._check_workflow()
             result = await self._task_manager.get_task_result(task_id)
             if result:
                 return result

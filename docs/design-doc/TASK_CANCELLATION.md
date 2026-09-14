@@ -1,9 +1,13 @@
 # Task Cancellation & Preemptive Interrupt
 
-Status: current design
+Status: historical marker-only design, superseded by P02/P03
 Date: 2026-06-09
 
+The parent lifecycle described below is historical. Current behavior is documented in [HTTP API — Task lifecycle](../HTTP_API.md#task-lifecycle): acceptance creates a parent task record, Redis generations deduplicate POSTs, a renewable lease and independent end-to-end deadline fence child submission/dispatch, and a generation-CAS terminal commit owns cancellation. Child IDs are discovered through parent status rather than constructed with a fixed suffix. `scripts/test_cancel_logic.py` now runs the maintained queue/lifecycle pytest suites against test doubles and a disposable Unix-socket Redis; `scripts/test_cancel.py` discovers current child IDs from `/status/{parent}`. P02 verification is recorded in `benchmarks/review_evidence/workflow_lifecycle_p02.md`. The GPU subprocess cancellation/reap mechanism remains in use, but the no-parent-hash and one-shot-workflow-TTL statements below no longer describe the current source tree.
+
 This document describes how `DELETE /tasks/{task_id}` cancels work in the reward service. Cancellation is a real interrupt: a pending task is pulled from the queue before it runs, and a task already executing on a GPU has its CUDA subprocess killed instead of being allowed to run to completion or `timeout`. Because the primary `/evaluate` path is a workflow that decomposes one request into several sub-tasks, cancellation also has to propagate from the parent id the caller holds to whichever sub-task is in flight.
+
+P03 additionally replaces the historical unknown/terminal-ID 404 and expiring-marker behavior below: DELETE persists a no-TTL tombstone even before submission; same-ID POST is rejected (including force refresh), and result cleanup cannot remove the tombstone. Cancellation of a running/frozen child does not adopt or finalize its execution claim. A frozen/quarantined child ends parent business waiting with infrastructure failure while containment remains untouched. See [current HTTP semantics](../HTTP_API.md#task-lifecycle) and `benchmarks/review_evidence/workflow_cancellation_p03.md` for the maintained contract and tests.
 
 ## Goals
 

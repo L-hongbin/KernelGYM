@@ -236,15 +236,16 @@ def run_control(base, args) -> float:
     return dt
 
 
-def _wait_subtask_running(base, tid, deadline_s=120):
-    """The /evaluate parent id is 404 mid-flight; its GPU sub-tasks ({tid}_kernel
-    /{tid}_ref) go to 'processing'. Return which sub-task is running, or None."""
-    sub_ids = [f"{tid}_kernel", f"{tid}_ref"]
+def _wait_subtask_status(base, tid, deadline_s=120, desired_status="processing", stages=("kernel", "ref")):
+    """Discover generation-scoped children from the parent status record."""
     start = time.time()
     while time.time() - start < deadline_s:
+        code, parent = _get(f"{base}/status/{tid}", timeout=10)
+        children = (parent.get("children") or {}) if code == 200 else {}
+        sub_ids = [children.get(stage, f"{tid}_{stage}") for stage in stages]
         for sid in sub_ids:
             code, body = _get(f"{base}/status/{sid}", timeout=10)
-            if code == 200 and body.get("status") == "processing":
+            if code == 200 and body.get("status") == desired_status:
                 return sid, time.time() - start
         time.sleep(0.3)
     return None, time.time() - start
@@ -268,7 +269,7 @@ def run_inflight(base, args) -> bool:
     th.start()
 
     # Wait until a GPU sub-task is actually running.
-    running_sub, waited = _wait_subtask_running(base, tid, deadline_s=150)
+    running_sub, waited = _wait_subtask_status(base, tid, deadline_s=150)
     if running_sub is None:
         print(f"[inflight] FAIL: no GPU sub-task of {tid} reached 'processing' within 150s")
         return False
@@ -347,11 +348,13 @@ def run_pending(base, args) -> bool:
     th = threading.Thread(target=lambda: _post(f"{base}/evaluate", req, timeout=args.timeout + 30), daemon=True)
     th.start()
 
-    status, waited, last = _poll_until(base, tid, lambda s: s == "pending", deadline_s=15)
-    if status != "pending":
+    pending_sub, waited = _wait_subtask_status(
+        base, tid, deadline_s=15, desired_status="pending", stages=("compile", "kernel", "ref")
+    )
+    if pending_sub is None:
         print(
-            f"[pending] INCONCLUSIVE: could not hold task pending in this deployment "
-            f"(last={last}); pending-cancel is covered by the offline unit test"
+            "[pending] INCONCLUSIVE: could not hold task pending in this deployment "
+            "(no pending child found); pending-cancel is covered by the offline unit test"
         )
         return True
 
