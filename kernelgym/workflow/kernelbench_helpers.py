@@ -152,6 +152,7 @@ def _create_paired_tasks(
         enable_profiling=task.enable_profiling,
         enable_ncu=task.enable_ncu,
         enable_compute_sanitizer=task.enable_compute_sanitizer,
+        return_detail_correctness=task.return_detail_correctness,
         compute_sanitizer_mode=task.compute_sanitizer_mode,
         enable_correctness_input_perturbations=task.enable_correctness_input_perturbations,
         enable_triton_detection=task.enable_triton_detection,

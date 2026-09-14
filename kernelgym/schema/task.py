@@ -64,6 +64,7 @@ class EvaluationTask:
     simplify_error: bool = True
     return_internal_compile_artifact: bool = False
     resources: Optional[Dict[str, Any]] = None
+    return_detail_correctness: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -155,6 +156,7 @@ class KernelEvaluationTask:
     simplify_error: bool = True
     return_internal_compile_artifact: bool = False
     resources: Optional[Dict[str, Any]] = None
+    return_detail_correctness: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

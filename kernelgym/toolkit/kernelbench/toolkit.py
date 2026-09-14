@@ -152,6 +152,8 @@ class KernelBenchToolkit(Toolkit):
             enable_compute_sanitizer = task.enable_compute_sanitizer
             if enable_compute_sanitizer is None:
                 enable_compute_sanitizer = settings.enable_compute_sanitizer
+            return_detail_correctness = bool(task.return_detail_correctness)
+            enable_compute_sanitizer = bool(return_detail_correctness and enable_compute_sanitizer)
             enable_correctness_input_perturbations = task.enable_correctness_input_perturbations
             if enable_correctness_input_perturbations is None:
                 enable_correctness_input_perturbations = settings.enable_correctness_input_perturbations
@@ -176,6 +178,7 @@ class KernelBenchToolkit(Toolkit):
                 enable_profiling=bool(enable_profiling),
                 enable_ncu=bool(enable_ncu),
                 enable_compute_sanitizer=bool(enable_compute_sanitizer),
+                return_detail_correctness=return_detail_correctness,
                 compute_sanitizer_mode=task.compute_sanitizer_mode,
                 enable_correctness_input_perturbations=bool(enable_correctness_input_perturbations),
                 enable_triton_detection=enable_triton_detection,
@@ -386,6 +389,8 @@ class KernelBenchToolkit(Toolkit):
             enable_compute_sanitizer = task.enable_compute_sanitizer
             if enable_compute_sanitizer is None:
                 enable_compute_sanitizer = settings.enable_compute_sanitizer
+            return_detail_correctness = bool(task.return_detail_correctness)
+            enable_compute_sanitizer = bool(return_detail_correctness and enable_compute_sanitizer)
             enable_correctness_input_perturbations = task.enable_correctness_input_perturbations
             if enable_correctness_input_perturbations is None:
                 enable_correctness_input_perturbations = settings.enable_correctness_input_perturbations
@@ -406,6 +411,7 @@ class KernelBenchToolkit(Toolkit):
                 enable_profiling=enable_profiling,
                 enable_ncu=bool(enable_ncu),
                 enable_compute_sanitizer=bool(enable_compute_sanitizer),
+                return_detail_correctness=return_detail_correctness,
                 compute_sanitizer_mode=task.compute_sanitizer_mode,
                 enable_correctness_input_perturbations=bool(enable_correctness_input_perturbations),
                 enable_triton_detection=enable_triton_detection,

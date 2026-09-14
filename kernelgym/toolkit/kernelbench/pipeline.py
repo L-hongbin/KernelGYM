@@ -16,6 +16,8 @@ from kernelgym.config import settings
 from kernelgym.toolkit.kernelbench import triton_detect as detect
 from kernelgym.toolkit.kernelbench.compute_sanitizer import (
     FULL_SANITIZER_TOOLS,
+    MISMATCH_SANITIZER_TOOLS,
+    RUNTIME_ERROR_SANITIZER_TOOLS,
     SANITIZER_MODE_FULL,
     classify_compute_sanitizer_error,
     classify_compute_sanitizer_skip_reason,
@@ -377,6 +379,7 @@ def _run_correctness_step(
     overall_start: float | None = None,
     detect_decoy_kernel: bool = False,
     enable_input_perturbations: bool = False,
+    return_detail_correctness: bool = False,
 ) -> KernelExecResult:
     if verbose:
         logger.info("[Eval] Checking Correctness")
@@ -404,6 +407,7 @@ def _run_correctness_step(
             stage_update_fn=stage_update_fn,
             detect_aten_fallback=detect_decoy_kernel,
             enable_input_perturbations=enable_input_perturbations,
+            return_detail_correctness=return_detail_correctness,
         )
     except Exception as e:
         metadata["runtime_error"] = e
@@ -543,19 +547,71 @@ def _is_candidate_correctness_runtime_failure(metadata: Dict[str, Any]) -> bool:
     )
 
 
+def _get_compute_sanitizer_trigger(metadata: Dict[str, Any]) -> Optional[str]:
+    if _is_candidate_correctness_runtime_failure(metadata):
+        return "correctness_runtime_error"
+    if (
+        metadata.get("correctness_output_mismatch")
+        and metadata.get("correctness_candidate_forward_completed")
+        and not metadata.get("runtime_error")
+    ):
+        return "correctness_output_mismatch"
+    return None
+
+
+def _finalize_compute_sanitizer_feedback(
+    metadata: Dict[str, Any],
+    runtime_sanitizer: Dict[str, Any],
+    *,
+    trigger: Optional[str],
+    selection_mode: str,
+) -> Dict[str, Any]:
+    """Keep mismatch-triggered sanitizer feedback only when an issue was found."""
+
+    if trigger == "correctness_output_mismatch" and runtime_sanitizer.get("status") != "issues_found":
+        for key in tuple(metadata):
+            if key.startswith("runtime_sanitizer_") or key == "kg_kernel_runtime_sanitizer_s":
+                metadata.pop(key, None)
+        completed_stages = metadata.get("kg_stage_completed_s")
+        if isinstance(completed_stages, dict):
+            completed_stages.pop("kernel.runtime_sanitizer", None)
+        return {}
+
+    runtime_sanitizer.setdefault("selection_mode", selection_mode)
+    runtime_sanitizer.setdefault("mode", None)
+    metadata["runtime_sanitizer_status"] = runtime_sanitizer.get("status")
+    metadata["runtime_sanitizer_issue_count"] = runtime_sanitizer.get("detected_issue_count", 0)
+    return runtime_sanitizer
+
+
 def _select_compute_sanitizer_execution_mode(
     runtime_error: Exception | str, requested_mode: Optional[str]
 ) -> tuple[str, Optional[str]]:
     selection_mode = str(requested_mode or "error_based").strip().lower()
     if selection_mode not in {"error_based", SANITIZER_MODE_FULL}:
         raise ValueError(
-            "Unsupported Compute Sanitizer selection mode " f"{requested_mode!r}; expected 'error_based' or 'full'"
+            f"Unsupported Compute Sanitizer selection mode {requested_mode!r}; expected 'error_based' or 'full'"
         )
     preferred_tool = classify_compute_sanitizer_error(runtime_error)
     execution_mode = (
         SANITIZER_MODE_FULL if selection_mode == SANITIZER_MODE_FULL else preferred_tool or SANITIZER_MODE_FULL
     )
     return execution_mode, preferred_tool
+
+
+def _compute_sanitizer_execution_plan(
+    *, trigger: str, selection_mode: str, execution_mode: str
+) -> tuple[list[str], str, bool]:
+    """Choose scenario-specific check order without weakening explicit full mode."""
+
+    staged_error_based = selection_mode == "error_based" and execution_mode == SANITIZER_MODE_FULL
+    if staged_error_based and trigger == "correctness_output_mismatch":
+        return list(MISMATCH_SANITIZER_TOOLS), "mismatch_likely_first", True
+    if staged_error_based:
+        return list(RUNTIME_ERROR_SANITIZER_TOOLS), "runtime_error_likely_first", True
+    if execution_mode == SANITIZER_MODE_FULL:
+        return list(FULL_SANITIZER_TOOLS), "full", False
+    return [execution_mode], "classified_single_check", False
 
 
 def _run_triton_detection_step(
@@ -931,6 +987,7 @@ def eval_kernel_against_ref(
     adaptive_perf_trials: bool = False,
     perf_min_trials: int = 20,
     perf_cv_threshold: float = 0.05,
+    return_detail_correctness: bool = False,
 ) -> KernelExecResult:
     if not compile_only:
         assert torch.cuda.is_available(), "CUDA is not available, cannot run Eval"
@@ -1319,6 +1376,7 @@ def eval_kernel_against_ref(
         overall_start,
         detect_decoy_kernel,
         enable_correctness_input_perturbations,
+        return_detail_correctness,
     )
     _finish_stage(
         metadata,
@@ -1329,6 +1387,7 @@ def eval_kernel_against_ref(
 
     selection_mode = str(compute_sanitizer_mode or "error_based").strip().lower()
     correctness_runtime_failure = _is_candidate_correctness_runtime_failure(metadata)
+    sanitizer_trigger = _get_compute_sanitizer_trigger(metadata)
     runtime_error = metadata.get("runtime_error", "")
     sanitizer_skip_reason = (
         classify_compute_sanitizer_skip_reason(
@@ -1339,23 +1398,31 @@ def eval_kernel_against_ref(
         if correctness_runtime_failure
         else None
     )
-    if not enable_compute_sanitizer:
+    if not return_detail_correctness:
+        runtime_sanitizer = {}
+    elif not enable_compute_sanitizer:
         runtime_sanitizer = skipped_compute_sanitizer_result("disabled")
     elif sanitizer_skip_reason:
         runtime_sanitizer = skipped_compute_sanitizer_result(sanitizer_skip_reason)
-    elif correctness_runtime_failure:
+    elif sanitizer_trigger is not None:
         sanitizer_start = _begin_stage(
             metadata,
             prefix="kg_kernel",
             stage="kernel.runtime_sanitizer",
             overall_start=overall_start,
         )
-        execution_mode, preferred_tool = _select_compute_sanitizer_execution_mode(runtime_error, selection_mode)
-        sanitizer_tools = list(FULL_SANITIZER_TOOLS) if execution_mode == SANITIZER_MODE_FULL else [execution_mode]
-        run_all_checks = execution_mode == SANITIZER_MODE_FULL
-        metadata["runtime_sanitizer_trigger"] = "correctness_runtime_error"
+        classification_input = runtime_error if correctness_runtime_failure else ""
+        execution_mode, preferred_tool = _select_compute_sanitizer_execution_mode(classification_input, selection_mode)
+        sanitizer_tools, execution_policy, stop_after_first_issue = _compute_sanitizer_execution_plan(
+            trigger=sanitizer_trigger,
+            selection_mode=selection_mode,
+            execution_mode=execution_mode,
+        )
+        run_all_checks = execution_mode == SANITIZER_MODE_FULL and not stop_after_first_issue
+        metadata["runtime_sanitizer_trigger"] = sanitizer_trigger
         metadata["runtime_sanitizer_mode"] = selection_mode
         metadata["runtime_sanitizer_execution_mode"] = execution_mode
+        metadata["runtime_sanitizer_execution_policy"] = execution_policy
         metadata["runtime_sanitizer_tool_order"] = sanitizer_tools
         metadata["runtime_sanitizer_error_classification"] = preferred_tool or "ambiguous"
         metadata["runtime_sanitizer_run_all_checks"] = run_all_checks
@@ -1373,8 +1440,16 @@ def eval_kernel_against_ref(
             kernel_names=sanitizer_kernel_names,
             sanitizer_path=settings.compute_sanitizer_path,
             timeout_s=settings.compute_sanitizer_timeout_s,
+            total_timeout_s=settings.compute_sanitizer_total_timeout_s,
+            tool_timeouts_s={
+                "memcheck": settings.compute_sanitizer_memcheck_timeout_s,
+                "synccheck": settings.compute_sanitizer_synccheck_timeout_s,
+                "racecheck": settings.compute_sanitizer_racecheck_timeout_s,
+                "initcheck": settings.compute_sanitizer_initcheck_timeout_s,
+            },
             max_kernels=settings.compute_sanitizer_max_kernels,
             max_issues=settings.compute_sanitizer_max_issues,
+            print_limit=settings.compute_sanitizer_print_limit,
             input_seed=metadata.get("correctness_failed_trial_seed"),
             input_perturbation=metadata.get("correctness_failed_input_perturbation"),
             model_seed=seed_num,
@@ -1383,8 +1458,11 @@ def eval_kernel_against_ref(
         runtime_sanitizer = run_compute_sanitizer(
             **sanitizer_kwargs,
             mode=execution_mode,
+            tool_order=sanitizer_tools,
+            stop_after_first_issue=stop_after_first_issue,
             primary_tool=preferred_tool,
         )
+        runtime_sanitizer["execution_policy"] = execution_policy
         final_error_classification = preferred_tool or "ambiguous"
         runtime_sanitizer["selection_mode"] = selection_mode
         runtime_sanitizer["error_classification"] = final_error_classification
@@ -1402,15 +1480,19 @@ def eval_kernel_against_ref(
         )
         runtime_sanitizer = skipped_compute_sanitizer_result(skip_reason)
 
-    runtime_sanitizer.setdefault("selection_mode", selection_mode)
-    runtime_sanitizer.setdefault("mode", None)
-    metadata["runtime_sanitizer_status"] = runtime_sanitizer.get("status")
-    metadata["runtime_sanitizer_issue_count"] = runtime_sanitizer.get("detected_issue_count", 0)
+    if return_detail_correctness:
+        runtime_sanitizer = _finalize_compute_sanitizer_feedback(
+            metadata,
+            runtime_sanitizer,
+            trigger=sanitizer_trigger,
+            selection_mode=selection_mode,
+        )
     kernel_exec_result.runtime_sanitizer = runtime_sanitizer
 
     if correctness_runtime_failure:
-        # A CUDA launch failure may poison this worker's context. Sanitizer ran
-        # in a fresh process, so do not synchronize or start another trial here.
+        # A CUDA launch failure may poison this worker's context. Sanitizer, when
+        # enabled by both request gates, ran in a fresh process; do not synchronize
+        # or start another trial in this worker either way.
         metadata["kg_kernel_total_s"] = perf_counter() - overall_start
         _sync_exec_result_metadata(kernel_exec_result, metadata)
         try:

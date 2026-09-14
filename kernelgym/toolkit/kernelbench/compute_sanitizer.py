@@ -17,6 +17,8 @@ from typing import Any, Dict, Optional, Sequence
 
 SUPPORTED_TOOLS = ("memcheck", "racecheck", "synccheck", "initcheck")
 FULL_SANITIZER_TOOLS = ("memcheck", "synccheck", "racecheck", "initcheck")
+RUNTIME_ERROR_SANITIZER_TOOLS = FULL_SANITIZER_TOOLS
+MISMATCH_SANITIZER_TOOLS = ("racecheck", "initcheck", "memcheck", "synccheck")
 SANITIZER_MODE_FULL = "full"
 SUPPORTED_SANITIZER_EXECUTION_MODES = (*FULL_SANITIZER_TOOLS, SANITIZER_MODE_FULL)
 SANITIZER_ERROR_EXIT_CODE = 86
@@ -42,6 +44,7 @@ _BLOCK_RE = re.compile(r"in block \((?P<block>[^)]+)\)", re.IGNORECASE)
 _ADDRESS_RE = re.compile(r"\b(?:Access at|Address(?: at)?)\s+(?P<address>0x[0-9a-f]+)\b", re.IGNORECASE)
 _HEX_ADDRESS_RE = re.compile(r"\b0x[0-9a-f]+\b", re.IGNORECASE)
 MAX_PARSED_ISSUE_OCCURRENCES = 5000
+DEFAULT_SANITIZER_PRINT_LIMIT = 1000
 MAX_RETURNED_UNIQUE_ISSUES = 4
 REPRESENTATIVE_OCCURRENCES_PER_ISSUE = 2
 _KERNEL_AT_RE = re.compile(
@@ -514,6 +517,7 @@ def build_compute_sanitizer_command(
     payload_path: Path,
     kernel_names: Sequence[str],
     max_kernels: int,
+    print_limit: int = DEFAULT_SANITIZER_PRINT_LIMIT,
 ) -> list[str]:
     if tool not in SUPPORTED_TOOLS:
         raise ValueError(f"Unsupported Compute Sanitizer tool: {tool}")
@@ -534,14 +538,14 @@ def build_compute_sanitizer_command(
         "--show-backtrace",
         "device",
         "--print-limit",
-        str(MAX_PARSED_ISSUE_OCCURRENCES),
+        str(max(1, int(print_limit))),
         "--launch-count",
         str(max(1, max_kernels)),
     ]
     if tool == "memcheck":
         command.extend(["--report-api-errors", "explicit"])
     elif tool == "racecheck":
-        command.extend(["--racecheck-detect-level", "warn", "--racecheck-report", "all"])
+        command.extend(["--racecheck-detect-level", "warn", "--racecheck-report", "analysis"])
     for name in kernel_names:
         clean_name = str(name).strip()
         if clean_name:
@@ -661,6 +665,11 @@ def run_compute_sanitizer(
     max_kernels: int,
     max_issues: int,
     mode: str,
+    tool_order: Optional[Sequence[str]] = None,
+    tool_timeouts_s: Optional[Dict[str, int]] = None,
+    total_timeout_s: Optional[int] = None,
+    stop_after_first_issue: bool = False,
+    print_limit: int = DEFAULT_SANITIZER_PRINT_LIMIT,
     primary_tool: Optional[str] = None,
     input_seed: Optional[int] = None,
     input_perturbation: Optional[str] = None,
@@ -673,10 +682,17 @@ def run_compute_sanitizer(
     resolved_path = _resolve_tool_path(sanitizer_path)
     execution_mode = normalize_compute_sanitizer_execution_mode(mode)
     requested_tools = list(FULL_SANITIZER_TOOLS) if execution_mode == SANITIZER_MODE_FULL else [execution_mode]
+    if tool_order is not None:
+        ordered_tools = [str(tool) for tool in tool_order]
+        if len(ordered_tools) != len(set(ordered_tools)) or set(ordered_tools) != set(requested_tools):
+            raise ValueError(
+                f"Compute Sanitizer tool_order must contain each requested check exactly once; "
+                f"requested={requested_tools}, tool_order={ordered_tools}"
+            )
+        requested_tools = ordered_tools
     if primary_tool is not None and primary_tool not in requested_tools:
         raise ValueError(
-            f"Primary Compute Sanitizer tool {primary_tool!r} was not requested; "
-            f"requested tools are {requested_tools}"
+            f"Primary Compute Sanitizer tool {primary_tool!r} was not requested; requested tools are {requested_tools}"
         )
     result: Dict[str, Any] = {
         "status": "unavailable" if resolved_path is None else "starting",
@@ -689,7 +705,10 @@ def run_compute_sanitizer(
         "detected_issue_count": 0,
         "check_results": [],
         "mode": execution_mode,
-        "run_all_checks": execution_mode == SANITIZER_MODE_FULL,
+        "run_all_checks": execution_mode == SANITIZER_MODE_FULL and not stop_after_first_issue,
+        "stop_after_first_issue": bool(stop_after_first_issue),
+        "total_timeout_s": total_timeout_s,
+        "print_limit": int(print_limit),
         "replayed_input_seed": input_seed,
         "replayed_input_perturbation": input_perturbation,
     }
@@ -719,8 +738,19 @@ def run_compute_sanitizer(
                 ),
                 encoding="utf-8",
             )
+            stop_reason = None
             for tool in requested_tools:
                 tool_started = perf_counter()
+                remaining_total_s = None
+                if total_timeout_s is not None:
+                    remaining_total_s = float(total_timeout_s) - (tool_started - started)
+                    if remaining_total_s <= 0:
+                        stop_reason = "total_timeout"
+                        break
+                configured_tool_timeout_s = float((tool_timeouts_s or {}).get(tool, timeout_s))
+                effective_timeout_s = configured_tool_timeout_s
+                if remaining_total_s is not None:
+                    effective_timeout_s = min(effective_timeout_s, remaining_total_s)
                 # Candidate-kernel filtering excludes PyTorch RNG kernels. For
                 # initcheck, generate inputs on CPU and copy them to the device so
                 # their initialization is visible without instrumenting framework
@@ -734,12 +764,13 @@ def run_compute_sanitizer(
                     payload_path=payload_path,
                     kernel_names=kernel_names,
                     max_kernels=max_kernels,
+                    print_limit=print_limit,
                 )
                 try:
                     completed = _run_sanitizer_command(
                         command,
                         env=sanitizer_env,
-                        timeout_s=timeout_s,
+                        timeout_s=effective_timeout_s,
                     )
                     output = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
                     parsed = parse_compute_sanitizer_output(output, tool=tool, max_issues=max_issues)
@@ -763,6 +794,7 @@ def run_compute_sanitizer(
                         "input_generation": ("gpu" if tool_generates_inputs_on_gpu else "cpu_then_h2d"),
                         "input_values_exactly_replayed": not (bool(generate_inputs_on_gpu) and tool == "initcheck"),
                         "return_code": completed.returncode,
+                        "timeout_s": effective_timeout_s,
                         **parsed,
                         "raw_output_tail": output[-12000:],
                         "wall_time_s": perf_counter() - tool_started,
@@ -780,6 +812,7 @@ def run_compute_sanitizer(
                         "input_generation": ("gpu" if tool_generates_inputs_on_gpu else "cpu_then_h2d"),
                         "input_values_exactly_replayed": not (bool(generate_inputs_on_gpu) and tool == "initcheck"),
                         "return_code": None,
+                        "timeout_s": effective_timeout_s,
                         "summary_error_count": 0,
                         "parsed_issue_count": 0,
                         "detected_issue_count": 0,
@@ -789,6 +822,10 @@ def run_compute_sanitizer(
                         "wall_time_s": perf_counter() - tool_started,
                     }
                 result["check_results"].append(check_result)
+                if stop_after_first_issue and check_result["status"] == "issues_found":
+                    stop_reason = "first_issue"
+                    break
+            result["stop_reason"] = stop_reason
     except Exception as exc:
         result["status"] = "error"
         result["error"] = f"{type(exc).__name__}: {exc}"
@@ -797,6 +834,7 @@ def run_compute_sanitizer(
 
     statuses = [item["status"] for item in result["check_results"]]
     result["executed_checks"] = [item["check"] for item in result["check_results"]]
+    result["skipped_checks"] = [tool for tool in requested_tools if tool not in result["executed_checks"]]
     issue_count_by_check = {
         item["check"]: int(item.get("detected_issue_count", 0)) for item in result["check_results"]
     }
@@ -819,10 +857,13 @@ def run_compute_sanitizer(
         and all(status in {"clean", "issues_found"} for status in statuses)
         and len(statuses) == len(requested_tools)
     )
+    result["diagnostic_policy_complete"] = result["measurement_complete"] or (
+        result.get("stop_reason") == "first_issue" and "issues_found" in statuses
+    )
     if "issues_found" in statuses:
         result["status"] = "issues_found"
         result["passed"] = False
-    elif statuses and all(status == "clean" for status in statuses):
+    elif statuses and all(status == "clean" for status in statuses) and not result["skipped_checks"]:
         result["status"] = "clean"
         result["passed"] = True
     elif "clean" in statuses:

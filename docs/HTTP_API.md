@@ -114,8 +114,9 @@ Step toggles (override service defaults):
 | `run_correctness`, `run_performance`, `run_triton_detection` | Per-call overrides for each evaluation step. |
 | `enable_profiling` | `null` = use server `ENABLE_PROFILING` env, else explicit `true`/`false`. |
 | `enable_ncu` | `false` by default; `null` uses server `ENABLE_NCU` (also default `false`). Set `true` to collect NCU metrics after correctness and performance gates pass. |
-| `enable_compute_sanitizer` | `false` by default; `null` uses server `ENABLE_COMPUTE_SANITIZER` (also default `false`). When enabled, a fresh child process is launched only when the candidate forward fails during correctness. |
-| `compute_sanitizer_mode` | Sanitizer strategy: `error_based` (default) selects an internal check from the correctness error and falls back to all checks when ambiguous; `full` always runs all four checks. Individual check names are internal execution modes and are not accepted in the payload. |
+| `return_detail_correctness` | `false` by default. When false, correctness uses and returns the legacy `allclose` plus max/average-difference path. When true, mismatch diagnostics are computed and Compute Sanitizer is allowed to run. |
+| `enable_compute_sanitizer` | `false` by default; `null` uses server `ENABLE_COMPUTE_SANITIZER`. Sanitizer runs only when both this field and `return_detail_correctness` are true; then a fresh child process is launched after a candidate correctness runtime error or output mismatch. |
+| `compute_sanitizer_mode` | Sanitizer strategy: `error_based` (default) selects one check for a classified runtime error or uses a trigger-specific staged order with first-issue early stopping; `full` always runs all four checks without early stopping. Individual check names are internal execution modes and are not accepted in the payload. |
 | `enable_correctness_input_perturbations` | `null` = use server `ENABLE_CORRECTNESS_INPUT_PERTURBATIONS` (default `false`). When enabled, correctness cycles through original, scale-up, scale-down, and sign-challenge inputs. Direct `torch.rand` and `torch.randn` inputs use different sign-challenge transforms. |
 | `enable_triton_detection`, `detect_decoy_kernel` | Decoy-kernel checks; see [REWARD_HACKING_DEFENSES](design-doc/REWARD_HACKING_DEFENSES.md). |
 | `measure_performance` | Legacy alias for `run_performance`. |
@@ -168,7 +169,6 @@ Split compile/execute (advanced, see [COMPILE_ACCELERATION](design-doc/COMPILE_A
       "kernel_to_reference_ratio": 0.9714
     }
   },
-  "runtime_sanitizer": { "status": "skipped", "reason": "correctness_passed", "check_results": [] },
   "metadata": { /* see below */ },
   "error_message": null,
   "error_code": null,
@@ -201,14 +201,12 @@ memory footprint can make an otherwise faster Kernel impractical. Because this s
 penalty, the configurable `1.8x` line catches regressions comparable to the paper's `1.81x` counter-productive
 example while avoiding penalties for smaller workspace increases.
 
-Runtime Sanitizer feedback is returned for compiled CUDA candidates. It is normally `skipped`; execution is
-triggered only when the candidate `custom_forward` raises during correctness. Output value/shape mismatch does not
-trigger it.
+Runtime Sanitizer execution is gated by `return_detail_correctness=true` and `enable_compute_sanitizer=true`. With either field false, no sanitizer child is launched and no sanitizer metadata is added. When both are true, compiled CUDA candidates trigger it if the candidate `custom_forward` raises during correctness or completes with an output value/shape mismatch. Under `error_based`, the checks are ordered by trigger and stop at the first detected issue: ambiguous runtime errors use `memcheck`, `synccheck`, `racecheck`, `initcheck`, while output mismatches use `racecheck`, `initcheck`, `memcheck`, `synccheck`. A specifically classified runtime error runs only the matching check. Mismatch-triggered feedback is returned only when at least one sanitizer issue is detected; clean, unavailable, timeout, and tool-error results add no sanitizer fields. Runtime-error-triggered diagnostics retain their existing status feedback.
 
 | Field | Meaning |
 |---|---|
 | `runtime_sanitizer.status` | `clean`, `issues_found`, `partial`, `error`, `unavailable`, or `skipped`. `clean` means the selected checks explicitly reported zero sanitizer issues; the replayed target may still reproduce the known correctness failure, recorded by `target_application_failed`. Tool timeout/unavailability is fail-open metadata. |
-| `runtime_sanitizer.requested_checks` | Checks selected for this run. |
+| `runtime_sanitizer.requested_checks` | Ordered checks planned for this run. |
 | `runtime_sanitizer.check_results[].check` | Check represented by this result: `memcheck`, `synccheck`, `racecheck`, or `initcheck`. |
 | `runtime_sanitizer.check_results[].issues[]` | Unique issue groups containing hazard, `kernel_info`, access type, `occurrence_count`, compact thread/block axis values such as `"x": [start, end]`, address `ranges: [start, end]`, two representative occurrences, and a bounded raw excerpt. Equivalent diagnostics that differ only by Kernel name and source line are secondarily merged into `kernel_info`; the check name is stored only on the parent check result. |
 | `runtime_sanitizer.check_results[].unique_issue_count` | Number of final issue groups after repeated occurrences are aggregated and equivalent Kernel/source locations are secondarily merged. |
@@ -216,10 +214,17 @@ trigger it.
 | `runtime_sanitizer.check_results[].aggregation_complete` | Whether all detected occurrences were available within the parsing cap. |
 | `runtime_sanitizer.replayed_input_seed` | Failed correctness trial seed regenerated in the child; `initcheck` may switch GPU-generated inputs to CPU + H2D as described below. |
 | `runtime_sanitizer.executed_checks` | Checks actually executed by the selected mode. |
+| `runtime_sanitizer.skipped_checks` | Planned checks not executed because a staged path found an issue or exhausted its total budget. |
+| `runtime_sanitizer.stop_reason` | `first_issue`, `total_timeout`, or `null`. |
+| `runtime_sanitizer.execution_policy` | `classified_single_check`, `runtime_error_likely_first`, `mismatch_likely_first`, or `full`. |
 | `runtime_sanitizer.mode` | Actual `run_compute_sanitizer` execution mode: one check or `full`. |
 | `runtime_sanitizer.selection_mode` | Payload strategy: `error_based` or `full`. |
 | `runtime_sanitizer.error_classification` | Check selected from the error, or `ambiguous`. |
-| `runtime_sanitizer.run_all_checks` | `true` only when the actual execution mode is `full`. |
+| `runtime_sanitizer.run_all_checks` | `true` only for explicit `full`, which has no first-issue early stop. |
+| `runtime_sanitizer.measurement_complete` | Whether every planned check completed with a usable result. |
+| `runtime_sanitizer.diagnostic_policy_complete` | Also becomes true when a staged path intentionally stops after finding its first issue. |
+| `runtime_sanitizer.total_timeout_s` | Whole-diagnostic wall-time budget; the default is 60 seconds. |
+| `runtime_sanitizer.check_results[].timeout_s` | Effective timeout for this check after applying its per-check limit and remaining total budget. |
 | `runtime_sanitizer.primary_check` | Error-classified check used for the top-level issue count; for an ambiguous full run, the first check that reports an issue. |
 | `runtime_sanitizer.detected_issue_count` | Issue count from `primary_check`; counts from heterogeneous tools are not added together. |
 | `runtime_sanitizer.issue_count_by_check` | Per-check issue counts for full diagnostics. |

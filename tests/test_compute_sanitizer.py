@@ -2,7 +2,6 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
-from kernelgym.config import settings
 from kernelgym.schema.result import EvaluationResult, KernelEvaluationResult
 from kernelgym.schema.task import EvaluationTask
 from kernelgym.server.api.models import EvaluationRequest, EvaluationResponse
@@ -201,7 +200,8 @@ def test_build_command_uses_argv_and_supported_filters(tmp_path: Path) -> None:
     assert command[:3] == ["/opt/compute-sanitizer", "--tool", "racecheck"]
     assert command[command.index("--error-exitcode") + 1] == "86"
     assert command[command.index("--launch-count") + 1] == "3"
-    assert command[command.index("--print-limit") + 1] == "5000"
+    assert command[command.index("--print-limit") + 1] == "1000"
+    assert command[command.index("--racecheck-report") + 1] == "analysis"
     assert "kns=kernel;touch /tmp/not-run" in command
     assert command[-3:] == [
         "-m",
@@ -283,6 +283,100 @@ def test_run_compute_sanitizer_aggregates_clean_and_failed_tools(monkeypatch, tm
         "clean",
         "clean",
     ]
+
+
+def test_staged_mismatch_order_stops_after_first_issue(monkeypatch, tmp_path: Path) -> None:
+    fake_tool = tmp_path / "compute-sanitizer"
+    fake_tool.write_text("#!/bin/sh\n", encoding="utf-8")
+    fake_tool.chmod(0o755)
+    executed: list[tuple[str, float]] = []
+
+    def fake_run(command, **kwargs):
+        tool = command[command.index("--tool") + 1]
+        executed.append((tool, kwargs["timeout_s"]))
+        if tool == "initcheck":
+            return SimpleNamespace(
+                returncode=86,
+                stdout="",
+                stderr="========= Uninitialized __global__ memory read of size 4 bytes\n"
+                "========= ERROR SUMMARY: 1 error\n",
+            )
+        return SimpleNamespace(returncode=0, stdout="", stderr=CLEAN_OUTPUT)
+
+    monkeypatch.setattr(compute_sanitizer, "_run_sanitizer_command", fake_run)
+    result = compute_sanitizer.run_compute_sanitizer(
+        original_model_src="class Model: pass",
+        custom_model_src="class ModelNew: pass",
+        artifact=None,
+        backend="tvm_ffi",
+        entry_point="Model",
+        device="cuda:0",
+        kernel_names=["candidate_kernel"],
+        sanitizer_path=str(fake_tool),
+        mode="full",
+        tool_order=["racecheck", "initcheck", "memcheck", "synccheck"],
+        tool_timeouts_s={"racecheck": 7, "initcheck": 6},
+        total_timeout_s=60,
+        stop_after_first_issue=True,
+        timeout_s=10,
+        max_kernels=2,
+        max_issues=5,
+    )
+
+    assert result["requested_checks"] == ["racecheck", "initcheck", "memcheck", "synccheck"]
+    assert result["executed_checks"] == ["racecheck", "initcheck"]
+    assert result["skipped_checks"] == ["memcheck", "synccheck"]
+    assert result["stop_reason"] == "first_issue"
+    assert result["primary_check"] == "initcheck"
+    assert result["status"] == "issues_found"
+    assert result["measurement_complete"] is False
+    assert result["diagnostic_policy_complete"] is True
+    assert result["run_all_checks"] is False
+    assert [tool for tool, _ in executed] == ["racecheck", "initcheck"]
+    assert executed[0][1] <= 7
+    assert executed[1][1] <= 6
+
+
+def test_staged_checks_stop_when_total_timeout_is_exhausted(monkeypatch, tmp_path: Path) -> None:
+    fake_tool = tmp_path / "compute-sanitizer"
+    fake_tool.write_text("#!/bin/sh\n", encoding="utf-8")
+    fake_tool.chmod(0o755)
+    executed = []
+    clock = iter((0.0, 0.0, 1.0, 61.0, 61.0))
+
+    monkeypatch.setattr(compute_sanitizer, "perf_counter", lambda: next(clock))
+    monkeypatch.setattr(compute_sanitizer, "_tool_version", lambda _path: "test-version")
+
+    def fake_run(command, **_kwargs):
+        executed.append(command[command.index("--tool") + 1])
+        return SimpleNamespace(returncode=0, stdout="", stderr=CLEAN_OUTPUT)
+
+    monkeypatch.setattr(compute_sanitizer, "_run_sanitizer_command", fake_run)
+    result = compute_sanitizer.run_compute_sanitizer(
+        original_model_src="class Model: pass",
+        custom_model_src="class ModelNew: pass",
+        artifact=None,
+        backend="tvm_ffi",
+        entry_point="Model",
+        device="cuda:0",
+        kernel_names=["candidate_kernel"],
+        sanitizer_path=str(fake_tool),
+        mode="full",
+        tool_order=["racecheck", "initcheck", "memcheck", "synccheck"],
+        total_timeout_s=60,
+        stop_after_first_issue=True,
+        timeout_s=30,
+        max_kernels=2,
+        max_issues=5,
+    )
+
+    assert executed == ["racecheck"]
+    assert result["status"] == "partial"
+    assert result["stop_reason"] == "total_timeout"
+    assert result["executed_checks"] == ["racecheck"]
+    assert result["skipped_checks"] == ["initcheck", "memcheck", "synccheck"]
+    assert result["measurement_complete"] is False
+    assert result["diagnostic_policy_complete"] is False
 
 
 def test_initcheck_uses_cpu_generated_inputs_with_kernel_filter(monkeypatch, tmp_path: Path) -> None:
@@ -378,6 +472,29 @@ def test_compute_sanitizer_mode_normalization_and_error_classification() -> None
 
     assert compute_sanitizer.normalize_compute_sanitizer_execution_mode("MEMCHECK") == "memcheck"
     assert compute_sanitizer.normalize_compute_sanitizer_execution_mode("full") == "full"
+
+
+def test_compute_sanitizer_execution_plan_is_scenario_specific() -> None:
+    assert kernelbench_pipeline._compute_sanitizer_execution_plan(
+        trigger="correctness_output_mismatch",
+        selection_mode="error_based",
+        execution_mode="full",
+    ) == (["racecheck", "initcheck", "memcheck", "synccheck"], "mismatch_likely_first", True)
+    assert kernelbench_pipeline._compute_sanitizer_execution_plan(
+        trigger="correctness_runtime_error",
+        selection_mode="error_based",
+        execution_mode="full",
+    ) == (["memcheck", "synccheck", "racecheck", "initcheck"], "runtime_error_likely_first", True)
+    assert kernelbench_pipeline._compute_sanitizer_execution_plan(
+        trigger="correctness_output_mismatch",
+        selection_mode="full",
+        execution_mode="full",
+    ) == (["memcheck", "synccheck", "racecheck", "initcheck"], "full", False)
+    assert kernelbench_pipeline._compute_sanitizer_execution_plan(
+        trigger="correctness_runtime_error",
+        selection_mode="error_based",
+        execution_mode="memcheck",
+    ) == (["memcheck"], "classified_single_check", False)
     try:
         compute_sanitizer.normalize_compute_sanitizer_execution_mode("error_based")
     except ValueError:
@@ -389,7 +506,9 @@ def test_compute_sanitizer_mode_normalization_and_error_classification() -> None
 def test_compute_sanitizer_skips_only_explicit_host_errors() -> None:
     classify_skip = compute_sanitizer.classify_compute_sanitizer_skip_reason
 
-    assert classify_skip(NameError("name 'tvm_ffi_extension' is not defined"), backend="tvm_ffi") == "python_name_error"
+    assert (
+        classify_skip(NameError("name 'tvm_ffi_extension' is not defined"), backend="tvm_ffi") == "python_name_error"
+    )
     assert (
         classify_skip(
             "name 'tvm_ffi_extension' is not defined",
@@ -418,9 +537,10 @@ def test_compute_sanitizer_skips_only_explicit_host_errors() -> None:
         )
         == "python_not_enough_values_to_unpack"
     )
-    assert classify_skip(
-        AttributeError("'CustomConv2d' object has no attribute 'weight'"), backend="tvm_ffi"
-    ) == "python_missing_attribute"
+    assert (
+        classify_skip(AttributeError("'CustomConv2d' object has no attribute 'weight'"), backend="tvm_ffi")
+        == "python_missing_attribute"
+    )
     assert (
         classify_skip(
             "'CustomConv2d' object has no attribute 'weight'",
@@ -467,24 +587,25 @@ def test_compute_sanitizer_skips_only_explicit_host_errors() -> None:
         )
     assert (
         classify_skip(
-            "invoke(arg0: Tensor, arg1: Tensor, arg2: Tensor, arg3: float) -> void. "
-            "Expected `float` but got `None`",
+            "invoke(arg0: Tensor, arg1: Tensor, arg2: Tensor, arg3: float) -> void. Expected `float` but got `None`",
             runtime_error_name="builtins.TypeError",
             backend="tvm_ffi",
         )
         == "tvm_ffi_argument_type_mismatch"
     )
     output_contract_error = (
-        "Check failed: (output.dtype().code == kDLBool && output.dtype().bits == 1) "
-        "is false: output must be bool"
+        "Check failed: (output.dtype().code == kDLBool && output.dtype().bits == 1) is false: output must be bool"
     )
     assert classify_skip(RuntimeError(output_contract_error), backend="tvm_ffi") == (
         "tvm_ffi_output_contract_mismatch"
     )
-    assert classify_skip(
-        RuntimeError("Check failed: output.dim() == 3 is false: output must be 3D"),
-        backend="tvm_ffi",
-    ) == "tvm_ffi_output_contract_mismatch"
+    assert (
+        classify_skip(
+            RuntimeError("Check failed: output.dim() == 3 is false: output must be 3D"),
+            backend="tvm_ffi",
+        )
+        == "tvm_ffi_output_contract_mismatch"
+    )
     assert (
         classify_skip(
             f"Traceback (most recent call last):\nRuntimeError: {output_contract_error}",
@@ -649,20 +770,96 @@ def test_zero_issue_summary_must_be_explicit() -> None:
     assert not compute_sanitizer._has_explicit_zero_issue_summary("Target application returned an error")
 
 
-def test_pipeline_only_triggers_sanitizer_for_candidate_runtime_failure() -> None:
+def test_pipeline_triggers_sanitizer_for_candidate_runtime_failure_or_output_mismatch() -> None:
     assert kernelbench_pipeline._is_candidate_correctness_runtime_failure(
         {
             "runtime_error": "CUDA error: illegal memory access",
             "correctness_runtime_error_stage": "custom_forward",
         }
     )
+    assert (
+        kernelbench_pipeline._get_compute_sanitizer_trigger(
+            {
+                "runtime_error": "CUDA error: illegal memory access",
+                "correctness_runtime_error_stage": "custom_forward",
+            }
+        )
+        == "correctness_runtime_error"
+    )
     assert not kernelbench_pipeline._is_candidate_correctness_runtime_failure({"correctness_issue": "Output mismatch"})
+    assert (
+        kernelbench_pipeline._get_compute_sanitizer_trigger(
+            {
+                "correctness_output_mismatch": True,
+                "correctness_candidate_forward_completed": True,
+                "correctness_issue_name": "numerical_mismatch",
+            }
+        )
+        == "correctness_output_mismatch"
+    )
+    assert (
+        kernelbench_pipeline._get_compute_sanitizer_trigger(
+            {
+                "correctness_output_mismatch": True,
+                "correctness_candidate_forward_completed": False,
+            }
+        )
+        is None
+    )
     assert not kernelbench_pipeline._is_candidate_correctness_runtime_failure(
         {
             "runtime_error": "reference failed",
             "correctness_runtime_error_stage": "reference_forward",
         }
     )
+
+
+def test_mismatch_sanitizer_feedback_is_returned_only_when_issues_are_found() -> None:
+    clean_metadata = {
+        "runtime_sanitizer_trigger": "correctness_output_mismatch",
+        "runtime_sanitizer_mode": "error_based",
+        "runtime_sanitizer_execution_mode": "full",
+        "runtime_sanitizer_execution_policy": "mismatch_likely_first",
+        "runtime_sanitizer_tool_order": ["racecheck", "initcheck", "memcheck", "synccheck"],
+        "runtime_sanitizer_error_classification": "ambiguous",
+        "runtime_sanitizer_run_all_checks": False,
+        "kg_kernel_runtime_sanitizer_s": 1.0,
+        "kg_stage_completed_s": {"kernel.runtime_sanitizer": 1.0, "kernel.correctness": 0.5},
+        "unrelated": "kept",
+    }
+    clean = kernelbench_pipeline._finalize_compute_sanitizer_feedback(
+        clean_metadata,
+        {"status": "clean", "detected_issue_count": 0},
+        trigger="correctness_output_mismatch",
+        selection_mode="error_based",
+    )
+    assert clean == {}
+    assert clean_metadata == {
+        "kg_stage_completed_s": {"kernel.correctness": 0.5},
+        "unrelated": "kept",
+    }
+
+    issue_metadata = {}
+    issues_found = kernelbench_pipeline._finalize_compute_sanitizer_feedback(
+        issue_metadata,
+        {"status": "issues_found", "detected_issue_count": 3},
+        trigger="correctness_output_mismatch",
+        selection_mode="error_based",
+    )
+    assert issues_found["status"] == "issues_found"
+    assert issues_found["selection_mode"] == "error_based"
+    assert issue_metadata["runtime_sanitizer_status"] == "issues_found"
+    assert issue_metadata["runtime_sanitizer_issue_count"] == 3
+
+    runtime_metadata = {}
+    clean_runtime = kernelbench_pipeline._finalize_compute_sanitizer_feedback(
+        runtime_metadata,
+        {"status": "clean", "detected_issue_count": 0},
+        trigger="correctness_runtime_error",
+        selection_mode="error_based",
+    )
+    assert clean_runtime["status"] == "clean"
+    assert runtime_metadata["runtime_sanitizer_status"] == "clean"
 
 
 def test_run_compute_sanitizer_single_mode_replays_seed(monkeypatch, tmp_path: Path) -> None:
@@ -827,6 +1024,7 @@ def test_api_defaults_and_workflow_propagate_sanitizer() -> None:
         kernel_code="class ModelNew:\n    pass",
     )
     assert request.enable_compute_sanitizer is False
+    assert request.return_detail_correctness is False
     assert request.compute_sanitizer_mode == "error_based"
     for mode in ("error_based", "full"):
         mode_request = EvaluationRequest(**{**request.model_dump(), "compute_sanitizer_mode": mode})
@@ -853,18 +1051,35 @@ def test_api_defaults_and_workflow_propagate_sanitizer() -> None:
         enable_compute_sanitizer=True,
         compute_sanitizer_profile_version="v1",
     )
-    assert payload["enable_compute_sanitizer"] is True
-    assert payload["_compute_sanitizer_profile_version"] == "v1"
+    assert payload["enable_compute_sanitizer"] is False
+    assert "_compute_sanitizer_profile_version" not in payload
+
+    detailed_payload = apply_runtime_defaults(
+        {
+            **request.model_dump(),
+            "return_detail_correctness": True,
+            "enable_compute_sanitizer": None,
+        },
+        workflow_name="kernelbench",
+        split_compile_and_execute=False,
+        enable_ncu=False,
+        enable_compute_sanitizer=True,
+        compute_sanitizer_profile_version="v1",
+    )
+    assert detailed_payload["enable_compute_sanitizer"] is True
+    assert detailed_payload["_compute_sanitizer_profile_version"] == "v1"
 
     task = EvaluationTask(
         task_id="sanitizer-propagation",
         reference_code="class Model: pass",
         kernel_code="class ModelNew: pass",
         enable_compute_sanitizer=False,
+        return_detail_correctness=True,
         compute_sanitizer_mode="full",
     )
     _, kernel_task = _create_paired_tasks(task)
     assert kernel_task.enable_compute_sanitizer is False
+    assert kernel_task.return_detail_correctness is True
     assert kernel_task.compute_sanitizer_mode == "full"
 
     controller = KernelBenchWorkflowController()
@@ -878,4 +1093,18 @@ def test_api_defaults_and_workflow_propagate_sanitizer() -> None:
         ),
         compile_only=False,
     )
-    assert default_options["enable_compute_sanitizer"] is settings.enable_compute_sanitizer
+    assert default_options["return_detail_correctness"] is False
+    assert default_options["enable_compute_sanitizer"] is False
+
+    enabled_options = controller._kernel_execution_options(
+        EvaluationTask(
+            task_id="sanitizer-enabled-options",
+            reference_code="class Model: pass",
+            kernel_code="class ModelNew: pass",
+            return_detail_correctness=True,
+            enable_compute_sanitizer=True,
+        ),
+        compile_only=False,
+    )
+    assert enabled_options["return_detail_correctness"] is True
+    assert enabled_options["enable_compute_sanitizer"] is True

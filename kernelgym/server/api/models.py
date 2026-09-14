@@ -124,16 +124,23 @@ class EvaluationRequest(BaseModel):
     enable_compute_sanitizer: Optional[bool] = Field(
         default=False,
         description=(
-            "Run isolated NVIDIA Compute Sanitizer trials after a correctness runtime failure. "
-            "Disabled by default."
+            "Run isolated NVIDIA Compute Sanitizer trials after a correctness runtime failure or output mismatch. "
+            "Requires return_detail_correctness=true and is disabled by default."
+        ),
+    )
+    return_detail_correctness: bool = Field(
+        default=False,
+        description=(
+            "Return detailed correctness mismatch diagnostics. Also gates Compute Sanitizer execution. "
+            "False preserves the legacy correctness metadata and comparison path."
         ),
     )
     compute_sanitizer_mode: Literal["error_based", "full"] = Field(
         default="error_based",
         description=(
-            "Sanitizer selection strategy. error_based selects the most relevant check "
-            "from the correctness runtime error and falls back to all checks when ambiguous; "
-            "full always runs memcheck, synccheck, racecheck, and initcheck."
+            "Sanitizer selection strategy. error_based selects one check for a classified runtime error or uses a "
+            "trigger-specific staged order with first-issue early stopping; full always runs memcheck, synccheck, "
+            "racecheck, and initcheck without early stopping."
         ),
     )
     enable_correctness_input_perturbations: Optional[bool] = Field(
@@ -271,6 +278,7 @@ class EvaluationRequest(BaseModel):
                 "enable_profiling": None,
                 "enable_ncu": False,
                 "enable_compute_sanitizer": False,
+                "return_detail_correctness": False,
                 "compute_sanitizer_mode": "error_based",
                 "enable_correctness_input_perturbations": None,
                 "simplify_error": True,

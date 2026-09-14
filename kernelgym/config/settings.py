@@ -181,15 +181,24 @@ class Settings(BaseSettings):
     enable_compute_sanitizer: bool = Field(
         default=False,
         env="ENABLE_COMPUTE_SANITIZER",
-        description="Run isolated Compute Sanitizer trials after a correctness runtime failure.",
+        description=(
+            "Server default for isolated Compute Sanitizer trials after a correctness runtime failure or output "
+            "mismatch; each request must also set return_detail_correctness=true."
+        ),
     )
     compute_sanitizer_path: str = Field(
         default="/usr/local/cuda-12.9/bin/compute-sanitizer",
         env="COMPUTE_SANITIZER_PATH",
     )
-    compute_sanitizer_timeout_s: int = Field(default=60, env="COMPUTE_SANITIZER_TIMEOUT_S")
-    compute_sanitizer_max_kernels: int = Field(default=16, env="COMPUTE_SANITIZER_MAX_KERNELS")
+    compute_sanitizer_timeout_s: int = Field(default=60, gt=0, env="COMPUTE_SANITIZER_TIMEOUT_S")
+    compute_sanitizer_total_timeout_s: int = Field(default=60, gt=0, env="COMPUTE_SANITIZER_TOTAL_TIMEOUT_S")
+    compute_sanitizer_memcheck_timeout_s: int = Field(default=20, gt=0, env="COMPUTE_SANITIZER_MEMCHECK_TIMEOUT_S")
+    compute_sanitizer_synccheck_timeout_s: int = Field(default=15, gt=0, env="COMPUTE_SANITIZER_SYNCCHECK_TIMEOUT_S")
+    compute_sanitizer_racecheck_timeout_s: int = Field(default=30, gt=0, env="COMPUTE_SANITIZER_RACECHECK_TIMEOUT_S")
+    compute_sanitizer_initcheck_timeout_s: int = Field(default=20, gt=0, env="COMPUTE_SANITIZER_INITCHECK_TIMEOUT_S")
+    compute_sanitizer_max_kernels: int = Field(default=8, gt=0, env="COMPUTE_SANITIZER_MAX_KERNELS")
     compute_sanitizer_max_issues: int = Field(default=4, env="COMPUTE_SANITIZER_MAX_ISSUES")
+    compute_sanitizer_print_limit: int = Field(default=1000, gt=0, env="COMPUTE_SANITIZER_PRINT_LIMIT")
     compute_sanitizer_profile_version: str = Field(default="v1", env="COMPUTE_SANITIZER_PROFILE_VERSION")
     enable_correctness_input_perturbations: bool = Field(
         default=False,

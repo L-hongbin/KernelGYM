@@ -257,6 +257,8 @@ class KernelBenchWorkflowController(WorkflowController):
         enable_compute_sanitizer = self._first_not_none(
             eval_task.enable_compute_sanitizer, settings.enable_compute_sanitizer
         )
+        return_detail_correctness = bool(eval_task.return_detail_correctness)
+        enable_compute_sanitizer = bool(return_detail_correctness and enable_compute_sanitizer)
         enable_correctness_input_perturbations = self._first_not_none(
             eval_task.enable_correctness_input_perturbations,
             settings.enable_correctness_input_perturbations,
@@ -267,6 +269,7 @@ class KernelBenchWorkflowController(WorkflowController):
             enable_profiling = False
             enable_ncu = False
             enable_compute_sanitizer = False
+            return_detail_correctness = False
             enable_correctness_input_perturbations = False
         return {
             "run_correctness": run_correctness,
@@ -277,6 +280,7 @@ class KernelBenchWorkflowController(WorkflowController):
             "enable_profiling": enable_profiling,
             "enable_ncu": enable_ncu,
             "enable_compute_sanitizer": enable_compute_sanitizer,
+            "return_detail_correctness": return_detail_correctness,
             "compute_sanitizer_mode": eval_task.compute_sanitizer_mode,
             "enable_correctness_input_perturbations": enable_correctness_input_perturbations,
             "simplify_error": eval_task.simplify_error,

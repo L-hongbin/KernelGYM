@@ -41,7 +41,7 @@ This file indexes stable repository docs and evidence locations.
 | `kernelgym/toolkit/kernelbench/pipeline.py` | KernelBench compile/load/correctness/performance pipeline. |
 | `kernelgym/toolkit/kernelbench/input_perturbation.py` | Distribution-aware `torch.rand`/`torch.randn` correctness input capture and transformations. |
 | `kernelgym/toolkit/kernelbench/profiling.py` | CUDA profiling, exact MusaCoder Appendix J plus explicit PyTorch compatibility ATen classification, and named-kernel coverage extraction. |
-| `kernelgym/toolkit/kernelbench/compute_sanitizer.py` | Isolated memcheck/racecheck/synccheck/initcheck execution and structured report parsing. |
+| `kernelgym/toolkit/kernelbench/compute_sanitizer.py` | Isolated scenario-ordered memcheck/racecheck/synccheck/initcheck execution, bounded budgets, and structured report parsing. |
 | `kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py` | Fresh-process candidate launcher used as the Compute Sanitizer target. |
 | `kernelgym/native/cupti_tsc_shim.cpp` | Version-gated LD_PRELOAD shim suppressing Kineto's CUPTI TSC timestamp callback on affected CUDA versions. |
 | `kernelgym/utils/cupti_tsc_shim.py` | Shim build, state query, and Kineto-TSC-fix verification gates. |
