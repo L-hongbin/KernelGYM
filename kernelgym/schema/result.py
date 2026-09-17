@@ -413,6 +413,10 @@ class KernelEvaluationResult:
                     error_code = ErrorCode.RUNTIME_ERROR
                 else:
                     error_message = f"Kernel produced incorrect results: {detail}"
+                    diagnosis = metadata.get("correctness_diagnosis")
+                    diagnosis_text = diagnosis.get("text") if isinstance(diagnosis, dict) else None
+                    if diagnosis_text:
+                        error_message = f"{error_message}. Diagnosis: {diagnosis_text}"
                     error_code = ErrorCode.CORRECTNESS_ERROR
             else:
                 error_message = "Kernel produced incorrect results"

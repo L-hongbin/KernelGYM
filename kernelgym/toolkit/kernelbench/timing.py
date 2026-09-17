@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import torch
 
+from kernelgym.toolkit.kernelbench.compute_sanitizer import is_actionable_cuda_execution_error
+
 from kernelgym.config import settings
 from kernelgym.toolkit.kernelbench.execution_policy import tf32_execution_context
 from kernelgym.toolkit.kernelbench.profiling import (
@@ -226,6 +228,8 @@ def time_execution_with_cuda_event(
                     logger.info("[Profiling] Total CUDA time: %.2f us", profiling_metrics.get("total_cuda_time_us", 0))
 
             except Exception as e:
+                if is_actionable_cuda_execution_error(e):
+                    raise
                 logger.warning("[Profiling] Profiling failed: %s", e)
                 profiling_metrics = {"profiling_error": str(e)}
 
@@ -279,6 +283,8 @@ def run_profiling_only(
             _annotate_shim_state(profiling_metrics)
             logger.info("[Profiling] Captured %s CUDA kernels", profiling_metrics.get("kernel_count", 0))
     except Exception as e:
+        if is_actionable_cuda_execution_error(e):
+            raise
         logger.warning("[Profiling] Profiling-only failed: %s", e)
         profiling_metrics = {"profiling_error": str(e)}
 

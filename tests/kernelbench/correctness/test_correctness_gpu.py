@@ -1,5 +1,7 @@
 """KernelBench correctness GPU tests."""
 
+import re
+
 import pytest
 
 
@@ -146,6 +148,59 @@ def test_correctness_input_perturbations_are_disabled_by_default() -> None:
 
 
 @pytest.mark.gpu
+def test_numerical_mismatch_defaults_to_legacy_metadata(monkeypatch) -> None:
+    torch = _require_cuda_runtime()
+    correctness = _get_correctness_module()
+
+    class Reference(torch.nn.Module):
+        def forward(self, x):
+            return x
+
+    class IncorrectCandidate(torch.nn.Module):
+        def forward(self, x):
+            return x + 1.0
+
+    def reject_detailed_comparison(*args, **kwargs):
+        raise AssertionError("default correctness must not compute detailed diagnostics")
+
+    monkeypatch.setattr(
+        correctness,
+        "_compare_outputs_inplace_with_diagnostics",
+        reject_detailed_comparison,
+    )
+
+    device = torch.device("cuda:0")
+    result = correctness.run_and_check_correctness(
+        Reference(),
+        IncorrectCandidate(),
+        lambda: [torch.rand((2, 3), device=device)],
+        metadata={},
+        num_correct_trials=1,
+        seed=1234,
+        device=device,
+    )
+
+    assert result.correctness is False
+    assert result.metadata["correctness_issue_name"] == "numerical_mismatch"
+    assert "max_difference=" in result.metadata["correctness_issue"]
+    assert "avg_difference=" in result.metadata["correctness_issue"]
+    assert "element_correctness=" not in result.metadata["correctness_issue"]
+    for field in (
+        "element_correctness",
+        "element_correctness_curve",
+        "nan_count",
+        "inf_count",
+        "mismatch_coordinate",
+        "batch_correctness",
+        "row_correctness",
+        "tile_correctness",
+        "output_space_localization",
+        "correctness_failed_trial_seed",
+    ):
+        assert field not in result.metadata
+
+
+@pytest.mark.gpu
 def test_rand_sign_perturbation_returns_numerical_mismatch_details() -> None:
     torch = _require_cuda_runtime()
     correctness = _get_correctness_module()
@@ -168,18 +223,101 @@ def test_rand_sign_perturbation_returns_numerical_mismatch_details() -> None:
         seed=1234,
         device=device,
         enable_input_perturbations=True,
+        return_detail_correctness=True,
     )
 
     assert result.correctness is False
     assert result.metadata["correctness_effective_trials"] == 4
     assert result.metadata["correctness_failed_input_perturbation"] == "sign_challenge"
+    assert isinstance(result.metadata["correctness_failed_trial_seed"], int)
     assert result.metadata["correctness_issue_name"] == "numerical_mismatch"
     assert float(result.metadata["max_difference"][0]) > 0
     assert float(result.metadata["avg_difference"][0]) > 0
+    element_correctness = result.metadata["element_correctness"][0]
+    assert re.fullmatch(r"\d+\.\d{2}%", element_correctness)
+    assert f"element_correctness={element_correctness}" in result.metadata["correctness_issue"]
+    element_correctness_curve = result.metadata["element_correctness_curve"][0]
+    expected_multipliers = ["1x", "2x", "4x", "8x", "16x"]
+    assert list(element_correctness_curve) == expected_multipliers[: len(element_correctness_curve)]
+    assert element_correctness_curve["1x"] == element_correctness
+    assert all(re.fullmatch(r"\d+\.\d{2}%", value) for value in element_correctness_curve.values())
+    assert all(
+        float(element_correctness_curve[left][:-1]) <= float(element_correctness_curve[right][:-1])
+        for left, right in zip(element_correctness_curve, list(element_correctness_curve)[1:])
+    )
+    if "100.00%" in element_correctness_curve.values():
+        assert list(element_correctness_curve.values())[-1] == "100.00%"
+    curve_points = ",".join(
+        f"{multiplier}:{percentage}" for multiplier, percentage in element_correctness_curve.items()
+    )
+    curve_text = f"{{{curve_points}}}"
+    assert f"element_correctness_curve={curve_text}" in result.metadata["correctness_issue"]
+    assert result.metadata["nan_count"] == [0]
+    assert result.metadata["inf_count"] == [0]
+    mismatch_coordinate = result.metadata["mismatch_coordinate"][0]
+    assert set(mismatch_coordinate) == {"first", "last", "top_3"}
+    assert mismatch_coordinate["first"]["output_path"] == "output"
+    assert mismatch_coordinate["last"]["output_path"] == "output"
+    assert len(mismatch_coordinate["top_3"]) == 3
+    assert 0.0 <= result.metadata["batch_correctness"][0] <= 1.0
+    assert 0.0 <= result.metadata["row_correctness"][0] <= 1.0
+    assert 0.0 <= result.metadata["tile_correctness"][0] <= 1.0
+    assert result.metadata["output_space_localization"][0]["tile_shape"] == [32, 32]
     assert "correctness_numerical_errors" not in result.metadata
     sign_trial = result.metadata["correctness_input_perturbation_trials"][-1]
     assert sign_trial["detected_input_kinds"] == {"torch.rand": 1}
     assert sign_trial["transforms"] == {"negate": 1}
+
+
+@pytest.mark.gpu
+def test_nonfinite_candidate_returns_counts_and_mismatch_coordinates() -> None:
+    torch = _require_cuda_runtime()
+    correctness = _get_correctness_module()
+
+    class Reference(torch.nn.Module):
+        def forward(self, x):
+            return torch.zeros_like(x)
+
+    class NonfiniteCandidate(torch.nn.Module):
+        def forward(self, x):
+            output = torch.zeros_like(x)
+            flat_output = output.view(-1)
+            flat_output[1] = torch.nan
+            flat_output[3] = torch.inf
+            flat_output[5] = 1.0
+            return output
+
+    device = torch.device("cuda:0")
+    result = correctness.run_and_check_correctness(
+        Reference(),
+        NonfiniteCandidate(),
+        lambda: [torch.rand((2, 3), device=device)],
+        metadata={},
+        num_correct_trials=1,
+        seed=1234,
+        device=device,
+        return_detail_correctness=True,
+    )
+
+    assert result.correctness is False
+    assert result.metadata["nan_count"] == [1]
+    assert result.metadata["inf_count"] == [1]
+    assert isinstance(result.metadata["correctness_failed_trial_seed"], int)
+    mismatch_coordinate = result.metadata["mismatch_coordinate"][0]
+    assert mismatch_coordinate["first"] == {
+        "output_path": "output",
+        "coordinate": [0, 1],
+    }
+    assert mismatch_coordinate["last"] == {
+        "output_path": "output",
+        "coordinate": [1, 2],
+    }
+    assert len(mismatch_coordinate["top_3"]) == 3
+    assert result.metadata["batch_correctness"] == [0.0]
+    assert result.metadata["row_correctness"] == [0.0]
+    assert result.metadata["tile_correctness"] == [0.0]
+    tensor_localization = result.metadata["output_space_localization"][0]["tensors"][0]
+    assert tensor_localization["mismatch_bounds"] == {"M": [0, 1], "N": [0, 2]}
 
 
 @pytest.mark.gpu

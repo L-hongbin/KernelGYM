@@ -1152,18 +1152,27 @@ def _commit_task_result(
     result: Dict[str, Any],
     *,
     prepare_for_reuse: Optional[Any] = None,
+    task_barrier_already_crossed: bool = False,
 ) -> None:
     """Publish a result with no CUDA calls after the commit queue write.
 
-    A reusable process first synchronizes the task itself before touching cache
-    maintenance APIs.  It then performs one final barrier immediately before
-    publishing, so cleanup cannot hide a newly surfaced sticky CUDA fault.
+    A reusable process synchronizes the task before touching cache maintenance
+    APIs, unless the pipeline already crossed that exact trusted barrier.  It
+    then performs one final barrier immediately before publishing, so cleanup
+    cannot hide a newly surfaced sticky CUDA fault.  Single-use workers can
+    publish directly after a successful pipeline barrier because no CUDA work
+    occurs between that barrier and publication.
     """
 
     if prepare_for_reuse is not None:
-        _strict_cuda_task_barrier(synchronize_cuda)
+        if not task_barrier_already_crossed:
+            _strict_cuda_task_barrier(synchronize_cuda)
         prepare_for_reuse()
-    _publish_task_result_after_sync(synchronize_cuda, result_queue, result)
+        _publish_task_result_after_sync(synchronize_cuda, result_queue, result)
+    elif task_barrier_already_crossed:
+        result_queue.put(result)
+    else:
+        _publish_task_result_after_sync(synchronize_cuda, result_queue, result)
 
 
 def _publish_non_cuda_failure_and_count_task(
@@ -1193,8 +1202,8 @@ class _TrustedCudaTaskOperations:
     """Candidate-resistant local operations captured before task dispatch."""
 
     synchronize: Callable[[], None]
-    commit: Callable[[Dict[str, Any], Optional[Callable[[], None]]], None]
-    commit_and_wait: Callable[[Dict[str, Any], Optional[Callable[[], None]]], None]
+    commit: Callable[[Dict[str, Any], Optional[Callable[[], None]], bool], None]
+    commit_and_wait: Callable[[Dict[str, Any], Optional[Callable[[], None]], bool], None]
     classify_error: Callable[[BaseException], Dict[str, Any]]
     publish_non_cuda_failure: Callable[[Dict[str, Any], int, int], tuple[int, bool]]
     publish_and_wait: Callable[[Dict[str, Any]], None]
@@ -1287,11 +1296,22 @@ def _capture_trusted_cuda_task_operations(
             "is_profiler_error": "PROFILER_NO_CUDA_EVENTS" in error_message,
         }
 
-    def _commit(result: Dict[str, Any], prepare_for_reuse: Optional[Callable[[], None]] = None) -> None:
+    def _commit(
+        result: Dict[str, Any],
+        prepare_for_reuse: Optional[Callable[[], None]] = None,
+        task_barrier_already_crossed: bool = False,
+    ) -> None:
+        # Reuse the pipeline's successful trusted barrier so moving late-fault
+        # diagnosis into the evaluator does not add a duplicate synchronization
+        # to the worker lifecycle.  Cleanup, when present, still needs its own
+        # post-cleanup barrier before publication.
         if prepare_for_reuse is not None:
-            _strict_synchronize()
+            if not task_barrier_already_crossed:
+                _strict_synchronize()
             prepare_for_reuse()
-        _strict_synchronize()
+            _strict_synchronize()
+        elif not task_barrier_already_crossed:
+            _strict_synchronize()
         send_task_result(result)
 
     def _wait_after_publish() -> None:
@@ -1304,8 +1324,9 @@ def _capture_trusted_cuda_task_operations(
     def _commit_and_wait(
         result: Dict[str, Any],
         prepare_for_reuse: Optional[Callable[[], None]] = None,
+        task_barrier_already_crossed: bool = False,
     ) -> None:
-        _commit(result, prepare_for_reuse)
+        _commit(result, prepare_for_reuse, task_barrier_already_crossed)
         _wait_after_publish()
 
     def _publish_non_cuda_failure(
@@ -4399,6 +4420,13 @@ def _persistent_worker_loop(
 
                 # 执行任务（先清空 stderr 捕获文件，让内容对应本次任务）
                 _truncate_native_stderr_capture()
+                task_barrier_crossed = False
+
+                def _pipeline_cuda_task_barrier() -> None:
+                    nonlocal task_barrier_crossed
+                    synchronize_cuda()
+                    task_barrier_crossed = True
+
                 result = _execute_task_in_worker(
                     task_data,
                     device,
@@ -4406,6 +4434,7 @@ def _persistent_worker_loop(
                     backend_cache,
                     get_toolkit,
                     get_backend,
+                    _pipeline_cuda_task_barrier,
                 )
 
                 # For long-lived contexts, do cache/GC maintenance before the
@@ -4427,9 +4456,9 @@ def _persistent_worker_loop(
                     trusted_task_ops.publish_and_wait(result)
                 elif must_recycle:
                     result["worker_exiting"] = True
-                    trusted_task_ops.commit_and_wait(result, prepare_for_reuse)
+                    trusted_task_ops.commit_and_wait(result, prepare_for_reuse, task_barrier_crossed)
                 else:
-                    trusted_task_ops.commit(result, prepare_for_reuse)
+                    trusted_task_ops.commit(result, prepare_for_reuse, task_barrier_crossed)
 
                 tasks_processed += 1
 
@@ -4550,6 +4579,7 @@ def _execute_task_in_worker(
     backend_cache: Dict[str, Any],
     get_toolkit: Any,
     get_backend: Any,
+    cuda_task_barrier: Optional[Callable[[], None]] = None,
 ) -> Dict[str, Any]:
     """
     在 worker 中执行单个任务
@@ -4602,12 +4632,32 @@ def _execute_task_in_worker(
         toolkit = toolkit_cache[toolkit_name]
         backend = backend_cache[backend_adapter]
         try:
-            result = toolkit.evaluate(task_data, backend=backend)
+            evaluate_kwargs = {}
+            if cuda_task_barrier is not None:
+                evaluate_kwargs["cuda_task_barrier"] = cuda_task_barrier
+            result = toolkit.evaluate(task_data, backend=backend, **evaluate_kwargs)
         finally:
             if previous_stage_metadata_path is None:
                 os.environ.pop(_STAGE_METADATA_PATH_ENV, None)
             else:
                 os.environ[_STAGE_METADATA_PATH_ENV] = previous_stage_metadata_path
+
+        # Preserve the execution identity needed by offline timing calibration.
+        # Paired reference/kernel results merge metadata, so role-prefix the keys
+        # rather than letting the later kernel metadata hide the reference PID.
+        result_metadata = result.get("metadata") if isinstance(result, dict) else getattr(result, "metadata", None)
+        if isinstance(result_metadata, dict):
+            task_type = str(task_data.get("task_type") or "execution")
+            role = (
+                "reference"
+                if task_type == "reference_timing"
+                else "kernel" if task_type == "kernel_evaluation" else "execution"
+            )
+            result_metadata[f"{role}_execution_pid"] = os.getpid()
+            result_metadata[f"{role}_execution_hostname"] = os.uname().nodename
+            result_metadata[f"{role}_execution_device"] = str(device)
+            result_metadata[f"{role}_execution_device_id"] = getattr(device, "index", None)
+            result_metadata[f"{role}_execution_epoch_ns"] = time.time_ns()
 
         runtime_sanitizer = None
         if isinstance(result, dict):

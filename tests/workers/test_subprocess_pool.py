@@ -128,6 +128,28 @@ def test_sanitizer_issues_found_preserves_result_and_recycles_worker() -> None:
     assert result["error_type"] == "RuntimeSanitizerFailure"
 
 
+def test_execute_task_forwards_trusted_cuda_barrier_to_toolkit() -> None:
+    barrier = lambda: None
+
+    class FakeToolkit:
+        def evaluate(self, _task_data, backend=None, **kwargs):  # noqa: ANN001
+            assert backend is not None
+            assert kwargs["cuda_task_barrier"] is barrier
+            return {"status": "completed", "metadata": {}}
+
+    result = subprocess_pool._execute_task_in_worker(
+        {"toolkit": "kernelbench", "backend_adapter": "kernelbench"},
+        "cuda:0",
+        {"kernelbench": FakeToolkit()},
+        {"kernelbench": object()},
+        lambda _name: None,
+        lambda _name: None,
+        barrier,
+    )
+
+    assert result["success"] is True
+
+
 @pytest.fixture(autouse=True)
 def _clear_unreaped_worker_registry():
     """Keep process-global fake handles isolated between unit tests."""
@@ -1875,6 +1897,43 @@ def test_reusable_worker_syncs_before_cleanup_and_commits_last() -> None:
     assert events == ["sync:cuda:0", "cleanup", "sync:cuda:0", "put"]
 
 
+def test_reusable_worker_does_not_repeat_pipeline_barrier_before_cleanup() -> None:
+    events: list[str] = []
+
+    class FakeQueue:
+        @staticmethod
+        def put(_result):  # noqa: ANN001
+            events.append("put")
+
+    subprocess_pool._commit_task_result(
+        lambda: events.append("sync:cuda:0"),
+        FakeQueue(),
+        {"success": True},
+        prepare_for_reuse=lambda: events.append("cleanup"),
+        task_barrier_already_crossed=True,
+    )
+
+    assert events == ["cleanup", "sync:cuda:0", "put"]
+
+
+def test_single_use_worker_does_not_repeat_pipeline_barrier() -> None:
+    events: list[str] = []
+
+    class FakeQueue:
+        @staticmethod
+        def put(_result):  # noqa: ANN001
+            events.append("put")
+
+    subprocess_pool._commit_task_result(
+        lambda: events.append("sync:cuda:0"),
+        FakeQueue(),
+        {"success": True},
+        task_barrier_already_crossed=True,
+    )
+
+    assert events == ["put"]
+
+
 def test_reusable_worker_cleanup_failure_never_publishes() -> None:
     put_calls = 0
 
@@ -1971,6 +2030,23 @@ def test_captured_commit_survives_module_helper_monkeypatch(monkeypatch) -> None
     operations.commit({"success": True}, lambda: events.append("cleanup"))
 
     assert events == ["trusted-sync", "cleanup", "trusted-sync", "send"]
+
+
+def test_captured_commit_reuses_successful_pipeline_barrier() -> None:
+    events: list[str] = []
+    operations = subprocess_pool._capture_trusted_cuda_task_operations(
+        lambda: events.append("trusted-sync"),
+        lambda _result: events.append("send"),
+        lambda: events.append("wait"),
+    )
+
+    operations.commit(
+        {"success": True},
+        lambda: events.append("cleanup"),
+        True,
+    )
+
+    assert events == ["cleanup", "trusted-sync", "send"]
 
 
 def test_retiring_result_publication_waits_for_parent_without_cuda_calls() -> None:

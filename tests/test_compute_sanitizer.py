@@ -812,6 +812,26 @@ def test_pipeline_triggers_sanitizer_for_candidate_runtime_failure_or_output_mis
             "correctness_runtime_error_stage": "reference_forward",
         }
     )
+    assert (
+        kernelbench_pipeline._get_compute_sanitizer_trigger(
+            {
+                "runtime_error": "CUDA error: an illegal memory access was encountered",
+                "candidate_runtime_error_stage": "performance",
+            }
+        )
+        == "performance_runtime_error"
+    )
+
+
+def test_actionable_cuda_execution_errors_are_not_confused_with_fail_open_probe_errors() -> None:
+    assert compute_sanitizer.is_actionable_cuda_execution_error(
+        "CUDA error: an illegal memory access was encountered"
+    )
+    assert compute_sanitizer.is_actionable_cuda_execution_error("CUDA error: misaligned address")
+    assert compute_sanitizer.is_actionable_cuda_execution_error("barrier error detected")
+    assert compute_sanitizer.is_actionable_cuda_execution_error("CUDA error: unspecified launch failure")
+    assert not compute_sanitizer.is_actionable_cuda_execution_error("profiler returned no CUDA events")
+    assert not compute_sanitizer.is_actionable_cuda_execution_error("CUDA out of memory")
 
 
 def test_mismatch_sanitizer_feedback_is_returned_only_when_issues_are_found() -> None:

@@ -8,7 +8,7 @@ import logging
 import os
 from pathlib import Path
 from time import monotonic_ns, perf_counter, time
-from typing import Any, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 
 import torch
 
@@ -21,10 +21,12 @@ from kernelgym.toolkit.kernelbench.compute_sanitizer import (
     SANITIZER_MODE_FULL,
     classify_compute_sanitizer_error,
     classify_compute_sanitizer_skip_reason,
+    is_actionable_cuda_execution_error,
     run_compute_sanitizer,
     skipped_compute_sanitizer_result,
 )
 from kernelgym.toolkit.kernelbench.correctness import run_and_check_correctness
+from kernelgym.toolkit.kernelbench.correctness_diagnosis import maybe_record_correctness_diagnosis
 from kernelgym.toolkit.kernelbench.exec_types import (
     KernelExecResult,
     get_error_name,
@@ -490,6 +492,8 @@ def _run_incorrect_backend_usage_probe(
             device=device,
         )
     except Exception as exc:
+        if is_actionable_cuda_execution_error(exc):
+            raise
         probe["error"] = str(exc)
         probe["valid"] = False
         logger.warning("[Decoy Probe] Failed for backend=%s: %s", backend, exc)
@@ -550,6 +554,9 @@ def _is_candidate_correctness_runtime_failure(metadata: Dict[str, Any]) -> bool:
 def _get_compute_sanitizer_trigger(metadata: Dict[str, Any]) -> Optional[str]:
     if _is_candidate_correctness_runtime_failure(metadata):
         return "correctness_runtime_error"
+    candidate_runtime_error_stage = metadata.get("candidate_runtime_error_stage")
+    if metadata.get("runtime_error") and candidate_runtime_error_stage:
+        return f"{candidate_runtime_error_stage}_runtime_error"
     if (
         metadata.get("correctness_output_mismatch")
         and metadata.get("correctness_candidate_forward_completed")
@@ -663,6 +670,8 @@ def _run_triton_detection_step(
                         backend,
                     )
     except Exception as e:
+        if is_actionable_cuda_execution_error(e):
+            raise
         if verbose:
             logger.warning("[Eval] Error in Triton usage detection: %s", e)
         metadata["error_in_triton_detection"] = e
@@ -881,6 +890,8 @@ def _run_performance_step(
             kernel_exec_result.runtime = runtime_stats["mean"]
             kernel_exec_result.runtime_stats = runtime_stats
     except Exception as e:
+        if is_actionable_cuda_execution_error(e):
+            raise
         if verbose:
             logger.warning("[Eval] Error in Measuring Performance: %s", e)
         kernel_exec_result.metadata["error_during_performance"] = e
@@ -932,6 +943,8 @@ def _run_memory_step(
                 kernel_exec_result.memory.get("measurement_complete"),
             )
     except Exception as exc:
+        if is_actionable_cuda_execution_error(exc):
+            raise
         if verbose:
             logger.warning("[Eval] Error in Measuring CUDA Memory: %s", exc)
         kernel_exec_result.memory = {
@@ -988,6 +1001,7 @@ def eval_kernel_against_ref(
     perf_min_trials: int = 20,
     perf_cv_threshold: float = 0.05,
     return_detail_correctness: bool = False,
+    cuda_task_barrier: Optional[Callable[[], None]] = None,
 ) -> KernelExecResult:
     if not compile_only:
         assert torch.cuda.is_available(), "CUDA is not available, cannot run Eval"
@@ -1295,6 +1309,146 @@ def eval_kernel_against_ref(
         return KernelExecResult(compiled=False, metadata=metadata)
 
     runtime_sanitizer = skipped_compute_sanitizer_result("not_triggered")
+    selection_mode = str(compute_sanitizer_mode or "error_based").strip().lower()
+
+    def _run_sanitizer_for_trigger(trigger: Optional[str]) -> Dict[str, Any]:
+        runtime_error = metadata.get("runtime_error", "")
+        runtime_failure = bool(trigger and trigger.endswith("_runtime_error"))
+        sanitizer_skip_reason = (
+            classify_compute_sanitizer_skip_reason(
+                runtime_error,
+                runtime_error_name=metadata.get("runtime_error_name"),
+                backend=backend,
+            )
+            if runtime_failure
+            else None
+        )
+
+        if not return_detail_correctness:
+            result: Dict[str, Any] = {}
+        elif not enable_compute_sanitizer:
+            result = skipped_compute_sanitizer_result("disabled")
+        elif sanitizer_skip_reason:
+            result = skipped_compute_sanitizer_result(sanitizer_skip_reason)
+        elif trigger is not None:
+            sanitizer_start = _begin_stage(
+                metadata,
+                prefix="kg_kernel",
+                stage="kernel.runtime_sanitizer",
+                overall_start=overall_start,
+            )
+            classification_input = runtime_error if runtime_failure else ""
+            execution_mode, preferred_tool = _select_compute_sanitizer_execution_mode(
+                classification_input,
+                selection_mode,
+            )
+            sanitizer_tools, execution_policy, stop_after_first_issue = _compute_sanitizer_execution_plan(
+                trigger=trigger,
+                selection_mode=selection_mode,
+                execution_mode=execution_mode,
+            )
+            run_all_checks = execution_mode == SANITIZER_MODE_FULL and not stop_after_first_issue
+            metadata["runtime_sanitizer_trigger"] = trigger
+            metadata["runtime_sanitizer_mode"] = selection_mode
+            metadata["runtime_sanitizer_execution_mode"] = execution_mode
+            metadata["runtime_sanitizer_execution_policy"] = execution_policy
+            metadata["runtime_sanitizer_tool_order"] = sanitizer_tools
+            metadata["runtime_sanitizer_error_classification"] = preferred_tool or "ambiguous"
+            metadata["runtime_sanitizer_run_all_checks"] = run_all_checks
+            sanitizer_kernel_names = select_kernel_names(
+                metadata,
+                settings.compute_sanitizer_max_kernels,
+            )
+            sanitizer_kwargs = dict(
+                original_model_src=original_model_src,
+                custom_model_src=custom_model_src,
+                artifact=artifact,
+                backend=backend,
+                entry_point=entry_point,
+                device=device,
+                kernel_names=sanitizer_kernel_names,
+                sanitizer_path=settings.compute_sanitizer_path,
+                timeout_s=settings.compute_sanitizer_timeout_s,
+                total_timeout_s=settings.compute_sanitizer_total_timeout_s,
+                tool_timeouts_s={
+                    "memcheck": settings.compute_sanitizer_memcheck_timeout_s,
+                    "synccheck": settings.compute_sanitizer_synccheck_timeout_s,
+                    "racecheck": settings.compute_sanitizer_racecheck_timeout_s,
+                    "initcheck": settings.compute_sanitizer_initcheck_timeout_s,
+                },
+                max_kernels=settings.compute_sanitizer_max_kernels,
+                max_issues=settings.compute_sanitizer_max_issues,
+                print_limit=settings.compute_sanitizer_print_limit,
+                input_seed=metadata.get(
+                    "runtime_error_input_seed",
+                    metadata.get("correctness_failed_trial_seed"),
+                ),
+                input_perturbation=metadata.get("correctness_failed_input_perturbation"),
+                model_seed=seed_num,
+                generate_inputs_on_gpu=bool(metadata.get("correctness_inputs_generated_on_gpu", True)),
+            )
+            result = run_compute_sanitizer(
+                **sanitizer_kwargs,
+                mode=execution_mode,
+                tool_order=sanitizer_tools,
+                stop_after_first_issue=stop_after_first_issue,
+                primary_tool=preferred_tool,
+            )
+            result["execution_policy"] = execution_policy
+            final_error_classification = preferred_tool or "ambiguous"
+            result["selection_mode"] = selection_mode
+            result["error_classification"] = final_error_classification
+            metadata["runtime_sanitizer_error_classification"] = final_error_classification
+            metadata["runtime_sanitizer_run_all_checks"] = run_all_checks
+            _finish_stage(
+                metadata,
+                stage="kernel.runtime_sanitizer",
+                timing_key="kg_kernel_runtime_sanitizer_s",
+                start_time=sanitizer_start,
+            )
+        else:
+            skip_reason = (
+                "correctness_passed"
+                if kernel_exec_result is not None and kernel_exec_result.correctness
+                else "correctness_failed_without_runtime_error"
+            )
+            result = skipped_compute_sanitizer_result(skip_reason)
+
+        if return_detail_correctness:
+            result = _finalize_compute_sanitizer_feedback(
+                metadata,
+                result,
+                trigger=trigger,
+                selection_mode=selection_mode,
+            )
+        return result
+
+    def _finish_candidate_runtime_failure(
+        stage: str,
+        exc: Exception,
+        *,
+        cleanup_required: bool = True,
+    ) -> KernelExecResult:
+        """Return a staged failure without touching the poisoned CUDA context."""
+
+        metadata["runtime_error"] = exc
+        metadata["runtime_error_name"] = get_error_name(exc)
+        metadata["runtime_error_stage"] = stage
+        metadata["candidate_runtime_error_stage"] = stage
+        metadata["runtime_error_input_seed"] = seed_num
+        trigger = _get_compute_sanitizer_trigger(metadata)
+        diagnosed = _run_sanitizer_for_trigger(trigger)
+        kernel_exec_result.correctness = False
+        kernel_exec_result.runtime = -1.0
+        kernel_exec_result.runtime_sanitizer = diagnosed
+        metadata["kg_kernel_total_s"] = perf_counter() - overall_start
+        _sync_exec_result_metadata(kernel_exec_result, metadata)
+        if cleanup_required:
+            try:
+                _cleanup()
+            except Exception as cleanup_exc:
+                metadata["cleanup_after_runtime_error"] = str(cleanup_exc)
+        return kernel_exec_result
 
     try:
 
@@ -1385,109 +1539,15 @@ def eval_kernel_against_ref(
         start_time=correctness_start,
     )
 
-    selection_mode = str(compute_sanitizer_mode or "error_based").strip().lower()
     correctness_runtime_failure = _is_candidate_correctness_runtime_failure(metadata)
     sanitizer_trigger = _get_compute_sanitizer_trigger(metadata)
-    runtime_error = metadata.get("runtime_error", "")
-    sanitizer_skip_reason = (
-        classify_compute_sanitizer_skip_reason(
-            runtime_error,
-            runtime_error_name=metadata.get("runtime_error_name"),
-            backend=backend,
-        )
-        if correctness_runtime_failure
-        else None
-    )
-    if not return_detail_correctness:
-        runtime_sanitizer = {}
-    elif not enable_compute_sanitizer:
-        runtime_sanitizer = skipped_compute_sanitizer_result("disabled")
-    elif sanitizer_skip_reason:
-        runtime_sanitizer = skipped_compute_sanitizer_result(sanitizer_skip_reason)
-    elif sanitizer_trigger is not None:
-        sanitizer_start = _begin_stage(
-            metadata,
-            prefix="kg_kernel",
-            stage="kernel.runtime_sanitizer",
-            overall_start=overall_start,
-        )
-        classification_input = runtime_error if correctness_runtime_failure else ""
-        execution_mode, preferred_tool = _select_compute_sanitizer_execution_mode(classification_input, selection_mode)
-        sanitizer_tools, execution_policy, stop_after_first_issue = _compute_sanitizer_execution_plan(
-            trigger=sanitizer_trigger,
-            selection_mode=selection_mode,
-            execution_mode=execution_mode,
-        )
-        run_all_checks = execution_mode == SANITIZER_MODE_FULL and not stop_after_first_issue
-        metadata["runtime_sanitizer_trigger"] = sanitizer_trigger
-        metadata["runtime_sanitizer_mode"] = selection_mode
-        metadata["runtime_sanitizer_execution_mode"] = execution_mode
-        metadata["runtime_sanitizer_execution_policy"] = execution_policy
-        metadata["runtime_sanitizer_tool_order"] = sanitizer_tools
-        metadata["runtime_sanitizer_error_classification"] = preferred_tool or "ambiguous"
-        metadata["runtime_sanitizer_run_all_checks"] = run_all_checks
-        sanitizer_kernel_names = select_kernel_names(
-            metadata,
-            settings.compute_sanitizer_max_kernels,
-        )
-        sanitizer_kwargs = dict(
-            original_model_src=original_model_src,
-            custom_model_src=custom_model_src,
-            artifact=artifact,
-            backend=backend,
-            entry_point=entry_point,
-            device=device,
-            kernel_names=sanitizer_kernel_names,
-            sanitizer_path=settings.compute_sanitizer_path,
-            timeout_s=settings.compute_sanitizer_timeout_s,
-            total_timeout_s=settings.compute_sanitizer_total_timeout_s,
-            tool_timeouts_s={
-                "memcheck": settings.compute_sanitizer_memcheck_timeout_s,
-                "synccheck": settings.compute_sanitizer_synccheck_timeout_s,
-                "racecheck": settings.compute_sanitizer_racecheck_timeout_s,
-                "initcheck": settings.compute_sanitizer_initcheck_timeout_s,
-            },
-            max_kernels=settings.compute_sanitizer_max_kernels,
-            max_issues=settings.compute_sanitizer_max_issues,
-            print_limit=settings.compute_sanitizer_print_limit,
-            input_seed=metadata.get("correctness_failed_trial_seed"),
-            input_perturbation=metadata.get("correctness_failed_input_perturbation"),
-            model_seed=seed_num,
-            generate_inputs_on_gpu=bool(metadata.get("correctness_inputs_generated_on_gpu", True)),
-        )
-        runtime_sanitizer = run_compute_sanitizer(
-            **sanitizer_kwargs,
-            mode=execution_mode,
-            tool_order=sanitizer_tools,
-            stop_after_first_issue=stop_after_first_issue,
-            primary_tool=preferred_tool,
-        )
-        runtime_sanitizer["execution_policy"] = execution_policy
-        final_error_classification = preferred_tool or "ambiguous"
-        runtime_sanitizer["selection_mode"] = selection_mode
-        runtime_sanitizer["error_classification"] = final_error_classification
-        metadata["runtime_sanitizer_error_classification"] = final_error_classification
-        metadata["runtime_sanitizer_run_all_checks"] = run_all_checks
-        _finish_stage(
-            metadata,
-            stage="kernel.runtime_sanitizer",
-            timing_key="kg_kernel_runtime_sanitizer_s",
-            start_time=sanitizer_start,
-        )
-    else:
-        skip_reason = (
-            "correctness_passed" if kernel_exec_result.correctness else "correctness_failed_without_runtime_error"
-        )
-        runtime_sanitizer = skipped_compute_sanitizer_result(skip_reason)
-
-    if return_detail_correctness:
-        runtime_sanitizer = _finalize_compute_sanitizer_feedback(
-            metadata,
-            runtime_sanitizer,
-            trigger=sanitizer_trigger,
-            selection_mode=selection_mode,
-        )
+    runtime_sanitizer = _run_sanitizer_for_trigger(sanitizer_trigger)
     kernel_exec_result.runtime_sanitizer = runtime_sanitizer
+    maybe_record_correctness_diagnosis(
+        metadata,
+        return_detail_correctness=return_detail_correctness,
+        sanitizer_dispatched=bool(enable_compute_sanitizer and sanitizer_trigger is not None),
+    )
 
     if correctness_runtime_failure:
         # A CUDA launch failure may poison this worker's context. Sanitizer, when
@@ -1501,9 +1561,14 @@ def eval_kernel_against_ref(
             metadata["cleanup_after_runtime_error"] = str(cleanup_exc)
         return kernel_exec_result
 
-    del original_model
-    gc.collect()
-    torch.cuda.synchronize(device=device)
+    try:
+        del original_model
+        gc.collect()
+        torch.cuda.synchronize(device=device)
+    except Exception as exc:
+        if is_actionable_cuda_execution_error(exc):
+            return _finish_candidate_runtime_failure("post_correctness", exc)
+        raise
 
     if kernel_exec_result.decoy_kernel:
         logger.warning(
@@ -1522,17 +1587,28 @@ def eval_kernel_against_ref(
             stage="kernel.incorrect_backend_usage_probe",
             overall_start=overall_start,
         )
-        _run_incorrect_backend_usage_probe(
-            kernel_exec_result=kernel_exec_result,
-            custom_model=custom_model,
-            get_inputs=get_inputs,
-            metadata=metadata,
-            seed_num=seed_num,
-            device=device,
-            backend=backend,
-            backend_profiling_hints=backend_profiling_hints,
-            detect_decoy_kernel=detect_decoy_kernel,
-        )
+        try:
+            _run_incorrect_backend_usage_probe(
+                kernel_exec_result=kernel_exec_result,
+                custom_model=custom_model,
+                get_inputs=get_inputs,
+                metadata=metadata,
+                seed_num=seed_num,
+                device=device,
+                backend=backend,
+                backend_profiling_hints=backend_profiling_hints,
+                detect_decoy_kernel=detect_decoy_kernel,
+            )
+        except Exception as exc:
+            if is_actionable_cuda_execution_error(exc):
+                _finish_stage(
+                    metadata,
+                    stage="kernel.incorrect_backend_usage_probe",
+                    timing_key="kg_kernel_incorrect_backend_usage_probe_s",
+                    start_time=backend_probe_start,
+                )
+                return _finish_candidate_runtime_failure("incorrect_backend_usage_probe", exc)
+            raise
         _finish_stage(
             metadata,
             stage="kernel.incorrect_backend_usage_probe",
@@ -1544,7 +1620,24 @@ def eval_kernel_against_ref(
         # allowed; neither Triton detection nor performance timing may follow.
         metadata["kg_kernel_total_s"] = perf_counter() - overall_start
         _sync_exec_result_metadata(kernel_exec_result, metadata)
-        _cleanup()
+        try:
+            _cleanup()
+            # Failed-output paths are terminal and otherwise do no later CUDA
+            # work inside the pipeline.  Synchronize here so a delayed fault is
+            # still attributed to the candidate and can trigger Sanitizer,
+            # rather than first appearing at the worker's final commit barrier.
+            if cuda_task_barrier is not None:
+                cuda_task_barrier()
+            else:
+                torch.cuda.synchronize(device=device)
+        except Exception as exc:
+            if is_actionable_cuda_execution_error(exc):
+                return _finish_candidate_runtime_failure(
+                    "incorrect_result_cleanup",
+                    exc,
+                    cleanup_required=False,
+                )
+            raise
         return kernel_exec_result
 
     triton_detect_start = _begin_stage(
@@ -1553,19 +1646,30 @@ def eval_kernel_against_ref(
         stage="kernel.triton_detect",
         overall_start=overall_start,
     )
-    decoy_detected = _run_triton_detection_step(
-        enable_triton_detection=enable_triton_detection,
-        is_triton=is_triton,
-        kernel_exec_result=kernel_exec_result,
-        custom_model=custom_model,
-        get_inputs=get_inputs,
-        metadata=metadata,
-        seed_num=seed_num,
-        device=device,
-        verbose=verbose,
-        backend=backend,
-        detect_decoy_kernel=detect_decoy_kernel,
-    )
+    try:
+        decoy_detected = _run_triton_detection_step(
+            enable_triton_detection=enable_triton_detection,
+            is_triton=is_triton,
+            kernel_exec_result=kernel_exec_result,
+            custom_model=custom_model,
+            get_inputs=get_inputs,
+            metadata=metadata,
+            seed_num=seed_num,
+            device=device,
+            verbose=verbose,
+            backend=backend,
+            detect_decoy_kernel=detect_decoy_kernel,
+        )
+    except Exception as exc:
+        if is_actionable_cuda_execution_error(exc):
+            _finish_stage(
+                metadata,
+                stage="kernel.triton_detect",
+                timing_key="kg_kernel_triton_detect_s",
+                start_time=triton_detect_start,
+            )
+            return _finish_candidate_runtime_failure("triton_detection", exc)
+        raise
     _finish_stage(
         metadata,
         stage="kernel.triton_detect",
@@ -1589,26 +1693,37 @@ def eval_kernel_against_ref(
             stage="kernel.performance",
             overall_start=overall_start,
         )
-        _run_performance_step(
-            kernel_exec_result=kernel_exec_result,
-            custom_model=custom_model,
-            get_inputs=get_inputs,
-            metadata=metadata,
-            num_perf_trials=num_perf_trials,
-            num_warmup=num_warmup,
-            perf_trim_count=perf_trim_count,
-            verbose=verbose,
-            seed_num=seed_num,
-            device=device,
-            enable_profiling=enable_profiling,
-            enable_triton_detection=enable_triton_detection,
-            detect_decoy_kernel=detect_decoy_kernel,
-            backend=backend,
-            backend_profiling_hints=backend_profiling_hints,
-            adaptive_perf_trials=adaptive_perf_trials,
-            perf_min_trials=perf_min_trials,
-            perf_cv_threshold=perf_cv_threshold,
-        )
+        try:
+            _run_performance_step(
+                kernel_exec_result=kernel_exec_result,
+                custom_model=custom_model,
+                get_inputs=get_inputs,
+                metadata=metadata,
+                num_perf_trials=num_perf_trials,
+                num_warmup=num_warmup,
+                perf_trim_count=perf_trim_count,
+                verbose=verbose,
+                seed_num=seed_num,
+                device=device,
+                enable_profiling=enable_profiling,
+                enable_triton_detection=enable_triton_detection,
+                detect_decoy_kernel=detect_decoy_kernel,
+                backend=backend,
+                backend_profiling_hints=backend_profiling_hints,
+                adaptive_perf_trials=adaptive_perf_trials,
+                perf_min_trials=perf_min_trials,
+                perf_cv_threshold=perf_cv_threshold,
+            )
+        except Exception as exc:
+            if is_actionable_cuda_execution_error(exc):
+                _finish_stage(
+                    metadata,
+                    stage="kernel.performance",
+                    timing_key="kg_kernel_performance_step_s",
+                    start_time=performance_start,
+                )
+                return _finish_candidate_runtime_failure("performance", exc)
+            raise
         _finish_stage(
             metadata,
             stage="kernel.performance",
@@ -1622,18 +1737,29 @@ def eval_kernel_against_ref(
         stage="kernel.memory",
         overall_start=overall_start,
     )
-    _run_memory_step(
-        kernel_exec_result=kernel_exec_result,
-        model=custom_model,
-        get_inputs=get_inputs,
-        source=custom_model_src,
-        metadata=metadata,
-        allocator_check_metadata_key="kernel_memory_allocator_check",
-        seed_num=seed_num,
-        environment_floor=memory_environment_floor,
-        device=device,
-        verbose=verbose,
-    )
+    try:
+        _run_memory_step(
+            kernel_exec_result=kernel_exec_result,
+            model=custom_model,
+            get_inputs=get_inputs,
+            source=custom_model_src,
+            metadata=metadata,
+            allocator_check_metadata_key="kernel_memory_allocator_check",
+            seed_num=seed_num,
+            environment_floor=memory_environment_floor,
+            device=device,
+            verbose=verbose,
+        )
+    except Exception as exc:
+        if is_actionable_cuda_execution_error(exc):
+            _finish_stage(
+                metadata,
+                stage="kernel.memory",
+                timing_key="kg_kernel_memory_step_s",
+                start_time=memory_start,
+            )
+            return _finish_candidate_runtime_failure("memory", exc)
+        raise
     _finish_stage(
         metadata,
         stage="kernel.memory",
@@ -1679,7 +1805,23 @@ def eval_kernel_against_ref(
 
     metadata["kg_kernel_total_s"] = perf_counter() - overall_start
     _sync_exec_result_metadata(kernel_exec_result, metadata)
-    _cleanup()
+    try:
+        _cleanup()
+        if cuda_task_barrier is not None:
+            # Production supplies a low-level barrier captured before candidate
+            # code runs.  It is outside all timing windows and moves the worker's
+            # commit check into the pipeline, where stage-aware Sanitizer replay
+            # is still possible.  The worker keeps its own final barrier as a
+            # defense-in-depth result-publication invariant.
+            cuda_task_barrier()
+    except Exception as exc:
+        if is_actionable_cuda_execution_error(exc):
+            return _finish_candidate_runtime_failure(
+                "finalize",
+                exc,
+                cleanup_required=False,
+            )
+        raise
     return kernel_exec_result
 
 

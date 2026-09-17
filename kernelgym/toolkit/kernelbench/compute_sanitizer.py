@@ -148,6 +148,32 @@ def classify_compute_sanitizer_error(
     return None
 
 
+def is_actionable_cuda_execution_error(runtime_error: Exception | str) -> bool:
+    """Return whether an execution failure should escape fail-open probes.
+
+    Profiling and memory diagnostics are intentionally fail-open for ordinary
+    probe failures.  CUDA memory/synchronization faults are different: the
+    context may already be poisoned, so swallowing them only defers the same
+    failure to the worker's final commit barrier and loses stage attribution.
+    Keep this predicate aligned with the errors for which Compute Sanitizer can
+    select a focused check.
+    """
+
+    if classify_compute_sanitizer_error(runtime_error) is not None:
+        return True
+    lowered = str(runtime_error).lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "illegal instruction",
+            "invalid pc",
+            "hardware stack error",
+            "launch failure",
+            "unspecified launch failure",
+        )
+    )
+
+
 def classify_compute_sanitizer_skip_reason(
     runtime_error: Exception | str,
     *,

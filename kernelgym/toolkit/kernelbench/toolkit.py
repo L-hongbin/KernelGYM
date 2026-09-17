@@ -75,8 +75,13 @@ class KernelBenchToolkit(Toolkit):
 
     def evaluate(self, task: Dict[str, Any], backend=None, **kwargs: Any) -> Dict[str, Any]:
         task_type = task.get("task_type", "evaluation")
+        cuda_task_barrier = kwargs.get("cuda_task_barrier")
         if task_type == "evaluation":
-            result = self.evaluate_kernel(EvaluationTask.from_dict(task), backend_adapter=backend)
+            result = self.evaluate_kernel(
+                EvaluationTask.from_dict(task),
+                backend_adapter=backend,
+                cuda_task_barrier=cuda_task_barrier,
+            )
         elif task_type == "reference_timing":
             result = self.evaluate_reference_timing(
                 ReferenceTimingTask.from_dict(task),
@@ -89,13 +94,19 @@ class KernelBenchToolkit(Toolkit):
                 enable_profiling=task.get("enable_profiling", settings.enable_profiling),
                 enable_ncu=task.get("enable_ncu"),
                 backend_adapter=backend,
+                cuda_task_barrier=cuda_task_barrier,
             )
         else:
             raise ValueError(f"Unknown task_type: {task_type}")
 
         return result.to_dict()
 
-    def evaluate_kernel(self, task: EvaluationTask, backend_adapter=None) -> EvaluationResult:
+    def evaluate_kernel(
+        self,
+        task: EvaluationTask,
+        backend_adapter=None,
+        cuda_task_barrier=None,
+    ) -> EvaluationResult:
         task = replace(task, backend=resolve_kernel_backend(task.kernel_code, task.backend))
         device = torch.device(task.device)
 
@@ -179,6 +190,7 @@ class KernelBenchToolkit(Toolkit):
                 enable_ncu=bool(enable_ncu),
                 enable_compute_sanitizer=bool(enable_compute_sanitizer),
                 return_detail_correctness=return_detail_correctness,
+                cuda_task_barrier=cuda_task_barrier,
                 compute_sanitizer_mode=task.compute_sanitizer_mode,
                 enable_correctness_input_perturbations=bool(enable_correctness_input_perturbations),
                 enable_triton_detection=enable_triton_detection,
@@ -334,6 +346,7 @@ class KernelBenchToolkit(Toolkit):
         enable_profiling: bool = False,
         enable_ncu: bool | None = None,
         backend_adapter=None,
+        cuda_task_barrier=None,
     ) -> KernelEvaluationResult:
         task = replace(task, backend=resolve_kernel_backend(task.kernel_code, task.backend))
         device = torch.device(task.device)
@@ -412,6 +425,7 @@ class KernelBenchToolkit(Toolkit):
                 enable_ncu=bool(enable_ncu),
                 enable_compute_sanitizer=bool(enable_compute_sanitizer),
                 return_detail_correctness=return_detail_correctness,
+                cuda_task_barrier=cuda_task_barrier,
                 compute_sanitizer_mode=task.compute_sanitizer_mode,
                 enable_correctness_input_perturbations=bool(enable_correctness_input_perturbations),
                 enable_triton_detection=enable_triton_detection,
