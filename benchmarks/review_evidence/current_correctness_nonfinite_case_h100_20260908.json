@@ -1,0 +1,107 @@
+{
+  "captured_at_utc": "2026-09-08",
+  "environment": {
+    "gpu": "NVIDIA H100 PCIe",
+    "compute_capability": "9.0"
+  },
+  "test": {
+    "path": "tests/kernelbench/correctness/test_correctness_gpu.py::test_nonfinite_candidate_returns_counts_and_mismatch_coordinates",
+    "command": "python -m pytest -q tests/kernelbench/correctness/test_correctness_gpu.py::test_nonfinite_candidate_returns_counts_and_mismatch_coordinates",
+    "result": "passed"
+  },
+  "case": {
+    "output_shape": [2, 3],
+    "reference": "zeros",
+    "candidate_mutations": {
+      "[0, 1]": "nan",
+      "[1, 0]": "inf",
+      "[1, 2]": 1.0
+    }
+  },
+  "returned_correctness": false,
+  "returned_metadata": {
+    "correctness_issue_name": "numerical_mismatch",
+    "correctness_output_mismatch": true,
+    "correctness_atol": 0.001,
+    "correctness_rtol": 0.001,
+    "max_difference": ["nan"],
+    "avg_difference": ["nan"],
+    "element_correctness": ["50.00%"],
+    "element_correctness_curve": [
+      {
+        "1x": "50.00%",
+        "2x": "50.00%",
+        "4x": "50.00%",
+        "8x": "50.00%",
+        "16x": "50.00%"
+      }
+    ],
+    "nan_count": [1],
+    "inf_count": [1],
+    "mismatch_coordinate": [
+      {
+        "first": {"output_path": "output", "coordinate": [0, 1]},
+        "last": {"output_path": "output", "coordinate": [1, 2]},
+        "top_3": [
+          {"output_path": "output", "coordinate": [1, 0]},
+          {"output_path": "output", "coordinate": [0, 1]},
+          {"output_path": "output", "coordinate": [1, 2]}
+        ]
+      }
+    ],
+    "batch_correctness": [0.0],
+    "row_correctness": [0.0],
+    "tile_correctness": [0.0],
+    "output_space_localization": [
+      {
+        "tile_shape": [32, 32],
+        "tensors": [
+          {
+            "output_path": "output",
+            "shape": [2, 3],
+            "mismatch_bounds": {"M": [0, 1], "N": [0, 2]},
+            "batch": {
+              "correctness": 0.0,
+              "correct": 0,
+              "total": 1,
+              "failed_count": 1,
+              "failed": [{"batch": 0}],
+              "failed_truncated": false
+            },
+            "row": {
+              "correctness": 0.0,
+              "correct": 0,
+              "total": 2,
+              "failed_count": 2,
+              "failed": [
+                {"batch_index": [], "row": 0},
+                {"batch_index": [], "row": 1}
+              ],
+              "failed_truncated": false
+            },
+            "tile": {
+              "correctness": 0.0,
+              "correct": 0,
+              "total": 1,
+              "failed_count": 1,
+              "failed": [
+                {"batch_index": [], "M": [0, 2], "N": [0, 3]}
+              ],
+              "failed_truncated": false
+            }
+          }
+        ],
+        "batch_correctness": 0.0,
+        "batch_correct": 0,
+        "batch_total": 1,
+        "row_correctness": 0.0,
+        "row_correct": 0,
+        "row_total": 2,
+        "tile_correctness": 0.0,
+        "tile_correct": 0,
+        "tile_total": 1
+      }
+    ],
+    "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=nan, avg_difference=nan, element_correctness=50.00%, element_correctness_curve={1x:50.00%,2x:50.00%,4x:50.00%,8x:50.00%,16x:50.00%}, atol=0.001, rtol=0.001"
+  }
+}

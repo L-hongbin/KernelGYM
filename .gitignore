@@ -18,6 +18,7 @@ tmp/
 venv/
 *.so
 *.o
+*.orig
 *.ninja_log
 *.ninja_deps
 .claude

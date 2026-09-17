@@ -1,0 +1,103 @@
+{
+  "captured_at_utc": "2026-09-09",
+  "deployment": {
+    "endpoint": "http://127.0.0.1:20111/evaluate",
+    "gpu": "NVIDIA H100 PCIe",
+    "node_id": "v1",
+    "hostname": "11-229",
+    "api_pid": 1474816,
+    "gpu_worker_pid": 1474818,
+    "api_healthy": true,
+    "gpu_workers_ready": "1/1",
+    "cpu_workers_online": "24/24"
+  },
+  "openapi": {
+    "return_detail_correctness_default": false,
+    "enable_compute_sanitizer_default": false,
+    "sanitizer_requires_return_detail_correctness": true
+  },
+  "case": "CUDA-Agent vector add with candidate output offset by +1.0",
+  "checks": {
+    "omitted_and_explicit_false_correctness_field_names_equal": true,
+    "omitted_contains_legacy_fields": true,
+    "omitted_contains_no_detail_fields": true,
+    "omitted_contains_no_sanitizer_feedback": true,
+    "false_plus_sanitizer_true_contains_no_sanitizer_feedback": true,
+    "explicit_true_returns_all_rank1_detail_fields": true
+  },
+  "legacy_fields_checked": [
+    "correctness_output_mismatch",
+    "correctness_issue_name",
+    "correctness_atol",
+    "correctness_rtol",
+    "max_difference",
+    "avg_difference"
+  ],
+  "detail_fields_absent_by_default": [
+    "element_correctness",
+    "element_correctness_curve",
+    "nan_count",
+    "inf_count",
+    "mismatch_coordinate",
+    "batch_correctness",
+    "row_correctness",
+    "tile_correctness",
+    "output_space_localization"
+  ],
+  "default_omitted": {
+    "http_status": 200,
+    "status": "completed",
+    "compiled": true,
+    "correctness": false,
+    "error_code": "CORRECTNESS_ERROR",
+    "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, atol=0.001, rtol=0.001",
+    "selected_metadata": {
+      "correctness_output_mismatch": true,
+      "correctness_issue_name": "numerical_mismatch",
+      "correctness_atol": 0.001,
+      "correctness_rtol": 0.001,
+      "max_difference": [
+        "1.000000"
+      ],
+      "avg_difference": [
+        "1.000000"
+      ]
+    },
+    "runtime_sanitizer_present": false,
+    "runtime_sanitizer_metadata_keys": []
+  },
+  "explicit_false_with_sanitizer_true": {
+    "http_status": 200,
+    "status": "completed",
+    "compiled": true,
+    "correctness": false,
+    "error_code": "CORRECTNESS_ERROR",
+    "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, atol=0.001, rtol=0.001",
+    "selected_metadata_matches_default": true,
+    "runtime_sanitizer_present": false,
+    "runtime_sanitizer_metadata_keys": []
+  },
+  "explicit_true_rank1": {
+    "http_status": 200,
+    "status": "completed",
+    "compiled": true,
+    "correctness": false,
+    "detail_only_fields": [
+      "element_correctness",
+      "element_correctness_curve",
+      "nan_count",
+      "inf_count",
+      "mismatch_coordinate"
+    ],
+    "element_correctness": [
+      "0.00%"
+    ],
+    "nan_count": [
+      0
+    ],
+    "inf_count": [
+      0
+    ],
+    "rank2_localization_not_applicable": true
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "captured_at_utc": "2026-09-17T13:14:07+00:00",
+  "deployment": {
+    "mode": "primary_cluster",
+    "endpoint": "http://127.0.0.1:20111/evaluate",
+    "hostname": "ai-11-229",
+    "node_id": "v1",
+    "gpu": "NVIDIA H100 PCIe",
+    "compile_cache_cleared": false,
+    "api_pid": 3195364,
+    "gpu_worker_pid": 3195366,
+    "startup_warmup": {
+      "compiled": true,
+      "correctness": true,
+      "reference_runtime_ms": 0.0314,
+      "kernel_runtime_ms": 0.0278,
+      "speedup": 1.1294964028777
+    }
+  },
+  "cases": [
+    {
+      "case": "flat_curve",
+      "task_id": "diagnosis_flat_curve_1789650818",
+      "http_status": 200,
+      "elapsed_s": 1.94,
+      "status": "completed",
+      "compiled": true,
+      "correctness": false,
+      "error_code": "CORRECTNESS_ERROR",
+      "element_correctness_curve": {
+        "1x": "0.00%",
+        "2x": "0.00%",
+        "4x": "0.00%",
+        "8x": "0.00%",
+        "16x": "0.00%"
+      },
+      "correctness_diagnosis": {
+        "version": "v1",
+        "category": "large_magnitude_or_indexing_error",
+        "confidence": 0.8,
+        "evidence": [
+          "tolerance curve is flat from 1x through 16x"
+        ],
+        "text": "Element correctness remains 0.00% through 16x tolerance; this is unlikely to be a small precision error, so inspect indexing, permutation, masking, or core logic."
+      },
+      "runtime_sanitizer_present": false,
+      "error_message": "Kernel produced incorrect results: Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, element_correctness=0.00%, element_correctness_curve={1x:0.00%,2x:0.00%,4x:0.00%,8x:0.00%,16x:0.00%}, atol=0.001, rtol=0.001. Diagnosis: Element correctness remains 0.00% through 16x tolerance; this is unlikely to be a small precision error, so inspect indexing, permutation, masking, or core logic."
+    },
+    {
+      "case": "terminal_n_tile",
+      "task_id": "diagnosis_terminal_n_tile_1789650818",
+      "http_status": 200,
+      "elapsed_s": 3.843,
+      "status": "completed",
+      "compiled": true,
+      "correctness": false,
+      "error_code": "CORRECTNESS_ERROR",
+      "element_correctness_curve": {
+        "1x": "50.00%",
+        "2x": "50.00%",
+        "4x": "50.00%",
+        "8x": "50.00%",
+        "16x": "50.00%"
+      },
+      "tile_correctness": 0.5,
+      "mismatch_bounds": {
+        "M": [0, 63],
+        "N": [32, 63]
+      },
+      "failed_tiles": [
+        {"M": [0, 32], "N": [32, 64]},
+        {"M": [32, 64], "N": [32, 64]}
+      ],
+      "correctness_diagnosis": {
+        "version": "v1",
+        "category": "tail_or_boundary_error",
+        "confidence": 0.92,
+        "evidence": [
+          "2/4 tiles fail and every failed tile touches N=64",
+          "2 preceding/non-terminal tiles are correct"
+        ],
+        "text": "Mismatch is confined to terminal N-axis tile(s) of output; inspect tail masking, ceil-div grid sizing, and boundary indexing."
+      },
+      "runtime_sanitizer_present": false,
+      "error_message": "Kernel produced incorrect results: Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=0.5, element_correctness=50.00%, element_correctness_curve={1x:50.00%,2x:50.00%,4x:50.00%,8x:50.00%,16x:50.00%}, atol=0.001, rtol=0.001. Diagnosis: Mismatch is confined to terminal N-axis tile(s) of output; inspect tail masking, ceil-div grid sizing, and boundary indexing."
+    },
+    {
+      "case": "sanitizer_suppression",
+      "task_id": "diagnosis_sanitizer_suppression_1789650818",
+      "http_status": 200,
+      "elapsed_s": 11.154,
+      "status": "completed",
+      "compiled": true,
+      "correctness": false,
+      "error_code": "CORRECTNESS_ERROR",
+      "enable_compute_sanitizer": true,
+      "correctness_diagnosis_present": false,
+      "runtime_sanitizer_present": false,
+      "runtime_sanitizer_feedback_omitted_by_clean_mismatch_policy": true,
+      "error_message_contains_diagnosis": false,
+      "error_message": "Kernel produced incorrect results: Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, element_correctness=0.00%, element_correctness_curve={1x:0.00%,2x:0.00%,4x:0.00%,8x:0.00%,16x:0.00%}, atol=0.001, rtol=0.001"
+    },
+    {
+      "case": "default_gate",
+      "task_id": "diagnosis_default_gate_1789650919",
+      "http_status": 200,
+      "elapsed_s": 1.758,
+      "status": "completed",
+      "compiled": true,
+      "correctness": false,
+      "error_code": "CORRECTNESS_ERROR",
+      "return_detail_correctness": false,
+      "detail_fields_present": [],
+      "runtime_sanitizer_present": false,
+      "error_message": "Kernel produced incorrect results: Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, atol=0.001, rtol=0.001"
+    }
+  ],
+  "post_test_health": {
+    "api_status": "healthy",
+    "gpu_workers_ready": "1/1",
+    "gpu_workers_quarantined": 0,
+    "cpu_workers_online": "24/24",
+    "gpu_busy": 0
+  },
+  "checks": {
+    "flat_curve_diagnosis_returned": true,
+    "tail_localization_diagnosis_returned": true,
+    "diagnosis_text_appended_to_error_message": true,
+    "sanitizer_dispatch_suppressed_heuristic_diagnosis": true,
+    "default_response_remained_legacy": true,
+    "service_remained_healthy": true
+  }
+}

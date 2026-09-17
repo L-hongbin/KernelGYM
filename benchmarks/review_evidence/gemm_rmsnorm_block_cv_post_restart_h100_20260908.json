@@ -1,0 +1,268 @@
+{
+  "captured_at": "2026-09-08T10:11:18.250209+00:00",
+  "case_name": "gemm_rmsnorm_fp32",
+  "backend": "tvm_ffi",
+  "input_shapes": {
+    "lhs": [
+      4096,
+      16
+    ],
+    "rhs": [
+      16,
+      512
+    ]
+  },
+  "device": "cuda:0",
+  "gpu": "NVIDIA H100 PCIe",
+  "protocol": {
+    "blocks": 10,
+    "warmup_per_block": 3,
+    "measurements_per_block": 100,
+    "std_ddof": 0,
+    "block_order": "kernel_then_reference",
+    "result_cache": false,
+    "reference_cache": false,
+    "compile_artifact_cache": false,
+    "adaptive_perf_trials": false,
+    "profiling": false,
+    "ncu": false,
+    "compute_sanitizer": false
+  },
+  "summary": {
+    "kernel": {
+      "mean_ms": 0.05817075198143721,
+      "std_ms": 0.006734872098936347,
+      "cv": 0.1157776351436114,
+      "cv_percent": 11.577763514361141,
+      "min_ms": 0.052707840129733084,
+      "max_ms": 0.07055008009076119,
+      "within_block_trial_cv": {
+        "mean": 0.10948103634147263,
+        "min": 0.07111072711364146,
+        "max": 0.18523419852591047
+      }
+    },
+    "reference": {
+      "mean_ms": 0.09837177596241235,
+      "std_ms": 0.008980855826025489,
+      "cv": 0.09129504614674289,
+      "cv_percent": 9.129504614674289,
+      "min_ms": 0.08979328006505966,
+      "max_ms": 0.11047904007136822,
+      "within_block_trial_cv": {
+        "mean": 0.09923356305818233,
+        "min": 0.04543769864564296,
+        "max": 0.23847850714377214
+      }
+    },
+    "block_speedup": {
+      "mean": 1.6974370771913925,
+      "std": 0.09595070797337826,
+      "cv": 0.05652681284194634,
+      "min": 1.565966189255055,
+      "max": 1.9501560900062953
+    },
+    "within_block_trial_runtime_range_ms": {
+      "kernel": {
+        "min": 0.0486,
+        "max": 0.143
+      },
+      "reference": {
+        "min": 0.0864,
+        "max": 0.167
+      }
+    },
+    "unpaired_trial_speedup_envelope": {
+      "min": 0.6041958041958043,
+      "max": 3.436213991769548,
+      "interpretation": "conservative envelope from independent reference/kernel trial extrema"
+    }
+  },
+  "blocks": [
+    {
+      "block": 1,
+      "kernel_block_mean_ms": 0.07055008009076119,
+      "reference_block_mean_ms": 0.11047904007136822,
+      "block_speedup": 1.565966189255055,
+      "kernel_returned_runtime_ms": 0.0706,
+      "reference_returned_runtime_ms": 0.11,
+      "kernel_within_block_std_ms": 0.011,
+      "reference_within_block_std_ms": 0.0146,
+      "kernel_within_block_min_ms": 0.0544,
+      "kernel_within_block_max_ms": 0.114,
+      "reference_within_block_min_ms": 0.0963,
+      "reference_within_block_max_ms": 0.159,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 3.6876705130562186
+    },
+    {
+      "block": 2,
+      "kernel_block_mean_ms": 0.06758303988724947,
+      "reference_block_mean_ms": 0.11041824012994766,
+      "block_speedup": 1.6338158258959832,
+      "kernel_returned_runtime_ms": 0.0676,
+      "reference_returned_runtime_ms": 0.11,
+      "kernel_within_block_std_ms": 0.00903,
+      "reference_within_block_std_ms": 0.0152,
+      "kernel_within_block_min_ms": 0.0538,
+      "kernel_within_block_max_ms": 0.094,
+      "reference_within_block_min_ms": 0.0975,
+      "reference_within_block_max_ms": 0.163,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 3.068945112056099
+    },
+    {
+      "block": 3,
+      "kernel_block_mean_ms": 0.06684991993010043,
+      "reference_block_mean_ms": 0.10892063990235329,
+      "block_speedup": 1.6293308954781518,
+      "kernel_returned_runtime_ms": 0.0668,
+      "reference_returned_runtime_ms": 0.109,
+      "kernel_within_block_std_ms": 0.00898,
+      "reference_within_block_std_ms": 0.0133,
+      "kernel_within_block_min_ms": 0.0535,
+      "kernel_within_block_max_ms": 0.0986,
+      "reference_within_block_min_ms": 0.0959,
+      "reference_within_block_max_ms": 0.148,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 3.089147499995306
+    },
+    {
+      "block": 4,
+      "kernel_block_mean_ms": 0.055045439973473546,
+      "reference_block_mean_ms": 0.1073471999913454,
+      "block_speedup": 1.9501560900062953,
+      "kernel_returned_runtime_ms": 0.055,
+      "reference_returned_runtime_ms": 0.107,
+      "kernel_within_block_std_ms": 0.00502,
+      "reference_within_block_std_ms": 0.0256,
+      "kernel_within_block_min_ms": 0.0499,
+      "kernel_within_block_max_ms": 0.0811,
+      "reference_within_block_min_ms": 0.0876,
+      "reference_within_block_max_ms": 0.167,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 2.9255254559684545
+    },
+    {
+      "block": 5,
+      "kernel_block_mean_ms": 0.05457407984882593,
+      "reference_block_mean_ms": 0.0914751997590065,
+      "block_speedup": 1.6761656818108392,
+      "kernel_returned_runtime_ms": 0.0546,
+      "reference_returned_runtime_ms": 0.0915,
+      "kernel_within_block_std_ms": 0.00428,
+      "reference_within_block_std_ms": 0.00521,
+      "kernel_within_block_min_ms": 0.0505,
+      "kernel_within_block_max_ms": 0.076,
+      "reference_within_block_min_ms": 0.0874,
+      "reference_within_block_max_ms": 0.12,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 3.0357475369237363
+    },
+    {
+      "block": 6,
+      "kernel_block_mean_ms": 0.05371904008090496,
+      "reference_block_mean_ms": 0.09254848010838032,
+      "block_speedup": 1.7228245324003422,
+      "kernel_returned_runtime_ms": 0.0537,
+      "reference_returned_runtime_ms": 0.0925,
+      "kernel_within_block_std_ms": 0.00382,
+      "reference_within_block_std_ms": 0.00671,
+      "kernel_within_block_min_ms": 0.0504,
+      "kernel_within_block_max_ms": 0.0756,
+      "reference_within_block_min_ms": 0.0873,
+      "reference_within_block_max_ms": 0.12,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 3.0020056599751115
+    },
+    {
+      "block": 7,
+      "kernel_block_mean_ms": 0.053233279958367345,
+      "reference_block_mean_ms": 0.0917299198359251,
+      "block_speedup": 1.7231686626799096,
+      "kernel_returned_runtime_ms": 0.0532,
+      "reference_returned_runtime_ms": 0.0917,
+      "kernel_within_block_std_ms": 0.00394,
+      "reference_within_block_std_ms": 0.00688,
+      "kernel_within_block_min_ms": 0.0495,
+      "kernel_within_block_max_ms": 0.0789,
+      "reference_within_block_min_ms": 0.0874,
+      "reference_within_block_max_ms": 0.125,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 2.952491829986684
+    },
+    {
+      "block": 8,
+      "kernel_block_mean_ms": 0.052707840129733084,
+      "reference_block_mean_ms": 0.08979328006505966,
+      "block_speedup": 1.7036038631832735,
+      "kernel_returned_runtime_ms": 0.0527,
+      "reference_returned_runtime_ms": 0.0898,
+      "kernel_within_block_std_ms": 0.00438,
+      "reference_within_block_std_ms": 0.00408,
+      "kernel_within_block_min_ms": 0.0494,
+      "kernel_within_block_max_ms": 0.0744,
+      "reference_within_block_min_ms": 0.0864,
+      "reference_within_block_max_ms": 0.115,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 3.1226701620034873
+    },
+    {
+      "block": 9,
+      "kernel_block_mean_ms": 0.05349984008818865,
+      "reference_block_mean_ms": 0.0905164797604084,
+      "block_speedup": 1.6919018750561097,
+      "kernel_returned_runtime_ms": 0.0535,
+      "reference_returned_runtime_ms": 0.0905,
+      "kernel_within_block_std_ms": 0.00991,
+      "reference_within_block_std_ms": 0.00486,
+      "kernel_within_block_min_ms": 0.0486,
+      "kernel_within_block_max_ms": 0.143,
+      "reference_within_block_min_ms": 0.0874,
+      "reference_within_block_max_ms": 0.122,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 2.9815057970117778
+    },
+    {
+      "block": 10,
+      "kernel_block_mean_ms": 0.05394495982676745,
+      "reference_block_mean_ms": 0.09048928000032902,
+      "block_speedup": 1.6774371561479653,
+      "kernel_returned_runtime_ms": 0.0539,
+      "reference_returned_runtime_ms": 0.0905,
+      "kernel_within_block_std_ms": 0.00474,
+      "reference_within_block_std_ms": 0.00528,
+      "kernel_within_block_min_ms": 0.05,
+      "kernel_within_block_max_ms": 0.08,
+      "reference_within_block_min_ms": 0.0873,
+      "reference_within_block_max_ms": 0.125,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 3.072147573926486
+    }
+  ],
+  "post_run_analysis": {
+    "observed_pattern": "restart warm-state step followed by a stable plateau",
+    "steady_state_window": "blocks 5-10",
+    "steady_state": {
+      "kernel_mean_ms": 0.05361317332213124,
+      "kernel_cv_percent": 1.0826334999138258,
+      "reference_mean_ms": 0.09109210658818484,
+      "reference_cv_percent": 1.0077654450863824,
+      "block_speedup_mean": 1.6991836285464066,
+      "block_speedup_cv_percent": 1.1293492443467419,
+      "block_speedup_min": 1.6761656818108392,
+      "block_speedup_max": 1.7231686626799096
+    },
+    "note": "The steady-state window is a post-hoc diagnostic and does not replace the declared all-10-block result."
+  }
+}

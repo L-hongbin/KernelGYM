@@ -233,21 +233,11 @@ Runtime Sanitizer execution is gated by `return_detail_correctness=true` and `en
 | `runtime_sanitizer.check_results[].input_values_exactly_replayed` | `false` only when an originally GPU-generated input is regenerated on CPU for `initcheck`; shape, dtype, and seed are replayed but RNG values may differ. |
 | `runtime_sanitizer.check_results[].target_application_failed` | Whether Compute Sanitizer reported that the target application itself failed. |
 
-A specific correctness error is classified outside `run_compute_sanitizer`: memory errors select `memcheck`,
-synchronization errors select `synccheck`, race errors select `racecheck`, and uninitialized-read errors select
-`initcheck`. In payload strategy `error_based`, an ambiguous error selects `full`; strategy `full` always selects
-`full`. The concrete internal execution mode is then passed to the single `run_compute_sanitizer` entry point;
-`full` runs `memcheck`, `synccheck`, `racecheck`, and `initcheck` without stopping after the first issue. The failing
-input is regenerated from the recorded trial seed.
+A specific correctness runtime error is classified outside `run_compute_sanitizer`: memory errors select `memcheck`, synchronization errors select `synccheck`, race errors select `racecheck`, and uninitialized-read errors select `initcheck`. In payload strategy `error_based`, an ambiguous runtime error or output mismatch uses the scenario-specific staged order described above. Payload strategy `full` always runs `memcheck`, `synccheck`, `racecheck`, and `initcheck` without stopping after the first issue. The failing input is regenerated from the recorded trial seed. Defaults limit candidate launches to 8 and sanitizer reports to 1000; per-check timeouts are 20 seconds for memcheck, 15 for synccheck, 30 for racecheck, and 20 for initcheck, all capped by the 60-second total budget. Racecheck uses analysis reporting rather than the more verbose all-hazard report.
 
-When `enable_correctness_input_perturbations=true`, at least four correctness trials are run. Direct floating-point
-outputs of `torch.rand` use `original`, `x3`, `x0.01`, and negation; direct floating-point outputs of `torch.randn`
-use `original`, `x3`, `x0.01`, and absolute value. Integer, boolean, scalar, and unrecognized inputs are unchanged.
-If the reference raises or produces NaN/Inf for a non-original perturbation, that perturbation is recorded in
-`metadata.correctness_reference_skipped_perturbations` and excluded from the correctness denominator. Numerical
-kernel mismatches continue to use the existing `max_difference`, `avg_difference`, `correctness_atol`, and
-`correctness_rtol` metadata fields; `correctness_issue` additionally identifies the failed perturbation. Performance
-and memory measurements continue to use the original input distribution.
+When `enable_correctness_input_perturbations=true`, at least four correctness trials are run. Direct floating-point outputs of `torch.rand` use `original`, `x3`, `x0.01`, and negation; direct floating-point outputs of `torch.randn` use `original`, `x3`, `x0.01`, and absolute value. Integer, boolean, scalar, and unrecognized inputs are unchanged. If the reference raises or produces NaN/Inf for a non-original perturbation, that perturbation is recorded in `metadata.correctness_reference_skipped_perturbations` and excluded from the correctness denominator. Numerical kernel mismatches always retain the legacy `max_difference`, `avg_difference`, `correctness_atol`, and `correctness_rtol` metadata fields. The remaining diagnostics in this paragraph require `return_detail_correctness=true`: `element_correctness` reports the element-count-weighted percentage satisfying `abs(candidate - reference) <= atol + rtol * abs(reference)`, formatted with two decimal places such as `99.80%`; `element_correctness_curve` reports the same percentage at `1x`, `2x`, `4x`, `8x`, and `16x` the base tolerance. Once any curve point reaches `100.00%`, later points are neither compared nor included in the returned curve or issue text. `nan_count` and `inf_count` count non-finite candidate-output elements. `mismatch_coordinate` contains the first and last mismatch in output traversal order plus `top_3`, the three most severe coordinates ordered by normalized error; each coordinate carries an `output_path` for nested outputs. These diagnostics are lists aligned with numerical mismatch trials. Both correctness percentages are included in the `correctness_issue` text, which also identifies the failed perturbation. Performance and memory measurements continue to use the original input distribution.
+
+With `return_detail_correctness=true`, rank-2-or-higher tensor outputs also return `batch_correctness`, `row_correctness`, and `tile_correctness` as verifier fractions from 0 to 1. A rank-3 `B x M x N` output is split into whole `B` slices, `(B,M)` rows over `N`, and `32 x 32` tiles over the last two axes; partial tail tiles use their actual size. `output_space_localization` contains per-tensor verifier counts, at most 32 failed units per category, and inclusive mismatch bounds such as `"N": [128, 143]`. Tile ranges use half-open `[start, end]` coordinates.
 
 `metadata` is a large dict of server-side timing + caching diagnostics. Notable keys:
 
@@ -268,6 +258,13 @@ and memory measurements continue to use the original input distribution.
 | `compile_timing.manual_ninja_build_wall_sec`, `compile_timing.manual_ninja_import_wall_sec` | Cuda_agent ninja path internals |
 | `compile_timing.manual_ninja_object_cache.{hits,misses,skipped,objects}` | Per-object cache outcome |
 | `correctness_early_stop_enabled`, `correctness_trials_run`, `correctness_current_trial` | Correctness loop state |
+| `element_correctness` | Detailed mode only: per-mismatching-trial element-count-weighted correctness percentages, formatted with two decimal places. |
+| `element_correctness_curve` | Detailed mode only: per-mismatching-trial correctness curves at `1x`, `2x`, `4x`, `8x`, and `16x` the base tolerance. |
+| `nan_count`, `inf_count` | Detailed mode only: per-mismatching-trial counts of non-finite candidate-output elements. |
+| `mismatch_coordinate` | Detailed mode only: per-mismatching-trial first, last, and normalized-error-ranked `top_3` mismatch coordinates, including nested-output paths. |
+| `batch_correctness`, `row_correctness`, `tile_correctness` | Detailed mode only: per-mismatching-trial output-space verifier fractions from 0 to 1. |
+| `output_space_localization` | Detailed mode only: per-tensor batch, row, and `32 x 32` tile verifier counts, bounded failed-unit lists, and mismatch axis bounds. |
+| `correctness_diagnosis` | Detailed mode only: high-confidence pattern diagnosis with `category`, `confidence`, `evidence`, and human-readable `text`; `text` is also appended to `error_message`. Omitted when Sanitizer runs or the mismatch pattern is not sufficiently typical. |
 | `kg_kernel_perf_mean_ms`, `kg_kernel_perf_std_ms`, `kg_kernel_perf_min_ms`, `kg_kernel_perf_max_ms` | Per-trial perf stats |
 | `custom_kernel_cuda_time_in_profiling_us`, `*_coverage` | Profiler attribution |
 | `ncu.status`, `ncu.kernels`, `kg_kernel_ncu_profile_s` | Nsight Compute status, compact per-kernel metrics, and collection wall time. The default set includes L1/L2 throughput utilization and sector hit rates: `l1tex__throughput.avg.pct_of_peak_sustained_active`, `l1tex__t_sector_hit_rate.pct`, `lts__throughput.avg.pct_of_peak_sustained_elapsed`, and `lts__t_sector_hit_rate.pct`. It does not include request/sector counts or read/write byte totals. |
@@ -306,7 +303,7 @@ The compile-layer caches (per-object cache, compile artifact cache) live below t
 
 ## `POST /benchmark/speed-test` — fixed end-to-end speed test
 
-Runs a built-in correct FP32 TVM-FFI case with `512×512 GEMM → RMSNorm` three times in sequence. Each run uses a unique task id and CUDA source marker, forces a result-cache miss, disables the compile-artifact and reference caches, and executes five correctness trials plus 100 performance trials after three warmups. After timing information is collected, the endpoint removes the generated parent, compile, kernel, and reference task/result records from Redis, so the probe leaves no reusable result-cache entries. NCU, Compute Sanitizer, adaptive performance trials, and correctness input perturbations are disabled so optional diagnostics do not distort the service-speed measurement.
+Runs a built-in correct FP32 TVM-FFI case with a `4096×16` by `16×512` GEMM followed by RMSNorm three times in sequence. The candidate uses TF32 Tensor Cores and fuses GEMM, row reduction, and normalization into one CUDA kernel so the test exercises a real fusion speedup over the eager PyTorch expression. Each run uses a unique task id and CUDA source marker, forces a result-cache miss, disables the compile-artifact and reference caches, and executes five correctness trials plus 300 performance trials after three warmups. Each successful correctness/performance run also invokes NCU and returns its status and compact per-kernel metrics under `runs[].ncu`; NCU remains fail-open, so an unavailable profiler or performance-counter permission failure does not change the correctness-based `passed` value. After timing information is collected, the endpoint removes the generated parent, compile, kernel, and reference task/result records from Redis, so the probe leaves no reusable result-cache entries. Detailed correctness, Compute Sanitizer, adaptive performance trials, and correctness input perturbations remain disabled.
 
 The endpoint takes no request body:
 
@@ -316,7 +313,7 @@ curl -sS -X POST http://127.0.0.1:20111/benchmark/speed-test
 
 The response contains every run and the three-run aggregate. `end_to_end_s`, `total_end_to_end_s`, and all `stage_timings` values are seconds; `reference_runtime_ms` and `kernel_runtime_ms` are CUDA-event milliseconds. Runtime and stage averages use successful runs, while average end-to-end time covers all three attempts. `all_passed` is true only when all three runs compile and pass correctness.
 
-When split compile/execute is enabled, `stage_timings.kernel_compile_s` and `compile_worker_total_s` come from the corresponding CPU compile sub-task. The end-to-end time also includes scheduler, Redis, queue, reference, compile, execute, and response assembly overhead.
+When split compile/execute is enabled, `stage_timings.kernel_compile_s` and `compile_worker_total_s` come from the corresponding CPU compile sub-task. `stage_timings.ncu_profile_s` is the NCU collection wall time, including target launch, profiling, report export, and parsing. The end-to-end time also includes scheduler, Redis, queue, reference, compile, execute, NCU, and response assembly overhead.
 
 ```json
 {
@@ -324,7 +321,7 @@ When split compile/execute is enabled, `stage_timings.kernel_compile_s` and `com
   "case_name": "gemm_rmsnorm_fp32",
   "backend": "tvm_ffi",
   "precision": "fp32",
-  "input_shapes": {"lhs": [512, 512], "rhs": [512, 512]},
+  "input_shapes": {"lhs": [4096, 16], "rhs": [16, 512]},
   "repeat_count": 3,
   "passed_runs": 3,
   "all_passed": true,
@@ -332,12 +329,13 @@ When split compile/execute is enabled, `stage_timings.kernel_compile_s` and `com
   "average": {
     "end_to_end_s": 6.3,
     "reference_runtime_ms": 0.08,
-    "kernel_runtime_ms": 0.16,
-    "speedup": 0.5,
+    "kernel_runtime_ms": 0.068,
+    "speedup": 1.19,
     "stage_timings": {
       "kernel_compile_s": 2.4,
       "kernel_correctness_s": 1.4,
-      "kernel_performance_s": 0.06
+      "kernel_performance_s": 0.06,
+      "ncu_profile_s": 1.8
     }
   },
   "runs": [
@@ -350,9 +348,10 @@ When split compile/execute is enabled, `stage_timings.kernel_compile_s` and `com
       "correctness": true,
       "end_to_end_s": 6.2,
       "reference_runtime_ms": 0.08,
-      "kernel_runtime_ms": 0.16,
-      "speedup": 0.5,
-      "stage_timings": {"kernel_compile_s": 2.4},
+      "kernel_runtime_ms": 0.068,
+      "speedup": 1.19,
+      "stage_timings": {"kernel_compile_s": 2.4, "ncu_profile_s": 1.8},
+      "ncu": {"status": "ok", "profiled_kernel_count": 1, "kernels": []},
       "error_code": null,
       "error_message": null
     }

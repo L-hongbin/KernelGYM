@@ -1,0 +1,93 @@
+{
+  "api_defaults": {
+    "enable_compute_sanitizer": false,
+    "return_detail_correctness": false
+  },
+  "default_false": {
+    "correctness": false,
+    "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=0.166667, atol=0.001, rtol=0.001",
+    "returned_correctness_fields": {
+      "avg_difference": [
+        "0.166667"
+      ],
+      "correctness_issue_name": "numerical_mismatch",
+      "correctness_output_mismatch": true,
+      "max_difference": [
+        "1.000000"
+      ]
+    }
+  },
+  "explicit_true": {
+    "correctness": false,
+    "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=0.166667, element_correctness=83.33%, element_correctness_curve={1x:83.33%,2x:83.33%,4x:83.33%,8x:83.33%,16x:83.33%}, atol=0.001, rtol=0.001",
+    "returned_correctness_fields": {
+      "avg_difference": [
+        "0.166667"
+      ],
+      "batch_correctness": [
+        0.0
+      ],
+      "correctness_issue_name": "numerical_mismatch",
+      "correctness_output_mismatch": true,
+      "element_correctness": [
+        "83.33%"
+      ],
+      "element_correctness_curve": [
+        {
+          "16x": "83.33%",
+          "1x": "83.33%",
+          "2x": "83.33%",
+          "4x": "83.33%",
+          "8x": "83.33%"
+        }
+      ],
+      "inf_count": [
+        0
+      ],
+      "max_difference": [
+        "1.000000"
+      ],
+      "mismatch_coordinate": [
+        {
+          "first": {
+            "coordinate": [
+              0,
+              1
+            ],
+            "output_path": "output"
+          },
+          "last": {
+            "coordinate": [
+              0,
+              1
+            ],
+            "output_path": "output"
+          },
+          "top_3": [
+            {
+              "coordinate": [
+                0,
+                1
+              ],
+              "output_path": "output"
+            }
+          ]
+        }
+      ],
+      "nan_count": [
+        0
+      ],
+      "row_correctness": [
+        0.5
+      ],
+      "tile_correctness": [
+        0.0
+      ]
+    }
+  },
+  "hardware": "NVIDIA H100 PCIe",
+  "sanitizer_gate": {
+    "detail_false_sanitizer_true": false,
+    "detail_true_sanitizer_true": true
+  }
+}

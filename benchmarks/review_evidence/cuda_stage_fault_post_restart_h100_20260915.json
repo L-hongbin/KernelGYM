@@ -1,0 +1,95 @@
+{
+  "captured_at_utc": "2026-09-15T09:54:49+00:00",
+  "deployment": {
+    "mode": "primary_cluster",
+    "endpoint": "http://127.0.0.1:20111/evaluate",
+    "hostname": "ai-11-229",
+    "node_id": "v1",
+    "gpu": "NVIDIA H100 PCIe",
+    "source_head": "9fd31ab",
+    "source_includes_uncommitted_stage_fault_fix": true,
+    "compile_cache_cleared": false,
+    "api_pid": 2605838,
+    "gpu_worker_pid": 2605840,
+    "cpu_worker_count": 24,
+    "startup_warmup": {
+      "http_status": 200,
+      "compiled": true,
+      "correctness": true,
+      "reference_runtime_ms": 0.0255,
+      "kernel_runtime_ms": 0.0167,
+      "speedup": 1.5269461077844
+    }
+  },
+  "default_correctness_gate": {
+    "task_id": "post_restart_legacy_mismatch_1789466036",
+    "http_status": 200,
+    "elapsed_s": 3.857,
+    "status": "completed",
+    "compiled": true,
+    "correctness": false,
+    "error_code": "CORRECTNESS_ERROR",
+    "legacy_fields": {
+      "correctness_output_mismatch": true,
+      "correctness_issue_name": "numerical_mismatch",
+      "correctness_atol": 0.001,
+      "correctness_rtol": 0.001,
+      "max_difference": ["1.000000"],
+      "avg_difference": ["1.000000"]
+    },
+    "detail_keys_present": [],
+    "runtime_sanitizer_present": false
+  },
+  "historical_misaligned_case": {
+    "task_id": "post_restart_misaligned_1789466036",
+    "http_status": 200,
+    "elapsed_s": 6.872,
+    "status": "failed",
+    "compiled": true,
+    "correctness": false,
+    "error_code": "RUNTIME_ERROR",
+    "correctness_runtime_error_stage": "custom_forward",
+    "runtime_error_name": "torch.AcceleratorError",
+    "runtime_sanitizer_trigger": "correctness_runtime_error",
+    "runtime_sanitizer_execution_policy": "classified_single_check",
+    "runtime_sanitizer_error_classification": "memcheck",
+    "runtime_sanitizer_status": "issues_found",
+    "runtime_sanitizer_issue_count": 1,
+    "requested_checks": ["memcheck"],
+    "executed_checks": ["memcheck"],
+    "hazard_type": "invalid_global_write",
+    "error_message": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes",
+    "generic_cuda_final_sync_error_returned": false
+  },
+  "post_fault_health": {
+    "api_status": "healthy",
+    "gpu_workers_ready": "1/1",
+    "gpu_workers_quarantined": 0,
+    "cpu_workers_online": "24/24",
+    "queue_gpu_pending": 0,
+    "worker_health_state": "healthy",
+    "worker_accepting_tasks": true
+  },
+  "post_fault_safe_evaluation": {
+    "task_id": "post_fault_safe_1789466140",
+    "http_status": 200,
+    "elapsed_s": 2.352,
+    "status": "completed",
+    "compiled": true,
+    "correctness": true,
+    "reference_runtime_ms": 0.0259,
+    "kernel_runtime_ms": 0.0453,
+    "speedup": 0.57174392935982,
+    "error_code": null
+  },
+  "checks": {
+    "restart_succeeded": true,
+    "startup_performance_path_passed": true,
+    "default_metadata_remained_legacy": true,
+    "default_sanitizer_remained_disabled": true,
+    "historical_final_sync_fault_was_caught_during_correctness": true,
+    "focused_memcheck_reported_the_kernel_fault": true,
+    "faulty_cuda_subprocess_was_recycled_without_gpu_quarantine": true,
+    "post_fault_cuda_evaluation_passed": true
+  }
+}

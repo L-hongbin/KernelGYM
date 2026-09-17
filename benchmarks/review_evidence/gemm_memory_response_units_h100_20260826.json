@@ -1,0 +1,1060 @@
+{
+  "generated_at": "2026-08-26T07:24:36.634013+00:00",
+  "kernel_env_url": "http://127.0.0.1:20111",
+  "backend": "tvm_ffi",
+  "fixture": {
+    "operation": "GEMM",
+    "shapes": {
+      "a": [
+        16,
+        32
+      ],
+      "b": [
+        32,
+        16
+      ],
+      "output": [
+        16,
+        16
+      ]
+    },
+    "kernel_name": "gemm_kernel",
+    "direct_cuda_allocation_expected": false
+  },
+  "http_status": 200,
+  "elapsed_s": 6.728005,
+  "payload": {
+    "task_id": "gemm_memory_units_8e8e13d9218c",
+    "reference_code": "\nimport torch\nimport torch.nn as nn\n\n\nclass Model(nn.Module):\n    def forward(self, a, b):\n        return torch.matmul(a, b)\n\n\ndef get_init_inputs():\n    return []\n\n\ndef get_inputs():\n    return [\n        torch.randn(16, 32, dtype=torch.float32),\n        torch.randn(32, 16, dtype=torch.float32),\n    ]\n",
+    "kernel_code": "\n### CUDA_KERNELS\n```cpp\n#include <cuda_runtime.h>\n\n__global__ void gemm_kernel(\n    const float* a,\n    const float* b,\n    float* c,\n    int m,\n    int n,\n    int k) {\n    int row = blockIdx.y * blockDim.y + threadIdx.y;\n    int col = blockIdx.x * blockDim.x + threadIdx.x;\n    if (row < m && col < n) {\n        float sum = 0.0f;\n        for (int inner = 0; inner < k; ++inner) {\n            sum += a[row * k + inner] * b[inner * n + col];\n        }\n        c[row * n + col] = sum;\n    }\n}\n\nextern \"C\" void gemm_launcher(\n    const float* a,\n    const float* b,\n    float* output,\n    int m,\n    int n,\n    int k,\n    void* stream_handle) {\n    cudaStream_t stream = static_cast<cudaStream_t>(stream_handle);\n    dim3 threads(16, 16);\n    dim3 blocks(\n        (static_cast<unsigned int>(n) + threads.x - 1) / threads.x,\n        (static_cast<unsigned int>(m) + threads.y - 1) / threads.y);\n    gemm_kernel<<<blocks, threads, 0, stream>>>(\n        a, b, output, m, n, k);\n}\n```\n\n### APPLY_BINDINGS\n```cpp\n#include <tvm/ffi/tvm_ffi.h>\n#include <tvm/ffi/extra/c_env_api.h>\n\nextern \"C\" void gemm_launcher(\n    const float* a,\n    const float* b,\n    float* output,\n    int m,\n    int n,\n    int k,\n    void* stream_handle);\n\nvoid gemm_forward(\n    tvm::ffi::Tensor a,\n    tvm::ffi::Tensor b,\n    tvm::ffi::Tensor output) {\n    auto a_shape = a.shape();\n    auto b_shape = b.shape();\n    int m = static_cast<int>(a_shape[0]);\n    int k = static_cast<int>(a_shape[1]);\n    int n = static_cast<int>(b_shape[1]);\n    void* stream =\n        TVMFFIEnvGetStream(a.device().device_type, a.device().device_id);\n    gemm_launcher(\n        static_cast<const float*>(a.data_ptr()),\n        static_cast<const float*>(b.data_ptr()),\n        static_cast<float*>(output.data_ptr()),\n        m,\n        n,\n        k,\n        stream);\n}\n\nTVM_FFI_DLL_EXPORT_TYPED_FUNC(gemm_forward, gemm_forward);\n```\n\n### MODEL_NEW\n```python\nimport torch\nimport torch.nn as nn\nimport tvm_ffi_extension\n\n\nclass ModelNew(nn.Module):\n    def forward(self, a, b):\n        output = torch.empty(\n            (a.shape[0], b.shape[1]),\n            device=a.device,\n            dtype=a.dtype,\n        )\n        tvm_ffi_extension.gemm_forward(a, b, output)\n        return output\n```\n",
+    "toolkit": "kernelbench",
+    "backend_adapter": "kernelbench",
+    "backend": "tvm_ffi",
+    "reference_backend": "torch",
+    "entry_point": "Model",
+    "num_correct_trials": 1,
+    "num_perf_trials": 5,
+    "num_warmup": 2,
+    "timeout": 180,
+    "priority": "normal",
+    "force_refresh": true,
+    "enable_profiling": false,
+    "enable_ncu": false,
+    "enable_compute_sanitizer": false,
+    "compute_sanitizer_mode": "error_based",
+    "detect_decoy_kernel": true,
+    "run_triton_detection": false,
+    "run_performance": true,
+    "measure_performance": true,
+    "use_reference_cache": false,
+    "enable_compile_artifact_cache": false,
+    "uuid": "gemm-memory-units-8e8e13d9218c"
+  },
+  "raw_api_response": {
+    "task_id": "gemm_memory_units_8e8e13d9218c",
+    "status": "completed",
+    "compiled": true,
+    "correctness": true,
+    "decoy_kernel": false,
+    "reference_runtime": 0.045,
+    "kernel_runtime": 0.0821,
+    "speedup": 0.5481120584652862,
+    "reference_memory": {
+      "schema_version": 2,
+      "method": "torch_cuda_peak_allocated_delta",
+      "allocator_scope": "pytorch_cuda_caching_allocator",
+      "forward_incremental_peak_allocated_bytes": "1.00 KB",
+      "environment_floor_available": true,
+      "environment_floor_allocated_bytes": "512.00 B",
+      "persistent_allocated_bytes": "32.00 MB",
+      "total_task_peak_allocated_bytes": "32.00 MB",
+      "baseline_allocated_bytes": "32.00 MB",
+      "current_allocated_bytes": "32.01 MB",
+      "absolute_peak_allocated_bytes": "32.01 MB",
+      "environment_floor_reserved_bytes": "2.00 MB",
+      "persistent_reserved_bytes": "32.00 MB",
+      "total_task_peak_reserved_bytes": "32.00 MB",
+      "baseline_reserved_bytes": "34.00 MB",
+      "absolute_peak_reserved_bytes": "34.00 MB",
+      "output_tensor_bytes": "1.00 KB",
+      "measurement_valid": true,
+      "measurement_complete": true,
+      "measurement_is_lower_bound": false,
+      "direct_cuda_allocation_detected": false,
+      "direct_cuda_allocation_apis": [],
+      "direct_cuda_allocation_matches": [],
+      "recommended_comparison_metric": "total_task_peak_allocated_bytes",
+      "warnings": [],
+      "trial_wall_s": 0.05192144773900509,
+      "post_cleanup_allocated_bytes": "32.00 MB"
+    },
+    "kernel_memory": {
+      "schema_version": 2,
+      "method": "torch_cuda_peak_allocated_delta",
+      "allocator_scope": "pytorch_cuda_caching_allocator",
+      "forward_incremental_peak_allocated_bytes": "1.00 KB",
+      "environment_floor_available": true,
+      "environment_floor_allocated_bytes": "512.00 B",
+      "persistent_allocated_bytes": "32.00 MB",
+      "total_task_peak_allocated_bytes": "32.00 MB",
+      "baseline_allocated_bytes": "32.00 MB",
+      "current_allocated_bytes": "32.01 MB",
+      "absolute_peak_allocated_bytes": "32.01 MB",
+      "environment_floor_reserved_bytes": "2.00 MB",
+      "persistent_reserved_bytes": "32.00 MB",
+      "total_task_peak_reserved_bytes": "32.00 MB",
+      "baseline_reserved_bytes": "34.00 MB",
+      "absolute_peak_reserved_bytes": "34.00 MB",
+      "output_tensor_bytes": "1.00 KB",
+      "measurement_valid": true,
+      "measurement_complete": true,
+      "measurement_is_lower_bound": false,
+      "direct_cuda_allocation_detected": false,
+      "direct_cuda_allocation_apis": [],
+      "direct_cuda_allocation_matches": [],
+      "recommended_comparison_metric": "total_task_peak_allocated_bytes",
+      "warnings": [],
+      "trial_wall_s": 0.11714206263422966,
+      "post_cleanup_allocated_bytes": "32.00 MB"
+    },
+    "memory_comparison": {
+      "measurement_valid": true,
+      "measurement_complete": true,
+      "total_task_measurement_valid": true,
+      "comparison_metric": "total_task_peak_allocated_bytes",
+      "primary_reference_bytes": "32.00 MB",
+      "primary_kernel_bytes": "32.00 MB",
+      "primary_kernel_minus_reference_bytes": "0.00 B",
+      "primary_memory_savings_bytes": "0.00 B",
+      "primary_kernel_to_reference_ratio": 1.0,
+      "reference_forward_incremental_peak_allocated_bytes": "1.00 KB",
+      "kernel_forward_incremental_peak_allocated_bytes": "1.00 KB",
+      "reference_persistent_allocated_bytes": "32.00 MB",
+      "kernel_persistent_allocated_bytes": "32.00 MB",
+      "reference_total_task_peak_allocated_bytes": "32.00 MB",
+      "kernel_total_task_peak_allocated_bytes": "32.00 MB",
+      "total_task_kernel_minus_reference_bytes": "0.00 B",
+      "total_task_memory_savings_bytes": "0.00 B",
+      "total_task_kernel_to_reference_ratio": 1.0,
+      "warnings": []
+    },
+    "runtime_sanitizer": {
+      "status": "skipped",
+      "passed": null,
+      "measurement_complete": false,
+      "reason": "disabled",
+      "requested_checks": [],
+      "detected_issue_count": 0,
+      "check_results": [],
+      "selection_mode": "error_based",
+      "mode": null
+    },
+    "metadata": {
+      "device": "cuda:0",
+      "gpu_name": "NVIDIA H100 PCIe",
+      "backend": "tvm_ffi",
+      "num_perf_trials": 5,
+      "hardware": "NVIDIA H100 PCIe",
+      "memory_environment_floor": {
+        "allocated_bytes": "512.00 B",
+        "reserved_bytes": "2.00 MB"
+      },
+      "kg_stage_completed_s": {
+        "kernel.load_original_src": 0.0010085366666316986,
+        "kernel.prepare_init_inputs": 0.0010036565363407135,
+        "kernel.build_reference_model": 0.0005409456789493561,
+        "kernel.compile_and_load": 0.03992213495075703,
+        "kernel.build_custom_model": 0.08491075970232487,
+        "kernel.correctness": 1.4306213110685349,
+        "kernel.triton_detect": 0.0004738885909318924,
+        "kernel.performance": 0.0034066438674926758,
+        "kernel.memory": 0.23450732231140137,
+        "kernel.ncu_profile": 0.00022714026272296906
+      },
+      "kg_stage_total_started_at_unix_s": 1787729073.2676802,
+      "kg_stage_total_started_monotonic_ns": 12612033380433476,
+      "kg_stage_current_prefix": "kg_kernel",
+      "kg_stage_current": "kernel.ncu_profile",
+      "kg_stage_is_active": false,
+      "kg_stage_current_started_at_unix_s": 1787729075.2178228,
+      "kg_stage_current_started_monotonic_ns": 12612035330577073,
+      "kg_stage_current_elapsed_s": 0.00022714026272296906,
+      "kg_reference_load_original_src_s": 0.001024685800075531,
+      "kg_stage_last_completed": "kernel.ncu_profile",
+      "kg_reference_prepare_init_inputs_s": 0.0009958632290363312,
+      "kg_reference_build_model_s": 0.0005429815500974655,
+      "kg_reference_backend_compile_s": 0.0,
+      "reference_backend": "torch",
+      "kg_reference_perf_warmup_s": 0.1423464585095644,
+      "kg_reference_perf_measure_wall_s": 0.0004976354539394379,
+      "kg_reference_perf_measure_cuda_event_s": 0.0002247999981045723,
+      "kg_reference_perf_total_s": 0.14295420795679092,
+      "kg_reference_perf_num_trials": 5,
+      "kg_reference_perf_num_warmup": 2,
+      "kg_reference_perf_mean_ms": 0.045,
+      "kg_reference_perf_std_ms": 0.0122,
+      "kg_reference_perf_min_ms": 0.0354,
+      "kg_reference_perf_max_ms": 0.0686,
+      "kg_reference_performance_step_s": 0.14395059645175934,
+      "reference_memory_allocator_check": {
+        "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+        "severity": "none",
+        "measurement_impact": "none_detected",
+        "direct_cuda_allocation_detected": false,
+        "direct_cuda_allocation_apis": [],
+        "direct_cuda_allocation_matches": [],
+        "warning": null
+      },
+      "kg_reference_memory_step_s": 0.12479799427092075,
+      "kg_reference_total_s": 0.4305805694311857,
+      "device_info": {
+        "gpu_name": "NVIDIA H100 PCIe",
+        "compute_capability": "9.0",
+        "cuda_version": "12.9",
+        "driver_version": "590.48.01",
+        "nvcc_version": "12.9"
+      },
+      "wg_pool_idle_wait_s": 0.00021505355834960938,
+      "wg_pool_execute_s": 2.1832773685455322,
+      "wg_pool_restart_s": 0.0021791458129882812,
+      "wg_pool_return_s": 0.0,
+      "wg_pool_total_s": 2.1879665851593018,
+      "wg_pool_retry_count": 0,
+      "wg_run_toolkit_s": 2.1888513565063477,
+      "tm_enter_monotonic_ns": 12612036735869858,
+      "tm_status_hset_s": 0.0008943080902099609,
+      "kg_kernel_load_original_src_s": 0.0010085366666316986,
+      "kg_kernel_prepare_init_inputs_s": 0.0010036565363407135,
+      "kg_kernel_build_reference_model_s": 0.0005409456789493561,
+      "precompiled_artifact_used": true,
+      "kg_kernel_backend_compile_s": 0.0,
+      "build_backend": "tvm_ffi.cpp.build",
+      "compile_artifact_cache_enabled": false,
+      "compile_artifact_cache_hit": false,
+      "compile_artifact": {
+        "compiled": true,
+        "error": null,
+        "device": "cuda:0",
+        "entry_point": "ModelNew",
+        "backend": "tvm_ffi",
+        "module_name": "kernelgym_tvm_ffi_t4mpyafd",
+        "build_backend": "tvm_ffi.cpp.build",
+        "compile_artifact_cache_enabled": false,
+        "compile_artifact_cache_hit": false,
+        "compile_artifact_cache_dir": null,
+        "compile_cache_hit": false,
+        "precheck": {
+          "passed": true,
+          "cuda_source_count": 2,
+          "binding_files": [
+            "kernels/generated_binding.cpp"
+          ],
+          "binding_mode": "tvm_ffi",
+          "static_check": {
+            "passed": true,
+            "errors": [],
+            "warnings": [],
+            "precision": "fp32"
+          },
+          "detected_extension_calls": [
+            "gemm_forward"
+          ],
+          "cu_files": [
+            "kernels/generated.cu"
+          ],
+          "cpp_files": [
+            "kernels/generated_binding.cpp"
+          ],
+          "header_files": [],
+          "exported_functions": [
+            "gemm_forward"
+          ],
+          "error_message": "",
+          "error_code": null
+        },
+        "profiling_hints": {
+          "backend": "tvm_ffi",
+          "custom_kernel_names": [
+            "gemm_kernel"
+          ],
+          "detected_extension_calls": [
+            "gemm_forward"
+          ],
+          "exported_functions": [
+            "gemm_forward"
+          ],
+          "source_files": [
+            "kernels/generated.cu",
+            "kernels/generated_binding.cpp"
+          ]
+        },
+        "artifact_node_id": "v1",
+        "artifact_hostname": "ai-11-229",
+        "target_gpu_worker_id": "worker_gpu_0",
+        "target_gpu_selection_strategy": "idle"
+      },
+      "kg_kernel_backend_load_s": 0.03960786759853363,
+      "kg_kernel_backend_session_open_s": 7.031485438346863e-06,
+      "kg_kernel_compile_and_load_s": 0.03992213495075703,
+      "kg_kernel_build_custom_model_s": 0.08491075970232487,
+      "correctness_early_stop_enabled": true,
+      "correctness_budget_pass_on_success_enabled": false,
+      "correctness_budget_min_pass_trials": 1,
+      "correctness_inplace_compare_enabled": true,
+      "correctness_reference_alias_clone_trials": [],
+      "correctness_reference_cache_poison_enabled": true,
+      "correctness_forward_seed_reset_enabled": true,
+      "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+      "aten_detection_enabled": true,
+      "correctness_inputs_generated_on_gpu": true,
+      "correctness_tf32_disabled": true,
+      "correctness_tf32_state_before": {
+        "cudnn.conv.fp32_precision": "tf32",
+        "cuda.matmul.fp32_precision": "none"
+      },
+      "correctness_tf32_state_forced": {
+        "cudnn.conv.fp32_precision": "ieee",
+        "cuda.matmul.fp32_precision": "ieee"
+      },
+      "correctness_current_trial": 0,
+      "correctness_current_substage": "compare",
+      "aten_detection_trials": [
+        {
+          "trial": 0,
+          "aten_detection_valid": true,
+          "aten_allowlist_version": "musacoder_appendix_j_plus_kernelgym_pytorch_2_11_compat_v2",
+          "aten_operator_count": 1,
+          "allowed_aten_operator_count": 1,
+          "forbidden_aten_operator_count": 0,
+          "aten_ops": [
+            {
+              "name": "aten::empty",
+              "normalized_name": "aten::empty",
+              "count": 1,
+              "cpu_time_us": 61.28399999999999,
+              "allowed": true
+            }
+          ],
+          "allowed_aten_ops": [
+            {
+              "name": "aten::empty",
+              "normalized_name": "aten::empty",
+              "count": 1,
+              "cpu_time_us": 61.28399999999999,
+              "allowed": true
+            }
+          ],
+          "forbidden_aten_ops": [],
+          "forbidden_aten_op_names": []
+        }
+      ],
+      "aten_detection_trials_run": 1,
+      "aten_allowlist_version": "musacoder_appendix_j_plus_kernelgym_pytorch_2_11_compat_v2",
+      "aten_detection_valid": true,
+      "aten_ops": [
+        {
+          "name": "aten::empty",
+          "normalized_name": "aten::empty",
+          "count": 1,
+          "cpu_time_us": 61.28399999999999,
+          "allowed": true
+        }
+      ],
+      "allowed_aten_ops": [
+        {
+          "name": "aten::empty",
+          "normalized_name": "aten::empty",
+          "count": 1,
+          "cpu_time_us": 61.28399999999999,
+          "allowed": true
+        }
+      ],
+      "forbidden_aten_ops": [],
+      "forbidden_aten_op_names": [],
+      "aten_operator_count": 1,
+      "allowed_aten_operator_count": 1,
+      "forbidden_aten_operator_count": 0,
+      "correctness_atol": 0.0001,
+      "correctness_rtol": 0.0001,
+      "correctness_trials": "(1 / 1)",
+      "correctness_trials_run": 1,
+      "correctness_trial_s": [
+        1.3894211575388908
+      ],
+      "correctness_reference_trial_s": [
+        0.15313904359936714
+      ],
+      "correctness_custom_trial_s": [
+        1.1490903794765472
+      ],
+      "correctness_compare_trial_s": [
+        0.07635731622576714
+      ],
+      "correctness_input_generation_trial_s": [
+        0.005432091653347015
+      ],
+      "correctness_input_transfer_trial_s": [
+        0.00013802200555801392
+      ],
+      "correctness_reference_alias_clone_trial_s": [
+        0.0
+      ],
+      "kg_kernel_correctness_s": 1.4306213110685349,
+      "runtime_sanitizer_status": "skipped",
+      "runtime_sanitizer_issue_count": 0,
+      "kg_kernel_triton_detect_s": 0.0004738885909318924,
+      "kg_kernel_perf_warmup_s": 0.00035231374204158783,
+      "kg_kernel_perf_measure_wall_s": 0.0008993465453386307,
+      "kg_kernel_perf_measure_cuda_event_s": 0.00041072000563144686,
+      "kg_kernel_perf_profile_s": 0.0,
+      "kg_kernel_perf_total_s": 0.0013683661818504333,
+      "kg_kernel_perf_num_trials": 5,
+      "kg_kernel_perf_num_trials_max": 5,
+      "kg_kernel_perf_adaptive": true,
+      "kg_kernel_perf_adaptive_stopped_early": false,
+      "kg_kernel_perf_adaptive_final_cv": 0.12493665336685536,
+      "kg_kernel_perf_num_warmup": 2,
+      "kg_kernel_perf_mean_ms": 0.0821,
+      "kg_kernel_perf_std_ms": 0.0103,
+      "kg_kernel_perf_min_ms": 0.0732,
+      "kg_kernel_perf_max_ms": 0.0993,
+      "kg_kernel_perf_num_profile_trials": 0,
+      "kg_kernel_performance_step_s": 0.0034066438674926758,
+      "kernel_memory_allocator_check": {
+        "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+        "severity": "none",
+        "measurement_impact": "none_detected",
+        "direct_cuda_allocation_detected": false,
+        "direct_cuda_allocation_apis": [],
+        "direct_cuda_allocation_matches": [],
+        "warning": null
+      },
+      "kg_kernel_memory_step_s": 0.23450732231140137,
+      "ncu": {
+        "status": "disabled",
+        "profile_version": "v1",
+        "profiled_kernel_count": 0,
+        "kernels": [],
+        "wall_time_s": 0.0
+      },
+      "kg_kernel_ncu_profile_s": 0.00022714026272296906,
+      "kg_kernel_total_s": 1.9505671728402376,
+      "num_correct_trials": 1,
+      "split_compile_and_execute": true,
+      "reference_task_id": "gemm_memory_units_8e8e13d9218c_ref",
+      "kernel_task_id": "gemm_memory_units_8e8e13d9218c_kernel",
+      "tm_json_dumps_s": 0.0004761219024658203,
+      "tm_result_hset_s": 0.0027475357055664062,
+      "tm_complete_task_s": 0.0042231082916259766,
+      "tm_exit_monotonic_ns": 12612036740091114
+    },
+    "error_message": null,
+    "error_code": null,
+    "submitted_at": null,
+    "completed_at": null,
+    "processing_time": null
+  },
+  "raw_env_state": {
+    "task_id": "gemm_memory_units_8e8e13d9218c",
+    "status": "completed",
+    "compiled": true,
+    "correctness": true,
+    "decoy_kernel": false,
+    "reference_runtime": 0.045,
+    "kernel_runtime": 0.0821,
+    "speedup": 0.5481120584652862,
+    "reference_memory": {
+      "schema_version": 2,
+      "method": "torch_cuda_peak_allocated_delta",
+      "allocator_scope": "pytorch_cuda_caching_allocator",
+      "forward_incremental_peak_allocated_bytes": "1.00 KB",
+      "environment_floor_available": true,
+      "environment_floor_allocated_bytes": "512.00 B",
+      "persistent_allocated_bytes": "32.00 MB",
+      "total_task_peak_allocated_bytes": "32.00 MB",
+      "baseline_allocated_bytes": "32.00 MB",
+      "current_allocated_bytes": "32.01 MB",
+      "absolute_peak_allocated_bytes": "32.01 MB",
+      "environment_floor_reserved_bytes": "2.00 MB",
+      "persistent_reserved_bytes": "32.00 MB",
+      "total_task_peak_reserved_bytes": "32.00 MB",
+      "baseline_reserved_bytes": "34.00 MB",
+      "absolute_peak_reserved_bytes": "34.00 MB",
+      "output_tensor_bytes": "1.00 KB",
+      "measurement_valid": true,
+      "measurement_complete": true,
+      "measurement_is_lower_bound": false,
+      "direct_cuda_allocation_detected": false,
+      "direct_cuda_allocation_apis": [],
+      "direct_cuda_allocation_matches": [],
+      "recommended_comparison_metric": "total_task_peak_allocated_bytes",
+      "warnings": [],
+      "trial_wall_s": 0.05192144773900509,
+      "post_cleanup_allocated_bytes": "32.00 MB"
+    },
+    "kernel_memory": {
+      "schema_version": 2,
+      "method": "torch_cuda_peak_allocated_delta",
+      "allocator_scope": "pytorch_cuda_caching_allocator",
+      "forward_incremental_peak_allocated_bytes": "1.00 KB",
+      "environment_floor_available": true,
+      "environment_floor_allocated_bytes": "512.00 B",
+      "persistent_allocated_bytes": "32.00 MB",
+      "total_task_peak_allocated_bytes": "32.00 MB",
+      "baseline_allocated_bytes": "32.00 MB",
+      "current_allocated_bytes": "32.01 MB",
+      "absolute_peak_allocated_bytes": "32.01 MB",
+      "environment_floor_reserved_bytes": "2.00 MB",
+      "persistent_reserved_bytes": "32.00 MB",
+      "total_task_peak_reserved_bytes": "32.00 MB",
+      "baseline_reserved_bytes": "34.00 MB",
+      "absolute_peak_reserved_bytes": "34.00 MB",
+      "output_tensor_bytes": "1.00 KB",
+      "measurement_valid": true,
+      "measurement_complete": true,
+      "measurement_is_lower_bound": false,
+      "direct_cuda_allocation_detected": false,
+      "direct_cuda_allocation_apis": [],
+      "direct_cuda_allocation_matches": [],
+      "recommended_comparison_metric": "total_task_peak_allocated_bytes",
+      "warnings": [],
+      "trial_wall_s": 0.11714206263422966,
+      "post_cleanup_allocated_bytes": "32.00 MB"
+    },
+    "memory_comparison": {
+      "measurement_valid": true,
+      "measurement_complete": true,
+      "total_task_measurement_valid": true,
+      "comparison_metric": "total_task_peak_allocated_bytes",
+      "primary_reference_bytes": "32.00 MB",
+      "primary_kernel_bytes": "32.00 MB",
+      "primary_kernel_minus_reference_bytes": "0.00 B",
+      "primary_memory_savings_bytes": "0.00 B",
+      "primary_kernel_to_reference_ratio": 1.0,
+      "reference_forward_incremental_peak_allocated_bytes": "1.00 KB",
+      "kernel_forward_incremental_peak_allocated_bytes": "1.00 KB",
+      "reference_persistent_allocated_bytes": "32.00 MB",
+      "kernel_persistent_allocated_bytes": "32.00 MB",
+      "reference_total_task_peak_allocated_bytes": "32.00 MB",
+      "kernel_total_task_peak_allocated_bytes": "32.00 MB",
+      "total_task_kernel_minus_reference_bytes": "0.00 B",
+      "total_task_memory_savings_bytes": "0.00 B",
+      "total_task_kernel_to_reference_ratio": 1.0,
+      "warnings": []
+    },
+    "runtime_sanitizer": {
+      "status": "skipped",
+      "passed": null,
+      "measurement_complete": false,
+      "reason": "disabled",
+      "requested_checks": [],
+      "detected_issue_count": 0,
+      "check_results": [],
+      "selection_mode": "error_based",
+      "mode": null
+    },
+    "metadata": {
+      "device": "cuda:0",
+      "gpu_name": "NVIDIA H100 PCIe",
+      "backend": "tvm_ffi",
+      "num_perf_trials": 5,
+      "hardware": "NVIDIA H100 PCIe",
+      "memory_environment_floor": {
+        "allocated_bytes": "512.00 B",
+        "reserved_bytes": "2.00 MB"
+      },
+      "kg_stage_completed_s": {
+        "kernel.load_original_src": 0.0010085366666316986,
+        "kernel.prepare_init_inputs": 0.0010036565363407135,
+        "kernel.build_reference_model": 0.0005409456789493561,
+        "kernel.compile_and_load": 0.03992213495075703,
+        "kernel.build_custom_model": 0.08491075970232487,
+        "kernel.correctness": 1.4306213110685349,
+        "kernel.triton_detect": 0.0004738885909318924,
+        "kernel.performance": 0.0034066438674926758,
+        "kernel.memory": 0.23450732231140137,
+        "kernel.ncu_profile": 0.00022714026272296906
+      },
+      "kg_stage_total_started_at_unix_s": 1787729073.2676802,
+      "kg_stage_total_started_monotonic_ns": 12612033380433476,
+      "kg_stage_current_prefix": "kg_kernel",
+      "kg_stage_current": "kernel.ncu_profile",
+      "kg_stage_is_active": false,
+      "kg_stage_current_started_at_unix_s": 1787729075.2178228,
+      "kg_stage_current_started_monotonic_ns": 12612035330577073,
+      "kg_stage_current_elapsed_s": 0.00022714026272296906,
+      "kg_reference_load_original_src_s": 0.001024685800075531,
+      "kg_stage_last_completed": "kernel.ncu_profile",
+      "kg_reference_prepare_init_inputs_s": 0.0009958632290363312,
+      "kg_reference_build_model_s": 0.0005429815500974655,
+      "kg_reference_backend_compile_s": 0.0,
+      "reference_backend": "torch",
+      "kg_reference_perf_warmup_s": 0.1423464585095644,
+      "kg_reference_perf_measure_wall_s": 0.0004976354539394379,
+      "kg_reference_perf_measure_cuda_event_s": 0.0002247999981045723,
+      "kg_reference_perf_total_s": 0.14295420795679092,
+      "kg_reference_perf_num_trials": 5,
+      "kg_reference_perf_num_warmup": 2,
+      "kg_reference_perf_mean_ms": 0.045,
+      "kg_reference_perf_std_ms": 0.0122,
+      "kg_reference_perf_min_ms": 0.0354,
+      "kg_reference_perf_max_ms": 0.0686,
+      "kg_reference_performance_step_s": 0.14395059645175934,
+      "reference_memory_allocator_check": {
+        "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+        "severity": "none",
+        "measurement_impact": "none_detected",
+        "direct_cuda_allocation_detected": false,
+        "direct_cuda_allocation_apis": [],
+        "direct_cuda_allocation_matches": [],
+        "warning": null
+      },
+      "kg_reference_memory_step_s": 0.12479799427092075,
+      "kg_reference_total_s": 0.4305805694311857,
+      "device_info": {
+        "gpu_name": "NVIDIA H100 PCIe",
+        "compute_capability": "9.0",
+        "cuda_version": "12.9",
+        "driver_version": "590.48.01",
+        "nvcc_version": "12.9"
+      },
+      "wg_pool_idle_wait_s": 0.00021505355834960938,
+      "wg_pool_execute_s": 2.1832773685455322,
+      "wg_pool_restart_s": 0.0021791458129882812,
+      "wg_pool_return_s": 0.0,
+      "wg_pool_total_s": 2.1879665851593018,
+      "wg_pool_retry_count": 0,
+      "wg_run_toolkit_s": 2.1888513565063477,
+      "tm_enter_monotonic_ns": 12612036735869858,
+      "tm_status_hset_s": 0.0008943080902099609,
+      "kg_kernel_load_original_src_s": 0.0010085366666316986,
+      "kg_kernel_prepare_init_inputs_s": 0.0010036565363407135,
+      "kg_kernel_build_reference_model_s": 0.0005409456789493561,
+      "precompiled_artifact_used": true,
+      "kg_kernel_backend_compile_s": 0.0,
+      "build_backend": "tvm_ffi.cpp.build",
+      "compile_artifact_cache_enabled": false,
+      "compile_artifact_cache_hit": false,
+      "compile_artifact": {
+        "compiled": true,
+        "error": null,
+        "device": "cuda:0",
+        "entry_point": "ModelNew",
+        "backend": "tvm_ffi",
+        "module_name": "kernelgym_tvm_ffi_t4mpyafd",
+        "build_backend": "tvm_ffi.cpp.build",
+        "compile_artifact_cache_enabled": false,
+        "compile_artifact_cache_hit": false,
+        "compile_artifact_cache_dir": null,
+        "compile_cache_hit": false,
+        "precheck": {
+          "passed": true,
+          "cuda_source_count": 2,
+          "binding_files": [
+            "kernels/generated_binding.cpp"
+          ],
+          "binding_mode": "tvm_ffi",
+          "static_check": {
+            "passed": true,
+            "errors": [],
+            "warnings": [],
+            "precision": "fp32"
+          },
+          "detected_extension_calls": [
+            "gemm_forward"
+          ],
+          "cu_files": [
+            "kernels/generated.cu"
+          ],
+          "cpp_files": [
+            "kernels/generated_binding.cpp"
+          ],
+          "header_files": [],
+          "exported_functions": [
+            "gemm_forward"
+          ],
+          "error_message": "",
+          "error_code": null
+        },
+        "profiling_hints": {
+          "backend": "tvm_ffi",
+          "custom_kernel_names": [
+            "gemm_kernel"
+          ],
+          "detected_extension_calls": [
+            "gemm_forward"
+          ],
+          "exported_functions": [
+            "gemm_forward"
+          ],
+          "source_files": [
+            "kernels/generated.cu",
+            "kernels/generated_binding.cpp"
+          ]
+        },
+        "artifact_node_id": "v1",
+        "artifact_hostname": "ai-11-229",
+        "target_gpu_worker_id": "worker_gpu_0",
+        "target_gpu_selection_strategy": "idle"
+      },
+      "kg_kernel_backend_load_s": 0.03960786759853363,
+      "kg_kernel_backend_session_open_s": 7.031485438346863e-06,
+      "kg_kernel_compile_and_load_s": 0.03992213495075703,
+      "kg_kernel_build_custom_model_s": 0.08491075970232487,
+      "correctness_early_stop_enabled": true,
+      "correctness_budget_pass_on_success_enabled": false,
+      "correctness_budget_min_pass_trials": 1,
+      "correctness_inplace_compare_enabled": true,
+      "correctness_reference_alias_clone_trials": [],
+      "correctness_reference_cache_poison_enabled": true,
+      "correctness_forward_seed_reset_enabled": true,
+      "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+      "aten_detection_enabled": true,
+      "correctness_inputs_generated_on_gpu": true,
+      "correctness_tf32_disabled": true,
+      "correctness_tf32_state_before": {
+        "cudnn.conv.fp32_precision": "tf32",
+        "cuda.matmul.fp32_precision": "none"
+      },
+      "correctness_tf32_state_forced": {
+        "cudnn.conv.fp32_precision": "ieee",
+        "cuda.matmul.fp32_precision": "ieee"
+      },
+      "correctness_current_trial": 0,
+      "correctness_current_substage": "compare",
+      "aten_detection_trials": [
+        {
+          "trial": 0,
+          "aten_detection_valid": true,
+          "aten_allowlist_version": "musacoder_appendix_j_plus_kernelgym_pytorch_2_11_compat_v2",
+          "aten_operator_count": 1,
+          "allowed_aten_operator_count": 1,
+          "forbidden_aten_operator_count": 0,
+          "aten_ops": [
+            {
+              "name": "aten::empty",
+              "normalized_name": "aten::empty",
+              "count": 1,
+              "cpu_time_us": 61.28399999999999,
+              "allowed": true
+            }
+          ],
+          "allowed_aten_ops": [
+            {
+              "name": "aten::empty",
+              "normalized_name": "aten::empty",
+              "count": 1,
+              "cpu_time_us": 61.28399999999999,
+              "allowed": true
+            }
+          ],
+          "forbidden_aten_ops": [],
+          "forbidden_aten_op_names": []
+        }
+      ],
+      "aten_detection_trials_run": 1,
+      "aten_allowlist_version": "musacoder_appendix_j_plus_kernelgym_pytorch_2_11_compat_v2",
+      "aten_detection_valid": true,
+      "aten_ops": [
+        {
+          "name": "aten::empty",
+          "normalized_name": "aten::empty",
+          "count": 1,
+          "cpu_time_us": 61.28399999999999,
+          "allowed": true
+        }
+      ],
+      "allowed_aten_ops": [
+        {
+          "name": "aten::empty",
+          "normalized_name": "aten::empty",
+          "count": 1,
+          "cpu_time_us": 61.28399999999999,
+          "allowed": true
+        }
+      ],
+      "forbidden_aten_ops": [],
+      "forbidden_aten_op_names": [],
+      "aten_operator_count": 1,
+      "allowed_aten_operator_count": 1,
+      "forbidden_aten_operator_count": 0,
+      "correctness_atol": 0.0001,
+      "correctness_rtol": 0.0001,
+      "correctness_trials": "(1 / 1)",
+      "correctness_trials_run": 1,
+      "correctness_trial_s": [
+        1.3894211575388908
+      ],
+      "correctness_reference_trial_s": [
+        0.15313904359936714
+      ],
+      "correctness_custom_trial_s": [
+        1.1490903794765472
+      ],
+      "correctness_compare_trial_s": [
+        0.07635731622576714
+      ],
+      "correctness_input_generation_trial_s": [
+        0.005432091653347015
+      ],
+      "correctness_input_transfer_trial_s": [
+        0.00013802200555801392
+      ],
+      "correctness_reference_alias_clone_trial_s": [
+        0.0
+      ],
+      "kg_kernel_correctness_s": 1.4306213110685349,
+      "runtime_sanitizer_status": "skipped",
+      "runtime_sanitizer_issue_count": 0,
+      "kg_kernel_triton_detect_s": 0.0004738885909318924,
+      "kg_kernel_perf_warmup_s": 0.00035231374204158783,
+      "kg_kernel_perf_measure_wall_s": 0.0008993465453386307,
+      "kg_kernel_perf_measure_cuda_event_s": 0.00041072000563144686,
+      "kg_kernel_perf_profile_s": 0.0,
+      "kg_kernel_perf_total_s": 0.0013683661818504333,
+      "kg_kernel_perf_num_trials": 5,
+      "kg_kernel_perf_num_trials_max": 5,
+      "kg_kernel_perf_adaptive": true,
+      "kg_kernel_perf_adaptive_stopped_early": false,
+      "kg_kernel_perf_adaptive_final_cv": 0.12493665336685536,
+      "kg_kernel_perf_num_warmup": 2,
+      "kg_kernel_perf_mean_ms": 0.0821,
+      "kg_kernel_perf_std_ms": 0.0103,
+      "kg_kernel_perf_min_ms": 0.0732,
+      "kg_kernel_perf_max_ms": 0.0993,
+      "kg_kernel_perf_num_profile_trials": 0,
+      "kg_kernel_performance_step_s": 0.0034066438674926758,
+      "kernel_memory_allocator_check": {
+        "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+        "severity": "none",
+        "measurement_impact": "none_detected",
+        "direct_cuda_allocation_detected": false,
+        "direct_cuda_allocation_apis": [],
+        "direct_cuda_allocation_matches": [],
+        "warning": null
+      },
+      "kg_kernel_memory_step_s": 0.23450732231140137,
+      "ncu": {
+        "status": "disabled",
+        "profile_version": "v1",
+        "profiled_kernel_count": 0,
+        "kernels": [],
+        "wall_time_s": 0.0
+      },
+      "kg_kernel_ncu_profile_s": 0.00022714026272296906,
+      "kg_kernel_total_s": 1.9505671728402376,
+      "num_correct_trials": 1,
+      "split_compile_and_execute": true,
+      "reference_task_id": "gemm_memory_units_8e8e13d9218c_ref",
+      "kernel_task_id": "gemm_memory_units_8e8e13d9218c_kernel",
+      "tm_json_dumps_s": 0.0004761219024658203,
+      "tm_result_hset_s": 0.0027475357055664062,
+      "tm_complete_task_s": 0.0042231082916259766,
+      "tm_exit_monotonic_ns": 12612036740091114
+    },
+    "error_message": null,
+    "error_code": null,
+    "submitted_at": null,
+    "completed_at": null,
+    "processing_time": null
+  },
+  "normalized_env_state": {
+    "task_id": "gemm_memory_units_8e8e13d9218c",
+    "status": "completed",
+    "compiled": true,
+    "correctness": true,
+    "decoy_kernel": false,
+    "reference_runtime": 0.045,
+    "kernel_runtime": 0.0821,
+    "speedup": 0.5481,
+    "reference_memory": {
+      "schema_version": 2,
+      "method": "torch_cuda_peak_allocated_delta",
+      "allocator_scope": "pytorch_cuda_caching_allocator",
+      "forward_incremental_peak_allocated_bytes": "1.00 KB",
+      "environment_floor_available": true,
+      "environment_floor_allocated_bytes": "512.00 B",
+      "persistent_allocated_bytes": "32.00 MB",
+      "total_task_peak_allocated_bytes": "32.00 MB",
+      "baseline_allocated_bytes": "32.00 MB",
+      "current_allocated_bytes": "32.01 MB",
+      "absolute_peak_allocated_bytes": "32.01 MB",
+      "environment_floor_reserved_bytes": "2.00 MB",
+      "persistent_reserved_bytes": "32.00 MB",
+      "total_task_peak_reserved_bytes": "32.00 MB",
+      "baseline_reserved_bytes": "34.00 MB",
+      "absolute_peak_reserved_bytes": "34.00 MB",
+      "output_tensor_bytes": "1.00 KB",
+      "measurement_valid": true,
+      "measurement_complete": true,
+      "measurement_is_lower_bound": false,
+      "direct_cuda_allocation_detected": false,
+      "direct_cuda_allocation_apis": [],
+      "direct_cuda_allocation_matches": [],
+      "recommended_comparison_metric": "total_task_peak_allocated_bytes",
+      "warnings": [],
+      "trial_wall_s": 0.05192144773900509,
+      "post_cleanup_allocated_bytes": "32.00 MB"
+    },
+    "kernel_memory": {
+      "schema_version": 2,
+      "method": "torch_cuda_peak_allocated_delta",
+      "allocator_scope": "pytorch_cuda_caching_allocator",
+      "forward_incremental_peak_allocated_bytes": "1.00 KB",
+      "environment_floor_available": true,
+      "environment_floor_allocated_bytes": "512.00 B",
+      "persistent_allocated_bytes": "32.00 MB",
+      "total_task_peak_allocated_bytes": "32.00 MB",
+      "baseline_allocated_bytes": "32.00 MB",
+      "current_allocated_bytes": "32.01 MB",
+      "absolute_peak_allocated_bytes": "32.01 MB",
+      "environment_floor_reserved_bytes": "2.00 MB",
+      "persistent_reserved_bytes": "32.00 MB",
+      "total_task_peak_reserved_bytes": "32.00 MB",
+      "baseline_reserved_bytes": "34.00 MB",
+      "absolute_peak_reserved_bytes": "34.00 MB",
+      "output_tensor_bytes": "1.00 KB",
+      "measurement_valid": true,
+      "measurement_complete": true,
+      "measurement_is_lower_bound": false,
+      "direct_cuda_allocation_detected": false,
+      "direct_cuda_allocation_apis": [],
+      "direct_cuda_allocation_matches": [],
+      "recommended_comparison_metric": "total_task_peak_allocated_bytes",
+      "warnings": [],
+      "trial_wall_s": 0.11714206263422966,
+      "post_cleanup_allocated_bytes": "32.00 MB"
+    },
+    "memory_comparison": {
+      "measurement_valid": true,
+      "measurement_complete": true,
+      "total_task_measurement_valid": true,
+      "comparison_metric": "total_task_peak_allocated_bytes",
+      "primary_reference_bytes": "32.00 MB",
+      "primary_kernel_bytes": "32.00 MB",
+      "primary_kernel_minus_reference_bytes": "0.00 B",
+      "primary_memory_savings_bytes": "0.00 B",
+      "primary_kernel_to_reference_ratio": 1.0,
+      "reference_forward_incremental_peak_allocated_bytes": "1.00 KB",
+      "kernel_forward_incremental_peak_allocated_bytes": "1.00 KB",
+      "reference_persistent_allocated_bytes": "32.00 MB",
+      "kernel_persistent_allocated_bytes": "32.00 MB",
+      "reference_total_task_peak_allocated_bytes": "32.00 MB",
+      "kernel_total_task_peak_allocated_bytes": "32.00 MB",
+      "total_task_kernel_minus_reference_bytes": "0.00 B",
+      "total_task_memory_savings_bytes": "0.00 B",
+      "total_task_kernel_to_reference_ratio": 1.0,
+      "warnings": []
+    },
+    "runtime_sanitizer": {
+      "status": "skipped",
+      "passed": null,
+      "measurement_complete": false,
+      "reason": "disabled",
+      "requested_checks": [],
+      "detected_issue_count": 0,
+      "check_results": [],
+      "selection_mode": "error_based",
+      "mode": null
+    },
+    "metadata": {
+      "backend": "tvm_ffi",
+      "num_perf_trials": 5,
+      "memory_environment_floor": {
+        "allocated_bytes": "512.00 B",
+        "reserved_bytes": "2.00 MB"
+      },
+      "reference_backend": "torch",
+      "reference_memory_allocator_check": {
+        "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+        "severity": "none",
+        "measurement_impact": "none_detected",
+        "direct_cuda_allocation_detected": false,
+        "direct_cuda_allocation_apis": [],
+        "direct_cuda_allocation_matches": [],
+        "warning": null
+      },
+      "device_info": {
+        "gpu_name": "NVIDIA H100 PCIe",
+        "compute_capability": "9.0",
+        "cuda_version": "12.9",
+        "driver_version": "590.48.01",
+        "nvcc_version": "12.9"
+      },
+      "precompiled_artifact_used": true,
+      "compile_artifact": {
+        "error": null,
+        "build_backend": "tvm_ffi.cpp.build"
+      },
+      "correctness_forward_seed_reset_enabled": true,
+      "aten_detection_enabled": true,
+      "correctness_inputs_generated_on_gpu": true,
+      "correctness_tf32_disabled": true,
+      "correctness_tf32_state_before": {
+        "cudnn.conv.fp32_precision": "tf32",
+        "cuda.matmul.fp32_precision": "none"
+      },
+      "correctness_tf32_state_forced": {
+        "cudnn.conv.fp32_precision": "ieee",
+        "cuda.matmul.fp32_precision": "ieee"
+      },
+      "aten_detection_trials_run": 1,
+      "aten_allowlist_version": "musacoder_appendix_j_plus_kernelgym_pytorch_2_11_compat_v2",
+      "aten_detection_valid": true,
+      "allowed_aten_ops": [
+        {
+          "name": "aten::empty",
+          "count": 1
+        }
+      ],
+      "forbidden_aten_ops": [],
+      "forbidden_aten_op_names": [],
+      "aten_operator_count": 1,
+      "allowed_aten_operator_count": 1,
+      "forbidden_aten_operator_count": 0,
+      "correctness_atol": 0.0001,
+      "correctness_rtol": 0.0001,
+      "correctness_trials": "(1 / 1)",
+      "correctness_trials_run": 1,
+      "runtime_sanitizer_status": "skipped",
+      "runtime_sanitizer_issue_count": 0,
+      "kernel_memory_allocator_check": {
+        "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+        "severity": "none",
+        "measurement_impact": "none_detected",
+        "direct_cuda_allocation_detected": false,
+        "direct_cuda_allocation_apis": [],
+        "direct_cuda_allocation_matches": [],
+        "warning": null
+      },
+      "ncu": {
+        "status": "disabled",
+        "profiled_kernel_count": 0,
+        "kernels": []
+      },
+      "kg_kernel_total_s": 1.9506,
+      "num_correct_trials": 1,
+      "kernel_entry_point": "ModelNew"
+    },
+    "error_message": null,
+    "processing_time": null,
+    "precheck": "passed"
+  },
+  "env_extra_info": {
+    "time_coverage": 0.0,
+    "num_coverage": 0.0,
+    "correctness": true,
+    "compilation": true,
+    "speedup": 0.5481,
+    "decoy_kernel": false,
+    "precheck": "passed",
+    "detail_env_time": {
+      "compile_time": 0.0,
+      "kernel_runtime": 0.0012516602873802185,
+      "profile_time": 0.0,
+      "refer_runtime": 0.14284409396350384
+    },
+    "kernel_perf_cv": 0.12545676004872106,
+    "refer_perf_cv": 0.27111111111111114
+  }
+}

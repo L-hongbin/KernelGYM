@@ -1,0 +1,2033 @@
+{
+  "generated_at": "2026-08-25T17:04:13.191657+00:00",
+  "kernel_env_url": "http://127.0.0.1:20111",
+  "run_id": "b7d181d7d66e",
+  "gpu": {
+    "name": "NVIDIA H100 PCIe",
+    "memory_total": "79.6GB",
+    "memory_used": "13.8GB",
+    "memory_used_percent": "17.3%",
+    "utilization_gpu_percent": "0.0%",
+    "available": true,
+    "source": "nvidia-smi"
+  },
+  "backend": "tvm_ffi",
+  "fixture": {
+    "cuda_global_kernel_count": 1,
+    "kernel_names": ["single_oob_kernel"],
+    "description": "One CUDA kernel with 24 out-of-bounds writes in the final block."
+  },
+  "health": {
+    "http_status": 200,
+    "response": {
+      "status": "healthy",
+      "timestamp": "2026-08-25T17:04:09.706132Z",
+      "gpu_status": {
+        "cuda:0": {
+          "name": "NVIDIA H100 PCIe",
+          "memory_total": "79.6GB",
+          "memory_used": "13.8GB",
+          "memory_used_percent": "17.3%",
+          "utilization_gpu_percent": "0.0%",
+          "available": true,
+          "source": "nvidia-smi"
+        }
+      },
+      "queue_status": {
+        "pending": 0,
+        "processing": 0,
+        "completed": 0
+      },
+      "memory_usage": {
+        "cpu_percent": 1.6,
+        "memory_percent": 29.5,
+        "memory_available": "177.4GB",
+        "memory_total": "251.5GB"
+      },
+      "active_tasks": 0,
+      "total_processed": 0,
+      "uptime": 0.0,
+      "snapshot_age_s": 3.482
+    }
+  },
+  "cases": [
+    {
+      "payload_strategy": "error_based",
+      "passed": true,
+      "observed": {
+        "http_status": 200,
+        "elapsed_s": 7.612232,
+        "poll_count": 0,
+        "status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "sanitizer_status": "issues_found",
+        "selection_mode": "error_based",
+        "execution_mode": "memcheck",
+        "error_classification": "memcheck",
+        "requested_checks": ["memcheck"],
+        "executed_checks": ["memcheck"],
+        "primary_check": "memcheck",
+        "detected_issue_count": 24,
+        "issue_count_by_check": {
+          "memcheck": 24
+        },
+        "unique_issue_count_by_check": {
+          "memcheck": 1
+        },
+        "returned_issue_count": 1,
+        "representative_occurrence_counts": [2],
+        "sanitizer_wall_time_s": 3.6126883160322905
+      },
+      "payload": {
+        "task_id": "single_cuda_kernel_oob_error_based_b7d181d7d66e_1",
+        "reference_code": "\nimport torch\nimport torch.nn as nn\n\n\nclass Model(nn.Module):\n    def forward(self, x):\n        return x.clone()\n\n\ndef get_init_inputs():\n    return []\n\n\ndef get_inputs():\n    return [torch.randn(1000, dtype=torch.float32)]\n",
+        "kernel_code": "\n### CUDA_KERNELS\n```cpp\n#include <cuda_runtime.h>\n\n__global__ void single_oob_kernel(const float* input, float* output, int n) {\n    int index = blockIdx.x * blockDim.x + threadIdx.x;\n    output[index] = index < n ? input[index] : 0.0f;\n}\n\nextern \"C\" void single_oob_launcher(\n    const float* input, float* output, int n, void* stream_handle) {\n    cudaStream_t stream = static_cast<cudaStream_t>(stream_handle);\n    float* exact_allocation = nullptr;\n    cudaMalloc(&exact_allocation, static_cast<size_t>(n) * sizeof(float));\n    int grid = (n + 255) / 256;\n    single_oob_kernel<<<grid, 256, 0, stream>>>(input, exact_allocation, n);\n    cudaMemcpyAsync(\n        output,\n        exact_allocation,\n        static_cast<size_t>(n) * sizeof(float),\n        cudaMemcpyDeviceToDevice,\n        stream);\n    cudaFree(exact_allocation);\n}\n```\n\n### APPLY_BINDINGS\n```cpp\n#include <tvm/ffi/tvm_ffi.h>\n#include <tvm/ffi/extra/c_env_api.h>\n\nextern \"C\" void single_oob_launcher(\n    const float* input, float* output, int n, void* stream_handle);\n\nvoid single_oob_forward(tvm::ffi::Tensor input, tvm::ffi::Tensor output) {\n    void* stream =\n        TVMFFIEnvGetStream(input.device().device_type, input.device().device_id);\n    single_oob_launcher(\n        static_cast<const float*>(input.data_ptr()),\n        static_cast<float*>(output.data_ptr()),\n        static_cast<int>(input.numel()),\n        stream);\n}\n\nTVM_FFI_DLL_EXPORT_TYPED_FUNC(single_oob_forward, single_oob_forward);\n```\n\n### MODEL_NEW\n```python\nimport torch\nimport torch.nn as nn\nimport tvm_ffi_extension\n\n\nclass ModelNew(nn.Module):\n    def forward(self, x):\n        output = torch.empty_like(x)\n        tvm_ffi_extension.single_oob_forward(x, output)\n        raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\n```\n",
+        "toolkit": "kernelbench",
+        "backend_adapter": "kernelbench",
+        "backend": "tvm_ffi",
+        "reference_backend": "torch",
+        "entry_point": "Model",
+        "num_correct_trials": 1,
+        "num_perf_trials": 1,
+        "num_warmup": 0,
+        "timeout": 240,
+        "priority": "normal",
+        "force_refresh": true,
+        "enable_profiling": false,
+        "enable_ncu": false,
+        "enable_compute_sanitizer": true,
+        "compute_sanitizer_mode": "error_based",
+        "detect_decoy_kernel": false,
+        "run_triton_detection": false,
+        "run_performance": false,
+        "measure_performance": false,
+        "use_reference_cache": false,
+        "enable_compile_artifact_cache": true
+      },
+      "raw_api_response": {
+        "task_id": "single_cuda_kernel_oob_error_based_b7d181d7d66e_1",
+        "status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "reference_memory": null,
+        "kernel_memory": null,
+        "memory_comparison": null,
+        "runtime_sanitizer": {
+          "status": "issues_found",
+          "passed": false,
+          "measurement_complete": true,
+          "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+          "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+          "requested_checks": ["memcheck"],
+          "kernel_filter": ["single_oob_kernel"],
+          "detected_issue_count": 24,
+          "check_results": [
+            {
+              "check": "memcheck",
+              "status": "issues_found",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": true,
+              "input_generation": "gpu",
+              "input_values_exactly_replayed": true,
+              "return_code": 86,
+              "summary_error_count": 24,
+              "observed_issue_count": 24,
+              "parsed_issue_count": 24,
+              "detected_issue_count": 24,
+              "unique_issue_count": 1,
+              "returned_issue_count": 1,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [
+                {
+                  "hazard_type": "invalid_global_write",
+                  "message": "Invalid __global__ write of size 4 bytes",
+                  "access_type": "write",
+                  "memory_space": "global",
+                  "access_size_bytes": 4,
+                  "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat single_oob_kernel+0x110 in generated.cu:5\nby thread (232,0,0) in block (3,0,0)\nAccess at 0x7f7dd6000fa0 is out of bounds\nand is 1 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes",
+                  "occurrence_count": 24,
+                  "threads": {
+                    "x": [232, 255],
+                    "y": [0, 0],
+                    "z": [0, 0]
+                  },
+                  "blocks": {
+                    "x": [3, 3],
+                    "y": [0, 0],
+                    "z": [0, 0]
+                  },
+                  "addresses": {
+                    "ranges": ["0x7f7dd6000fa0", "0x7f7dd6000ffc"]
+                  },
+                  "representative_occurrences": [
+                    {
+                      "thread": {
+                        "x": 232,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "block": {
+                        "x": 3,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "address": "0x7f7dd6000fa0"
+                    },
+                    {
+                      "thread": {
+                        "x": 233,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "block": {
+                        "x": 3,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "address": "0x7f7dd6000fa4"
+                    }
+                  ],
+                  "kernel_info": [
+                    {
+                      "name": "single_oob_kernel",
+                      "source": "file generated.cu line 5"
+                    }
+                  ]
+                }
+              ],
+              "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (232,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fa0 is out of bounds\n=========     and is 1 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (233,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fa4 is out of bounds\n=========     and is 5 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (234,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fa8 is out of bounds\n=========     and is 9 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (235,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fac is out of bounds\n=========     and is 13 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (236,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fb0 is out of bounds\n=========     and is 17 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (237,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fb4 is out of bounds\n=========     and is 21 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (238,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fb8 is out of bounds\n=========     and is 25 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (239,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fbc is out of bounds\n=========     and is 29 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (240,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fc0 is out of bounds\n=========     and is 33 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (241,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fc4 is out of bounds\n=========     and is 37 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (242,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fc8 is out of bounds\n=========     and is 41 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (243,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fcc is out of bounds\n=========     and is 45 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (244,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fd0 is out of bounds\n=========     and is 49 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (245,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fd4 is out of bounds\n=========     and is 53 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (246,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fd8 is out of bounds\n=========     and is 57 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (247,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fdc is out of bounds\n=========     and is 61 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (248,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fe0 is out of bounds\n=========     and is 65 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (249,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fe4 is out of bounds\n=========     and is 69 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (250,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fe8 is out of bounds\n=========     and is 73 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (251,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fec is out of bounds\n=========     and is 77 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (252,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000ff0 is out of bounds\n=========     and is 81 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (253,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000ff4 is out of bounds\n=========     and is 85 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (254,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000ff8 is out of bounds\n=========     and is 89 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (255,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000ffc is out of bounds\n=========     and is 93 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Target application returned an error\n========= ERROR SUMMARY: 24 errors\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+              "wall_time_s": 3.595823450013995
+            }
+          ],
+          "mode": "memcheck",
+          "run_all_checks": false,
+          "stopped_early": false,
+          "replayed_input_seed": 734796314,
+          "executed_checks": ["memcheck"],
+          "primary_check": "memcheck",
+          "primary_detected_issue_count": 24,
+          "issue_count_by_check": {
+            "memcheck": 24
+          },
+          "issues_truncated": false,
+          "wall_time_s": 3.6126883160322905,
+          "selection_mode": "error_based",
+          "error_classification": "memcheck"
+        },
+        "metadata": {
+          "memory_environment_floor": {
+            "allocated_bytes": 512,
+            "reserved_bytes": 2097152
+          },
+          "hardware": "NVIDIA H100 PCIe",
+          "device": "cuda:0",
+          "kernel_memory_allocator_check": {
+            "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+            "severity": "warning",
+            "measurement_impact": "may_underestimate",
+            "direct_cuda_allocation_detected": true,
+            "direct_cuda_allocation_apis": ["cudaMalloc"],
+            "direct_cuda_allocation_matches": [
+              {
+                "api": "cudaMalloc",
+                "line": 15,
+                "snippet": "cudaMalloc(&exact_allocation, static_cast<size_t>(n) * sizeof(float));"
+              }
+            ],
+            "warning": "Direct CUDA allocation APIs were found. torch.cuda peak-memory counters only track allocations managed by PyTorch's CUDA caching allocator, so the reported memory can be an underestimate."
+          },
+          "kg_stage_completed_s": {
+            "kernel.load_original_src": 0.000918898731470108,
+            "kernel.prepare_init_inputs": 0.0009957868605852127,
+            "kernel.build_reference_model": 0.0005499832332134247,
+            "kernel.compile_and_load": 0.03891965374350548,
+            "kernel.build_custom_model": 0.06487088277935982,
+            "kernel.correctness": 0.04959845542907715,
+            "kernel.runtime_sanitizer": 3.6132863368839025
+          },
+          "kg_stage_total_started_at_unix_s": 1787677456.5105112,
+          "kg_stage_total_started_monotonic_ns": 12560416623266570,
+          "kg_stage_current_prefix": "kg_kernel",
+          "kg_stage_current": "kernel.runtime_sanitizer",
+          "kg_stage_is_active": false,
+          "kg_stage_current_started_at_unix_s": 1787677456.6684017,
+          "kg_stage_current_started_monotonic_ns": 12560416781156598,
+          "kg_stage_current_elapsed_s": 3.6132863368839025,
+          "kg_kernel_load_original_src_s": 0.000918898731470108,
+          "kg_stage_last_completed": "kernel.runtime_sanitizer",
+          "kg_kernel_prepare_init_inputs_s": 0.0009957868605852127,
+          "kg_kernel_build_reference_model_s": 0.0005499832332134247,
+          "precompiled_artifact_used": true,
+          "kg_kernel_backend_compile_s": 0.0,
+          "build_backend": "tvm_ffi.cpp.build",
+          "compile_artifact_cache_enabled": true,
+          "compile_artifact_cache_hit": false,
+          "compile_artifact": {
+            "compiled": true,
+            "error": null,
+            "device": "cuda:0",
+            "entry_point": "ModelNew",
+            "backend": "tvm_ffi",
+            "module_name": "kernelgym_tvm_ffi_b1d4a267cbe7909f",
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_enabled": true,
+            "compile_artifact_cache_hit": false,
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e",
+            "compile_cache_hit": false,
+            "precheck": {
+              "passed": true,
+              "cuda_source_count": 2,
+              "binding_files": ["kernels/generated_binding.cpp"],
+              "binding_mode": "tvm_ffi",
+              "static_check": {
+                "passed": true,
+                "errors": [],
+                "warnings": [],
+                "precision": "fp32"
+              },
+              "detected_extension_calls": ["single_oob_forward"],
+              "cu_files": ["kernels/generated.cu"],
+              "cpp_files": ["kernels/generated_binding.cpp"],
+              "header_files": [],
+              "exported_functions": ["single_oob_forward"],
+              "error_message": "",
+              "error_code": null
+            },
+            "profiling_hints": {
+              "backend": "tvm_ffi",
+              "custom_kernel_names": ["single_oob_kernel"],
+              "detected_extension_calls": ["single_oob_forward"],
+              "exported_functions": ["single_oob_forward"],
+              "source_files": ["kernels/generated.cu", "kernels/generated_binding.cpp"]
+            },
+            "artifact_node_id": "v1",
+            "artifact_hostname": "ai-11-229",
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle"
+          },
+          "kg_kernel_backend_load_s": 0.038630424067378044,
+          "kg_kernel_backend_session_open_s": 5.925074219703674e-06,
+          "kg_kernel_compile_and_load_s": 0.03891965374350548,
+          "kg_kernel_build_custom_model_s": 0.06487088277935982,
+          "correctness_early_stop_enabled": true,
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_reference_alias_clone_trials": [],
+          "correctness_reference_cache_poison_enabled": true,
+          "correctness_forward_seed_reset_enabled": true,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "aten_detection_enabled": false,
+          "correctness_inputs_generated_on_gpu": true,
+          "correctness_tf32_disabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "ieee",
+            "cuda.matmul.fp32_precision": "ieee"
+          },
+          "correctness_current_trial": 0,
+          "correctness_current_substage": "custom_forward",
+          "runtime_error": "Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_failed_trial_seed": 734796314,
+          "correctness_runtime_error_stage": "custom_forward",
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "correctness_trial_s": [0.009877344593405724],
+          "correctness_reference_trial_s": [0.000336378812789917],
+          "correctness_custom_trial_s": [0.001260511577129364],
+          "correctness_compare_trial_s": [],
+          "correctness_input_generation_trial_s": [0.003921583294868469],
+          "correctness_input_transfer_trial_s": [0.00010900013148784637],
+          "correctness_reference_alias_clone_trial_s": [0.0],
+          "kg_kernel_correctness_s": 0.04959845542907715,
+          "runtime_sanitizer_trigger": "correctness_runtime_error",
+          "runtime_sanitizer_mode": "error_based",
+          "runtime_sanitizer_execution_mode": "memcheck",
+          "runtime_sanitizer_tool_order": ["memcheck"],
+          "runtime_sanitizer_error_classification": "memcheck",
+          "runtime_sanitizer_run_all_checks": false,
+          "kg_kernel_runtime_sanitizer_s": 3.6132863368839025,
+          "runtime_sanitizer_status": "issues_found",
+          "runtime_sanitizer_issue_count": 24,
+          "kg_kernel_total_s": 3.772046497091651,
+          "gpu_name": "NVIDIA H100 PCIe",
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA H100 PCIe",
+            "compute_capability": "9.0",
+            "cuda_version": "12.9",
+            "driver_version": "590.48.01",
+            "nvcc_version": "12.9"
+          },
+          "wg_pool_idle_wait_s": 0.0001461505889892578,
+          "wg_pool_execute_s": 3.994232177734375,
+          "wg_pool_restart_s": 0.0015578269958496094,
+          "wg_pool_return_s": 0.0,
+          "wg_pool_total_s": 3.9971964359283447,
+          "wg_pool_retry_count": 0,
+          "wg_run_toolkit_s": 3.9978811740875244,
+          "tm_enter_monotonic_ns": 12560420908940375,
+          "tm_status_hset_s": 0.0008785724639892578,
+          "split_compile_and_execute": true,
+          "kernel_task_id": "single_cuda_kernel_oob_error_based_b7d181d7d66e_1_kernel",
+          "tm_json_dumps_s": 0.0004856586456298828,
+          "tm_result_hset_s": 0.002829313278198242,
+          "tm_complete_task_s": 0.004281759262084961,
+          "tm_exit_monotonic_ns": 12560420913231145
+        },
+        "error_message": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes",
+        "error_code": "RUNTIME_ERROR",
+        "submitted_at": null,
+        "completed_at": null,
+        "processing_time": null
+      },
+      "raw_env_state": {
+        "task_id": "single_cuda_kernel_oob_error_based_b7d181d7d66e_1",
+        "status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "reference_memory": null,
+        "kernel_memory": null,
+        "memory_comparison": null,
+        "runtime_sanitizer": {
+          "status": "issues_found",
+          "passed": false,
+          "measurement_complete": true,
+          "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+          "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+          "requested_checks": ["memcheck"],
+          "kernel_filter": ["single_oob_kernel"],
+          "detected_issue_count": 24,
+          "check_results": [
+            {
+              "check": "memcheck",
+              "status": "issues_found",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": true,
+              "input_generation": "gpu",
+              "input_values_exactly_replayed": true,
+              "return_code": 86,
+              "summary_error_count": 24,
+              "observed_issue_count": 24,
+              "parsed_issue_count": 24,
+              "detected_issue_count": 24,
+              "unique_issue_count": 1,
+              "returned_issue_count": 1,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [
+                {
+                  "hazard_type": "invalid_global_write",
+                  "message": "Invalid __global__ write of size 4 bytes",
+                  "access_type": "write",
+                  "memory_space": "global",
+                  "access_size_bytes": 4,
+                  "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat single_oob_kernel+0x110 in generated.cu:5\nby thread (232,0,0) in block (3,0,0)\nAccess at 0x7f7dd6000fa0 is out of bounds\nand is 1 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes",
+                  "occurrence_count": 24,
+                  "threads": {
+                    "x": [232, 255],
+                    "y": [0, 0],
+                    "z": [0, 0]
+                  },
+                  "blocks": {
+                    "x": [3, 3],
+                    "y": [0, 0],
+                    "z": [0, 0]
+                  },
+                  "addresses": {
+                    "ranges": ["0x7f7dd6000fa0", "0x7f7dd6000ffc"]
+                  },
+                  "representative_occurrences": [
+                    {
+                      "thread": {
+                        "x": 232,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "block": {
+                        "x": 3,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "address": "0x7f7dd6000fa0"
+                    },
+                    {
+                      "thread": {
+                        "x": 233,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "block": {
+                        "x": 3,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "address": "0x7f7dd6000fa4"
+                    }
+                  ],
+                  "kernel_info": [
+                    {
+                      "name": "single_oob_kernel",
+                      "source": "file generated.cu line 5"
+                    }
+                  ]
+                }
+              ],
+              "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (232,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fa0 is out of bounds\n=========     and is 1 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (233,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fa4 is out of bounds\n=========     and is 5 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (234,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fa8 is out of bounds\n=========     and is 9 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (235,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fac is out of bounds\n=========     and is 13 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (236,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fb0 is out of bounds\n=========     and is 17 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (237,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fb4 is out of bounds\n=========     and is 21 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (238,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fb8 is out of bounds\n=========     and is 25 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (239,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fbc is out of bounds\n=========     and is 29 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (240,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fc0 is out of bounds\n=========     and is 33 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (241,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fc4 is out of bounds\n=========     and is 37 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (242,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fc8 is out of bounds\n=========     and is 41 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (243,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fcc is out of bounds\n=========     and is 45 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (244,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fd0 is out of bounds\n=========     and is 49 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (245,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fd4 is out of bounds\n=========     and is 53 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (246,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fd8 is out of bounds\n=========     and is 57 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (247,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fdc is out of bounds\n=========     and is 61 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (248,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fe0 is out of bounds\n=========     and is 65 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (249,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fe4 is out of bounds\n=========     and is 69 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (250,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fe8 is out of bounds\n=========     and is 73 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (251,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000fec is out of bounds\n=========     and is 77 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (252,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000ff0 is out of bounds\n=========     and is 81 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (253,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000ff4 is out of bounds\n=========     and is 85 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (254,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000ff8 is out of bounds\n=========     and is 89 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (255,0,0) in block (3,0,0)\n=========     Access at 0x7f7dd6000ffc is out of bounds\n=========     and is 93 bytes after the nearest allocation at 0x7f7dd6000000 of size 4,000 bytes\n========= \n========= Target application returned an error\n========= ERROR SUMMARY: 24 errors\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+              "wall_time_s": 3.595823450013995
+            }
+          ],
+          "mode": "memcheck",
+          "run_all_checks": false,
+          "stopped_early": false,
+          "replayed_input_seed": 734796314,
+          "executed_checks": ["memcheck"],
+          "primary_check": "memcheck",
+          "primary_detected_issue_count": 24,
+          "issue_count_by_check": {
+            "memcheck": 24
+          },
+          "issues_truncated": false,
+          "wall_time_s": 3.6126883160322905,
+          "selection_mode": "error_based",
+          "error_classification": "memcheck"
+        },
+        "metadata": {
+          "memory_environment_floor": {
+            "allocated_bytes": 512,
+            "reserved_bytes": 2097152
+          },
+          "hardware": "NVIDIA H100 PCIe",
+          "device": "cuda:0",
+          "kernel_memory_allocator_check": {
+            "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+            "severity": "warning",
+            "measurement_impact": "may_underestimate",
+            "direct_cuda_allocation_detected": true,
+            "direct_cuda_allocation_apis": ["cudaMalloc"],
+            "direct_cuda_allocation_matches": [
+              {
+                "api": "cudaMalloc",
+                "line": 15,
+                "snippet": "cudaMalloc(&exact_allocation, static_cast<size_t>(n) * sizeof(float));"
+              }
+            ],
+            "warning": "Direct CUDA allocation APIs were found. torch.cuda peak-memory counters only track allocations managed by PyTorch's CUDA caching allocator, so the reported memory can be an underestimate."
+          },
+          "kg_stage_completed_s": {
+            "kernel.load_original_src": 0.000918898731470108,
+            "kernel.prepare_init_inputs": 0.0009957868605852127,
+            "kernel.build_reference_model": 0.0005499832332134247,
+            "kernel.compile_and_load": 0.03891965374350548,
+            "kernel.build_custom_model": 0.06487088277935982,
+            "kernel.correctness": 0.04959845542907715,
+            "kernel.runtime_sanitizer": 3.6132863368839025
+          },
+          "kg_stage_total_started_at_unix_s": 1787677456.5105112,
+          "kg_stage_total_started_monotonic_ns": 12560416623266570,
+          "kg_stage_current_prefix": "kg_kernel",
+          "kg_stage_current": "kernel.runtime_sanitizer",
+          "kg_stage_is_active": false,
+          "kg_stage_current_started_at_unix_s": 1787677456.6684017,
+          "kg_stage_current_started_monotonic_ns": 12560416781156598,
+          "kg_stage_current_elapsed_s": 3.6132863368839025,
+          "kg_kernel_load_original_src_s": 0.000918898731470108,
+          "kg_stage_last_completed": "kernel.runtime_sanitizer",
+          "kg_kernel_prepare_init_inputs_s": 0.0009957868605852127,
+          "kg_kernel_build_reference_model_s": 0.0005499832332134247,
+          "precompiled_artifact_used": true,
+          "kg_kernel_backend_compile_s": 0.0,
+          "build_backend": "tvm_ffi.cpp.build",
+          "compile_artifact_cache_enabled": true,
+          "compile_artifact_cache_hit": false,
+          "compile_artifact": {
+            "compiled": true,
+            "error": null,
+            "device": "cuda:0",
+            "entry_point": "ModelNew",
+            "backend": "tvm_ffi",
+            "module_name": "kernelgym_tvm_ffi_b1d4a267cbe7909f",
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_enabled": true,
+            "compile_artifact_cache_hit": false,
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e",
+            "compile_cache_hit": false,
+            "precheck": {
+              "passed": true,
+              "cuda_source_count": 2,
+              "binding_files": ["kernels/generated_binding.cpp"],
+              "binding_mode": "tvm_ffi",
+              "static_check": {
+                "passed": true,
+                "errors": [],
+                "warnings": [],
+                "precision": "fp32"
+              },
+              "detected_extension_calls": ["single_oob_forward"],
+              "cu_files": ["kernels/generated.cu"],
+              "cpp_files": ["kernels/generated_binding.cpp"],
+              "header_files": [],
+              "exported_functions": ["single_oob_forward"],
+              "error_message": "",
+              "error_code": null
+            },
+            "profiling_hints": {
+              "backend": "tvm_ffi",
+              "custom_kernel_names": ["single_oob_kernel"],
+              "detected_extension_calls": ["single_oob_forward"],
+              "exported_functions": ["single_oob_forward"],
+              "source_files": ["kernels/generated.cu", "kernels/generated_binding.cpp"]
+            },
+            "artifact_node_id": "v1",
+            "artifact_hostname": "ai-11-229",
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle"
+          },
+          "kg_kernel_backend_load_s": 0.038630424067378044,
+          "kg_kernel_backend_session_open_s": 5.925074219703674e-06,
+          "kg_kernel_compile_and_load_s": 0.03891965374350548,
+          "kg_kernel_build_custom_model_s": 0.06487088277935982,
+          "correctness_early_stop_enabled": true,
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_reference_alias_clone_trials": [],
+          "correctness_reference_cache_poison_enabled": true,
+          "correctness_forward_seed_reset_enabled": true,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "aten_detection_enabled": false,
+          "correctness_inputs_generated_on_gpu": true,
+          "correctness_tf32_disabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "ieee",
+            "cuda.matmul.fp32_precision": "ieee"
+          },
+          "correctness_current_trial": 0,
+          "correctness_current_substage": "custom_forward",
+          "runtime_error": "Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_failed_trial_seed": 734796314,
+          "correctness_runtime_error_stage": "custom_forward",
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "correctness_trial_s": [0.009877344593405724],
+          "correctness_reference_trial_s": [0.000336378812789917],
+          "correctness_custom_trial_s": [0.001260511577129364],
+          "correctness_compare_trial_s": [],
+          "correctness_input_generation_trial_s": [0.003921583294868469],
+          "correctness_input_transfer_trial_s": [0.00010900013148784637],
+          "correctness_reference_alias_clone_trial_s": [0.0],
+          "kg_kernel_correctness_s": 0.04959845542907715,
+          "runtime_sanitizer_trigger": "correctness_runtime_error",
+          "runtime_sanitizer_mode": "error_based",
+          "runtime_sanitizer_execution_mode": "memcheck",
+          "runtime_sanitizer_tool_order": ["memcheck"],
+          "runtime_sanitizer_error_classification": "memcheck",
+          "runtime_sanitizer_run_all_checks": false,
+          "kg_kernel_runtime_sanitizer_s": 3.6132863368839025,
+          "runtime_sanitizer_status": "issues_found",
+          "runtime_sanitizer_issue_count": 24,
+          "kg_kernel_total_s": 3.772046497091651,
+          "gpu_name": "NVIDIA H100 PCIe",
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA H100 PCIe",
+            "compute_capability": "9.0",
+            "cuda_version": "12.9",
+            "driver_version": "590.48.01",
+            "nvcc_version": "12.9"
+          },
+          "wg_pool_idle_wait_s": 0.0001461505889892578,
+          "wg_pool_execute_s": 3.994232177734375,
+          "wg_pool_restart_s": 0.0015578269958496094,
+          "wg_pool_return_s": 0.0,
+          "wg_pool_total_s": 3.9971964359283447,
+          "wg_pool_retry_count": 0,
+          "wg_run_toolkit_s": 3.9978811740875244,
+          "tm_enter_monotonic_ns": 12560420908940375,
+          "tm_status_hset_s": 0.0008785724639892578,
+          "split_compile_and_execute": true,
+          "kernel_task_id": "single_cuda_kernel_oob_error_based_b7d181d7d66e_1_kernel",
+          "tm_json_dumps_s": 0.0004856586456298828,
+          "tm_result_hset_s": 0.002829313278198242,
+          "tm_complete_task_s": 0.004281759262084961,
+          "tm_exit_monotonic_ns": 12560420913231145,
+          "kernel_eval_failure": true,
+          "task_id": "single_cuda_kernel_oob_error_based_b7d181d7d66e_1",
+          "entry_point": "Model"
+        },
+        "error_message": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes",
+        "error_code": "RUNTIME_ERROR",
+        "submitted_at": null,
+        "completed_at": null,
+        "processing_time": null,
+        "success": null,
+        "error": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes"
+      },
+      "normalized_env_state": {
+        "task_id": "single_cuda_kernel_oob_error_based_b7d181d7d66e_1",
+        "status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "reference_memory": null,
+        "kernel_memory": null,
+        "memory_comparison": null,
+        "runtime_sanitizer": {
+          "status": "issues_found",
+          "passed": false,
+          "measurement_complete": true,
+          "requested_checks": ["memcheck"],
+          "detected_issue_count": 24,
+          "check_results": [
+            {
+              "check": "memcheck",
+              "status": "issues_found",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": true,
+              "input_generation": "gpu",
+              "input_values_exactly_replayed": true,
+              "return_code": 86,
+              "summary_error_count": 24,
+              "observed_issue_count": 24,
+              "parsed_issue_count": 24,
+              "detected_issue_count": 24,
+              "unique_issue_count": 1,
+              "returned_issue_count": 1,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [
+                {
+                  "hazard_type": "invalid_global_write",
+                  "message": "Invalid __global__ write of size 4 bytes",
+                  "access_type": "write",
+                  "memory_space": "global",
+                  "access_size_bytes": 4,
+                  "occurrence_count": 24,
+                  "threads": {
+                    "x": [232, 255],
+                    "y": [0, 0],
+                    "z": [0, 0]
+                  },
+                  "blocks": {
+                    "x": [3, 3],
+                    "y": [0, 0],
+                    "z": [0, 0]
+                  },
+                  "addresses": {
+                    "ranges": ["0x7f7dd6000fa0", "0x7f7dd6000ffc"]
+                  },
+                  "representative_occurrences": [
+                    {
+                      "thread": {
+                        "x": 232,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "block": {
+                        "x": 3,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "address": "0x7f7dd6000fa0"
+                    },
+                    {
+                      "thread": {
+                        "x": 233,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "block": {
+                        "x": 3,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "address": "0x7f7dd6000fa4"
+                    }
+                  ],
+                  "kernel_info": [
+                    {
+                      "name": "single_oob_kernel",
+                      "source": "file generated.cu line 5"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "mode": "memcheck",
+          "run_all_checks": false,
+          "stopped_early": false,
+          "replayed_input_seed": 734796314,
+          "executed_checks": ["memcheck"],
+          "primary_check": "memcheck",
+          "primary_detected_issue_count": 24,
+          "issue_count_by_check": {
+            "memcheck": 24
+          },
+          "issues_truncated": false,
+          "selection_mode": "error_based",
+          "error_classification": "memcheck"
+        },
+        "metadata": {
+          "memory_environment_floor": {
+            "allocated_bytes": 512,
+            "reserved_bytes": 2097152
+          },
+          "kernel_memory_allocator_check": {
+            "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+            "severity": "warning",
+            "measurement_impact": "may_underestimate",
+            "direct_cuda_allocation_detected": true,
+            "direct_cuda_allocation_apis": ["cudaMalloc"],
+            "direct_cuda_allocation_matches": [
+              {
+                "api": "cudaMalloc",
+                "line": 15,
+                "snippet": "cudaMalloc(&exact_allocation, static_cast<size_t>(n) * sizeof(float));"
+              }
+            ],
+            "warning": "Direct CUDA allocation APIs were found. torch.cuda peak-memory counters only track allocations managed by PyTorch's CUDA caching allocator, so the reported memory can be an underestimate."
+          },
+          "precompiled_artifact_used": true,
+          "compile_artifact": {
+            "error": null,
+            "build_backend": "tvm_ffi.cpp.build"
+          },
+          "correctness_forward_seed_reset_enabled": true,
+          "aten_detection_enabled": false,
+          "correctness_inputs_generated_on_gpu": true,
+          "correctness_tf32_disabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "ieee",
+            "cuda.matmul.fp32_precision": "ieee"
+          },
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_failed_trial_seed": 734796314,
+          "correctness_runtime_error_stage": "custom_forward",
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "runtime_sanitizer_trigger": "correctness_runtime_error",
+          "runtime_sanitizer_mode": "error_based",
+          "runtime_sanitizer_execution_mode": "memcheck",
+          "runtime_sanitizer_tool_order": ["memcheck"],
+          "runtime_sanitizer_error_classification": "memcheck",
+          "runtime_sanitizer_run_all_checks": false,
+          "runtime_sanitizer_status": "issues_found",
+          "runtime_sanitizer_issue_count": 24,
+          "kg_kernel_total_s": 3.772,
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA H100 PCIe",
+            "compute_capability": "9.0",
+            "cuda_version": "12.9",
+            "driver_version": "590.48.01",
+            "nvcc_version": "12.9"
+          },
+          "kernel_eval_failure": true,
+          "refer_entry_point": "Model",
+          "kernel_entry_point": "ModelNew"
+        },
+        "error_message": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes\nother error message:\nTraceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+        "processing_time": null,
+        "success": false,
+        "error": "KERNEL_EVAL_FAILED",
+        "precheck": "passed"
+      },
+      "env_extra_info": {
+        "time_coverage": 0.0,
+        "num_coverage": 0.0,
+        "correctness": false,
+        "compilation": true,
+        "speedup": 0.0,
+        "decoy_kernel": false,
+        "precheck": "passed",
+        "detail_env_time": {
+          "compile_time": 0.0,
+          "runtime_sanitizer_time_s": 3.6127
+        }
+      }
+    },
+    {
+      "payload_strategy": "full",
+      "passed": true,
+      "observed": {
+        "http_status": 200,
+        "elapsed_s": 15.176573,
+        "poll_count": 0,
+        "status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "sanitizer_status": "issues_found",
+        "selection_mode": "full",
+        "execution_mode": "full",
+        "error_classification": "memcheck",
+        "requested_checks": [
+          "memcheck",
+          "synccheck",
+          "racecheck",
+          "initcheck"
+        ],
+        "executed_checks": [
+          "memcheck",
+          "synccheck",
+          "racecheck",
+          "initcheck"
+        ],
+        "primary_check": "memcheck",
+        "detected_issue_count": 24,
+        "issue_count_by_check": {
+          "memcheck": 24,
+          "synccheck": 0,
+          "racecheck": 0,
+          "initcheck": 0
+        },
+        "unique_issue_count_by_check": {
+          "memcheck": 1,
+          "synccheck": 0,
+          "racecheck": 0,
+          "initcheck": 0
+        },
+        "returned_issue_count": 1,
+        "representative_occurrence_counts": [2],
+        "sanitizer_wall_time_s": 13.80088703520596
+      },
+      "payload": {
+        "task_id": "single_cuda_kernel_oob_full_b7d181d7d66e_2",
+        "reference_code": "\nimport torch\nimport torch.nn as nn\n\n\nclass Model(nn.Module):\n    def forward(self, x):\n        return x.clone()\n\n\ndef get_init_inputs():\n    return []\n\n\ndef get_inputs():\n    return [torch.randn(1000, dtype=torch.float32)]\n",
+        "kernel_code": "\n### CUDA_KERNELS\n```cpp\n#include <cuda_runtime.h>\n\n__global__ void single_oob_kernel(const float* input, float* output, int n) {\n    int index = blockIdx.x * blockDim.x + threadIdx.x;\n    output[index] = index < n ? input[index] : 0.0f;\n}\n\nextern \"C\" void single_oob_launcher(\n    const float* input, float* output, int n, void* stream_handle) {\n    cudaStream_t stream = static_cast<cudaStream_t>(stream_handle);\n    float* exact_allocation = nullptr;\n    cudaMalloc(&exact_allocation, static_cast<size_t>(n) * sizeof(float));\n    int grid = (n + 255) / 256;\n    single_oob_kernel<<<grid, 256, 0, stream>>>(input, exact_allocation, n);\n    cudaMemcpyAsync(\n        output,\n        exact_allocation,\n        static_cast<size_t>(n) * sizeof(float),\n        cudaMemcpyDeviceToDevice,\n        stream);\n    cudaFree(exact_allocation);\n}\n```\n\n### APPLY_BINDINGS\n```cpp\n#include <tvm/ffi/tvm_ffi.h>\n#include <tvm/ffi/extra/c_env_api.h>\n\nextern \"C\" void single_oob_launcher(\n    const float* input, float* output, int n, void* stream_handle);\n\nvoid single_oob_forward(tvm::ffi::Tensor input, tvm::ffi::Tensor output) {\n    void* stream =\n        TVMFFIEnvGetStream(input.device().device_type, input.device().device_id);\n    single_oob_launcher(\n        static_cast<const float*>(input.data_ptr()),\n        static_cast<float*>(output.data_ptr()),\n        static_cast<int>(input.numel()),\n        stream);\n}\n\nTVM_FFI_DLL_EXPORT_TYPED_FUNC(single_oob_forward, single_oob_forward);\n```\n\n### MODEL_NEW\n```python\nimport torch\nimport torch.nn as nn\nimport tvm_ffi_extension\n\n\nclass ModelNew(nn.Module):\n    def forward(self, x):\n        output = torch.empty_like(x)\n        tvm_ffi_extension.single_oob_forward(x, output)\n        raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\n```\n",
+        "toolkit": "kernelbench",
+        "backend_adapter": "kernelbench",
+        "backend": "tvm_ffi",
+        "reference_backend": "torch",
+        "entry_point": "Model",
+        "num_correct_trials": 1,
+        "num_perf_trials": 1,
+        "num_warmup": 0,
+        "timeout": 240,
+        "priority": "normal",
+        "force_refresh": true,
+        "enable_profiling": false,
+        "enable_ncu": false,
+        "enable_compute_sanitizer": true,
+        "compute_sanitizer_mode": "full",
+        "detect_decoy_kernel": false,
+        "run_triton_detection": false,
+        "run_performance": false,
+        "measure_performance": false,
+        "use_reference_cache": false,
+        "enable_compile_artifact_cache": true
+      },
+      "raw_api_response": {
+        "task_id": "single_cuda_kernel_oob_full_b7d181d7d66e_2",
+        "status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "reference_memory": null,
+        "kernel_memory": null,
+        "memory_comparison": null,
+        "runtime_sanitizer": {
+          "status": "issues_found",
+          "passed": false,
+          "measurement_complete": false,
+          "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+          "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+          "requested_checks": [
+            "memcheck",
+            "synccheck",
+            "racecheck",
+            "initcheck"
+          ],
+          "kernel_filter": ["single_oob_kernel"],
+          "detected_issue_count": 24,
+          "check_results": [
+            {
+              "check": "memcheck",
+              "status": "issues_found",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": true,
+              "input_generation": "gpu",
+              "input_values_exactly_replayed": true,
+              "return_code": 86,
+              "summary_error_count": 24,
+              "observed_issue_count": 24,
+              "parsed_issue_count": 24,
+              "detected_issue_count": 24,
+              "unique_issue_count": 1,
+              "returned_issue_count": 1,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [
+                {
+                  "hazard_type": "invalid_global_write",
+                  "message": "Invalid __global__ write of size 4 bytes",
+                  "access_type": "write",
+                  "memory_space": "global",
+                  "access_size_bytes": 4,
+                  "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat single_oob_kernel+0x110 in generated.cu:5\nby thread (232,0,0) in block (3,0,0)\nAccess at 0x7fbd8e000fa0 is out of bounds\nand is 1 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes",
+                  "occurrence_count": 24,
+                  "threads": {
+                    "x": [232, 255],
+                    "y": [0, 0],
+                    "z": [0, 0]
+                  },
+                  "blocks": {
+                    "x": [3, 3],
+                    "y": [0, 0],
+                    "z": [0, 0]
+                  },
+                  "addresses": {
+                    "ranges": ["0x7fbd8e000fa0", "0x7fbd8e000ffc"]
+                  },
+                  "representative_occurrences": [
+                    {
+                      "thread": {
+                        "x": 232,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "block": {
+                        "x": 3,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "address": "0x7fbd8e000fa0"
+                    },
+                    {
+                      "thread": {
+                        "x": 233,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "block": {
+                        "x": 3,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "address": "0x7fbd8e000fa4"
+                    }
+                  ],
+                  "kernel_info": [
+                    {
+                      "name": "single_oob_kernel",
+                      "source": "file generated.cu line 5"
+                    }
+                  ]
+                }
+              ],
+              "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (232,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fa0 is out of bounds\n=========     and is 1 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (233,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fa4 is out of bounds\n=========     and is 5 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (234,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fa8 is out of bounds\n=========     and is 9 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (235,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fac is out of bounds\n=========     and is 13 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (236,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fb0 is out of bounds\n=========     and is 17 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (237,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fb4 is out of bounds\n=========     and is 21 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (238,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fb8 is out of bounds\n=========     and is 25 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (239,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fbc is out of bounds\n=========     and is 29 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (240,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fc0 is out of bounds\n=========     and is 33 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (241,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fc4 is out of bounds\n=========     and is 37 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (242,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fc8 is out of bounds\n=========     and is 41 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (243,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fcc is out of bounds\n=========     and is 45 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (244,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fd0 is out of bounds\n=========     and is 49 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (245,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fd4 is out of bounds\n=========     and is 53 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (246,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fd8 is out of bounds\n=========     and is 57 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (247,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fdc is out of bounds\n=========     and is 61 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (248,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fe0 is out of bounds\n=========     and is 65 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (249,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fe4 is out of bounds\n=========     and is 69 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (250,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fe8 is out of bounds\n=========     and is 73 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (251,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fec is out of bounds\n=========     and is 77 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (252,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000ff0 is out of bounds\n=========     and is 81 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (253,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000ff4 is out of bounds\n=========     and is 85 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (254,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000ff8 is out of bounds\n=========     and is 89 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (255,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000ffc is out of bounds\n=========     and is 93 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Target application returned an error\n========= ERROR SUMMARY: 24 errors\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+              "wall_time_s": 3.392655573785305
+            },
+            {
+              "check": "synccheck",
+              "status": "error",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": false,
+              "input_generation": "gpu",
+              "input_values_exactly_replayed": true,
+              "return_code": 1,
+              "summary_error_count": 0,
+              "observed_issue_count": 0,
+              "parsed_issue_count": 0,
+              "detected_issue_count": 0,
+              "unique_issue_count": 0,
+              "returned_issue_count": 0,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [],
+              "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Target application returned an error\n========= ERROR SUMMARY: 0 errors\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+              "wall_time_s": 3.248604040592909,
+              "error": "========= COMPUTE-SANITIZER\n========= Target application returned an error\n========= ERROR SUMMARY: 0 errors\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n"
+            },
+            {
+              "check": "racecheck",
+              "status": "error",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": false,
+              "input_generation": "gpu",
+              "input_values_exactly_replayed": true,
+              "return_code": 1,
+              "summary_error_count": 0,
+              "observed_issue_count": 0,
+              "parsed_issue_count": 0,
+              "detected_issue_count": 0,
+              "unique_issue_count": 0,
+              "returned_issue_count": 0,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [],
+              "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Target application returned an error\n========= RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+              "wall_time_s": 3.8676958568394184,
+              "error": "========= COMPUTE-SANITIZER\n========= Target application returned an error\n========= RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n"
+            },
+            {
+              "check": "initcheck",
+              "status": "error",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": false,
+              "input_generation": "cpu_then_h2d",
+              "input_values_exactly_replayed": false,
+              "return_code": 1,
+              "summary_error_count": 0,
+              "observed_issue_count": 0,
+              "parsed_issue_count": 0,
+              "detected_issue_count": 0,
+              "unique_issue_count": 0,
+              "returned_issue_count": 0,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [],
+              "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Target application returned an error\n========= ERROR SUMMARY: 0 errors\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+              "wall_time_s": 3.274055263027549,
+              "error": "========= COMPUTE-SANITIZER\n========= Target application returned an error\n========= ERROR SUMMARY: 0 errors\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n"
+            }
+          ],
+          "mode": "full",
+          "run_all_checks": true,
+          "stopped_early": false,
+          "replayed_input_seed": 734796314,
+          "executed_checks": [
+            "memcheck",
+            "synccheck",
+            "racecheck",
+            "initcheck"
+          ],
+          "primary_check": "memcheck",
+          "primary_detected_issue_count": 24,
+          "issue_count_by_check": {
+            "memcheck": 24,
+            "synccheck": 0,
+            "racecheck": 0,
+            "initcheck": 0
+          },
+          "issues_truncated": false,
+          "wall_time_s": 13.80088703520596,
+          "selection_mode": "full",
+          "error_classification": "memcheck"
+        },
+        "metadata": {
+          "memory_environment_floor": {
+            "allocated_bytes": 512,
+            "reserved_bytes": 2097152
+          },
+          "hardware": "NVIDIA H100 PCIe",
+          "device": "cuda:0",
+          "kernel_memory_allocator_check": {
+            "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+            "severity": "warning",
+            "measurement_impact": "may_underestimate",
+            "direct_cuda_allocation_detected": true,
+            "direct_cuda_allocation_apis": ["cudaMalloc"],
+            "direct_cuda_allocation_matches": [
+              {
+                "api": "cudaMalloc",
+                "line": 15,
+                "snippet": "cudaMalloc(&exact_allocation, static_cast<size_t>(n) * sizeof(float));"
+              }
+            ],
+            "warning": "Direct CUDA allocation APIs were found. torch.cuda peak-memory counters only track allocations managed by PyTorch's CUDA caching allocator, so the reported memory can be an underestimate."
+          },
+          "kg_stage_completed_s": {
+            "kernel.load_original_src": 0.0009415894746780396,
+            "kernel.prepare_init_inputs": 0.0009985584765672684,
+            "kernel.build_reference_model": 0.000547679141163826,
+            "kernel.compile_and_load": 0.04027041792869568,
+            "kernel.build_custom_model": 0.06729210168123245,
+            "kernel.correctness": 0.018670374527573586,
+            "kernel.runtime_sanitizer": 13.801376217976213
+          },
+          "kg_stage_total_started_at_unix_s": 1787677461.6199262,
+          "kg_stage_total_started_monotonic_ns": 12560421732680447,
+          "kg_stage_current_prefix": "kg_kernel",
+          "kg_stage_current": "kernel.runtime_sanitizer",
+          "kg_stage_is_active": false,
+          "kg_stage_current_started_at_unix_s": 1787677461.7506645,
+          "kg_stage_current_started_monotonic_ns": 12560421863419750,
+          "kg_stage_current_elapsed_s": 13.801376217976213,
+          "kg_kernel_load_original_src_s": 0.0009415894746780396,
+          "kg_stage_last_completed": "kernel.runtime_sanitizer",
+          "kg_kernel_prepare_init_inputs_s": 0.0009985584765672684,
+          "kg_kernel_build_reference_model_s": 0.000547679141163826,
+          "precompiled_artifact_used": true,
+          "kg_kernel_backend_compile_s": 0.0,
+          "build_backend": "tvm_ffi.cpp.build",
+          "compile_artifact_cache_enabled": true,
+          "compile_artifact_cache_hit": true,
+          "compile_artifact": {
+            "backend": "tvm_ffi",
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e",
+            "compiled": true,
+            "device": "cuda:0",
+            "entry_point": "ModelNew",
+            "module_name": "kernelgym_tvm_ffi_b1d4a267cbe7909f",
+            "precheck": {
+              "binding_files": ["kernels/generated_binding.cpp"],
+              "binding_mode": "tvm_ffi",
+              "cpp_files": ["kernels/generated_binding.cpp"],
+              "cu_files": ["kernels/generated.cu"],
+              "cuda_source_count": 2,
+              "detected_extension_calls": ["single_oob_forward"],
+              "error_code": null,
+              "error_message": "",
+              "exported_functions": ["single_oob_forward"],
+              "header_files": [],
+              "passed": true,
+              "static_check": {
+                "errors": [],
+                "passed": true,
+                "precision": "fp32",
+                "warnings": []
+              }
+            },
+            "profiling_hints": {
+              "backend": "tvm_ffi",
+              "custom_kernel_names": ["single_oob_kernel"],
+              "detected_extension_calls": ["single_oob_forward"],
+              "exported_functions": ["single_oob_forward"],
+              "source_files": ["kernels/generated.cu", "kernels/generated_binding.cpp"]
+            },
+            "compile_artifact_cache_hit": true,
+            "compile_cache_hit": true,
+            "compile_artifact_cache_enabled": true,
+            "artifact_node_id": "v1",
+            "artifact_hostname": "ai-11-229",
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle"
+          },
+          "kg_kernel_backend_load_s": 0.03994976356625557,
+          "kg_kernel_backend_session_open_s": 6.0480087995529175e-06,
+          "kg_kernel_compile_and_load_s": 0.04027041792869568,
+          "kg_kernel_build_custom_model_s": 0.06729210168123245,
+          "correctness_early_stop_enabled": true,
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_reference_alias_clone_trials": [],
+          "correctness_reference_cache_poison_enabled": true,
+          "correctness_forward_seed_reset_enabled": true,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "aten_detection_enabled": false,
+          "correctness_inputs_generated_on_gpu": true,
+          "correctness_tf32_disabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "ieee",
+            "cuda.matmul.fp32_precision": "ieee"
+          },
+          "correctness_current_trial": 0,
+          "correctness_current_substage": "custom_forward",
+          "runtime_error": "Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_failed_trial_seed": 734796314,
+          "correctness_runtime_error_stage": "custom_forward",
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "correctness_trial_s": [0.007039226591587067],
+          "correctness_reference_trial_s": [0.0002720467746257782],
+          "correctness_custom_trial_s": [0.0011281650513410568],
+          "correctness_compare_trial_s": [],
+          "correctness_input_generation_trial_s": [0.0028067566454410553],
+          "correctness_input_transfer_trial_s": [
+            8.973851799964905e-05
+          ],
+          "correctness_reference_alias_clone_trial_s": [0.0],
+          "kg_kernel_correctness_s": 0.018670374527573586,
+          "runtime_sanitizer_trigger": "correctness_runtime_error",
+          "runtime_sanitizer_mode": "full",
+          "runtime_sanitizer_execution_mode": "full",
+          "runtime_sanitizer_tool_order": [
+            "memcheck",
+            "synccheck",
+            "racecheck",
+            "initcheck"
+          ],
+          "runtime_sanitizer_error_classification": "memcheck",
+          "runtime_sanitizer_run_all_checks": true,
+          "kg_kernel_runtime_sanitizer_s": 13.801376217976213,
+          "runtime_sanitizer_status": "issues_found",
+          "runtime_sanitizer_issue_count": 24,
+          "kg_kernel_total_s": 13.933069398626685,
+          "gpu_name": "NVIDIA H100 PCIe",
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA H100 PCIe",
+            "compute_capability": "9.0",
+            "cuda_version": "12.9",
+            "driver_version": "590.48.01",
+            "nvcc_version": "12.9"
+          },
+          "wg_pool_idle_wait_s": 7.104873657226562e-05,
+          "wg_pool_execute_s": 14.13875412940979,
+          "wg_pool_restart_s": 0.0019259452819824219,
+          "wg_pool_return_s": 0.0,
+          "wg_pool_total_s": 14.141252040863037,
+          "wg_pool_retry_count": 0,
+          "wg_run_toolkit_s": 14.141841411590576,
+          "tm_enter_monotonic_ns": 12560436092333658,
+          "tm_status_hset_s": 0.0009653568267822266,
+          "split_compile_and_execute": true,
+          "kernel_task_id": "single_cuda_kernel_oob_full_b7d181d7d66e_2_kernel",
+          "tm_json_dumps_s": 0.0007069110870361328,
+          "tm_result_hset_s": 0.0030443668365478516,
+          "tm_complete_task_s": 0.004803657531738281,
+          "tm_exit_monotonic_ns": 12560436097146158
+        },
+        "error_message": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes",
+        "error_code": "RUNTIME_ERROR",
+        "submitted_at": null,
+        "completed_at": null,
+        "processing_time": null
+      },
+      "raw_env_state": {
+        "task_id": "single_cuda_kernel_oob_full_b7d181d7d66e_2",
+        "status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "reference_memory": null,
+        "kernel_memory": null,
+        "memory_comparison": null,
+        "runtime_sanitizer": {
+          "status": "issues_found",
+          "passed": false,
+          "measurement_complete": false,
+          "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+          "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+          "requested_checks": [
+            "memcheck",
+            "synccheck",
+            "racecheck",
+            "initcheck"
+          ],
+          "kernel_filter": ["single_oob_kernel"],
+          "detected_issue_count": 24,
+          "check_results": [
+            {
+              "check": "memcheck",
+              "status": "issues_found",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": true,
+              "input_generation": "gpu",
+              "input_values_exactly_replayed": true,
+              "return_code": 86,
+              "summary_error_count": 24,
+              "observed_issue_count": 24,
+              "parsed_issue_count": 24,
+              "detected_issue_count": 24,
+              "unique_issue_count": 1,
+              "returned_issue_count": 1,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [
+                {
+                  "hazard_type": "invalid_global_write",
+                  "message": "Invalid __global__ write of size 4 bytes",
+                  "access_type": "write",
+                  "memory_space": "global",
+                  "access_size_bytes": 4,
+                  "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat single_oob_kernel+0x110 in generated.cu:5\nby thread (232,0,0) in block (3,0,0)\nAccess at 0x7fbd8e000fa0 is out of bounds\nand is 1 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes",
+                  "occurrence_count": 24,
+                  "threads": {
+                    "x": [232, 255],
+                    "y": [0, 0],
+                    "z": [0, 0]
+                  },
+                  "blocks": {
+                    "x": [3, 3],
+                    "y": [0, 0],
+                    "z": [0, 0]
+                  },
+                  "addresses": {
+                    "ranges": ["0x7fbd8e000fa0", "0x7fbd8e000ffc"]
+                  },
+                  "representative_occurrences": [
+                    {
+                      "thread": {
+                        "x": 232,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "block": {
+                        "x": 3,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "address": "0x7fbd8e000fa0"
+                    },
+                    {
+                      "thread": {
+                        "x": 233,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "block": {
+                        "x": 3,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "address": "0x7fbd8e000fa4"
+                    }
+                  ],
+                  "kernel_info": [
+                    {
+                      "name": "single_oob_kernel",
+                      "source": "file generated.cu line 5"
+                    }
+                  ]
+                }
+              ],
+              "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (232,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fa0 is out of bounds\n=========     and is 1 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (233,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fa4 is out of bounds\n=========     and is 5 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (234,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fa8 is out of bounds\n=========     and is 9 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (235,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fac is out of bounds\n=========     and is 13 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (236,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fb0 is out of bounds\n=========     and is 17 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (237,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fb4 is out of bounds\n=========     and is 21 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (238,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fb8 is out of bounds\n=========     and is 25 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (239,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fbc is out of bounds\n=========     and is 29 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (240,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fc0 is out of bounds\n=========     and is 33 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (241,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fc4 is out of bounds\n=========     and is 37 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (242,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fc8 is out of bounds\n=========     and is 41 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (243,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fcc is out of bounds\n=========     and is 45 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (244,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fd0 is out of bounds\n=========     and is 49 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (245,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fd4 is out of bounds\n=========     and is 53 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (246,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fd8 is out of bounds\n=========     and is 57 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (247,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fdc is out of bounds\n=========     and is 61 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (248,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fe0 is out of bounds\n=========     and is 65 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (249,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fe4 is out of bounds\n=========     and is 69 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (250,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fe8 is out of bounds\n=========     and is 73 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (251,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000fec is out of bounds\n=========     and is 77 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (252,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000ff0 is out of bounds\n=========     and is 81 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (253,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000ff4 is out of bounds\n=========     and is 85 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (254,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000ff8 is out of bounds\n=========     and is 89 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at single_oob_kernel+0x110 in generated.cu:5\n=========     by thread (255,0,0) in block (3,0,0)\n=========     Access at 0x7fbd8e000ffc is out of bounds\n=========     and is 93 bytes after the nearest allocation at 0x7fbd8e000000 of size 4,000 bytes\n========= \n========= Target application returned an error\n========= ERROR SUMMARY: 24 errors\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+              "wall_time_s": 3.392655573785305
+            },
+            {
+              "check": "synccheck",
+              "status": "error",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": false,
+              "input_generation": "gpu",
+              "input_values_exactly_replayed": true,
+              "return_code": 1,
+              "summary_error_count": 0,
+              "observed_issue_count": 0,
+              "parsed_issue_count": 0,
+              "detected_issue_count": 0,
+              "unique_issue_count": 0,
+              "returned_issue_count": 0,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [],
+              "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Target application returned an error\n========= ERROR SUMMARY: 0 errors\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+              "wall_time_s": 3.248604040592909,
+              "error": "========= COMPUTE-SANITIZER\n========= Target application returned an error\n========= ERROR SUMMARY: 0 errors\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n"
+            },
+            {
+              "check": "racecheck",
+              "status": "error",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": false,
+              "input_generation": "gpu",
+              "input_values_exactly_replayed": true,
+              "return_code": 1,
+              "summary_error_count": 0,
+              "observed_issue_count": 0,
+              "parsed_issue_count": 0,
+              "detected_issue_count": 0,
+              "unique_issue_count": 0,
+              "returned_issue_count": 0,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [],
+              "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Target application returned an error\n========= RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+              "wall_time_s": 3.8676958568394184,
+              "error": "========= COMPUTE-SANITIZER\n========= Target application returned an error\n========= RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n"
+            },
+            {
+              "check": "initcheck",
+              "status": "error",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": false,
+              "input_generation": "cpu_then_h2d",
+              "input_values_exactly_replayed": false,
+              "return_code": 1,
+              "summary_error_count": 0,
+              "observed_issue_count": 0,
+              "parsed_issue_count": 0,
+              "detected_issue_count": 0,
+              "unique_issue_count": 0,
+              "returned_issue_count": 0,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [],
+              "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Target application returned an error\n========= ERROR SUMMARY: 0 errors\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+              "wall_time_s": 3.274055263027549,
+              "error": "========= COMPUTE-SANITIZER\n========= Target application returned an error\n========= ERROR SUMMARY: 0 errors\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n"
+            }
+          ],
+          "mode": "full",
+          "run_all_checks": true,
+          "stopped_early": false,
+          "replayed_input_seed": 734796314,
+          "executed_checks": [
+            "memcheck",
+            "synccheck",
+            "racecheck",
+            "initcheck"
+          ],
+          "primary_check": "memcheck",
+          "primary_detected_issue_count": 24,
+          "issue_count_by_check": {
+            "memcheck": 24,
+            "synccheck": 0,
+            "racecheck": 0,
+            "initcheck": 0
+          },
+          "issues_truncated": false,
+          "wall_time_s": 13.80088703520596,
+          "selection_mode": "full",
+          "error_classification": "memcheck"
+        },
+        "metadata": {
+          "memory_environment_floor": {
+            "allocated_bytes": 512,
+            "reserved_bytes": 2097152
+          },
+          "hardware": "NVIDIA H100 PCIe",
+          "device": "cuda:0",
+          "kernel_memory_allocator_check": {
+            "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+            "severity": "warning",
+            "measurement_impact": "may_underestimate",
+            "direct_cuda_allocation_detected": true,
+            "direct_cuda_allocation_apis": ["cudaMalloc"],
+            "direct_cuda_allocation_matches": [
+              {
+                "api": "cudaMalloc",
+                "line": 15,
+                "snippet": "cudaMalloc(&exact_allocation, static_cast<size_t>(n) * sizeof(float));"
+              }
+            ],
+            "warning": "Direct CUDA allocation APIs were found. torch.cuda peak-memory counters only track allocations managed by PyTorch's CUDA caching allocator, so the reported memory can be an underestimate."
+          },
+          "kg_stage_completed_s": {
+            "kernel.load_original_src": 0.0009415894746780396,
+            "kernel.prepare_init_inputs": 0.0009985584765672684,
+            "kernel.build_reference_model": 0.000547679141163826,
+            "kernel.compile_and_load": 0.04027041792869568,
+            "kernel.build_custom_model": 0.06729210168123245,
+            "kernel.correctness": 0.018670374527573586,
+            "kernel.runtime_sanitizer": 13.801376217976213
+          },
+          "kg_stage_total_started_at_unix_s": 1787677461.6199262,
+          "kg_stage_total_started_monotonic_ns": 12560421732680447,
+          "kg_stage_current_prefix": "kg_kernel",
+          "kg_stage_current": "kernel.runtime_sanitizer",
+          "kg_stage_is_active": false,
+          "kg_stage_current_started_at_unix_s": 1787677461.7506645,
+          "kg_stage_current_started_monotonic_ns": 12560421863419750,
+          "kg_stage_current_elapsed_s": 13.801376217976213,
+          "kg_kernel_load_original_src_s": 0.0009415894746780396,
+          "kg_stage_last_completed": "kernel.runtime_sanitizer",
+          "kg_kernel_prepare_init_inputs_s": 0.0009985584765672684,
+          "kg_kernel_build_reference_model_s": 0.000547679141163826,
+          "precompiled_artifact_used": true,
+          "kg_kernel_backend_compile_s": 0.0,
+          "build_backend": "tvm_ffi.cpp.build",
+          "compile_artifact_cache_enabled": true,
+          "compile_artifact_cache_hit": true,
+          "compile_artifact": {
+            "backend": "tvm_ffi",
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e",
+            "compiled": true,
+            "device": "cuda:0",
+            "entry_point": "ModelNew",
+            "module_name": "kernelgym_tvm_ffi_b1d4a267cbe7909f",
+            "precheck": {
+              "binding_files": ["kernels/generated_binding.cpp"],
+              "binding_mode": "tvm_ffi",
+              "cpp_files": ["kernels/generated_binding.cpp"],
+              "cu_files": ["kernels/generated.cu"],
+              "cuda_source_count": 2,
+              "detected_extension_calls": ["single_oob_forward"],
+              "error_code": null,
+              "error_message": "",
+              "exported_functions": ["single_oob_forward"],
+              "header_files": [],
+              "passed": true,
+              "static_check": {
+                "errors": [],
+                "passed": true,
+                "precision": "fp32",
+                "warnings": []
+              }
+            },
+            "profiling_hints": {
+              "backend": "tvm_ffi",
+              "custom_kernel_names": ["single_oob_kernel"],
+              "detected_extension_calls": ["single_oob_forward"],
+              "exported_functions": ["single_oob_forward"],
+              "source_files": ["kernels/generated.cu", "kernels/generated_binding.cpp"]
+            },
+            "compile_artifact_cache_hit": true,
+            "compile_cache_hit": true,
+            "compile_artifact_cache_enabled": true,
+            "artifact_node_id": "v1",
+            "artifact_hostname": "ai-11-229",
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle"
+          },
+          "kg_kernel_backend_load_s": 0.03994976356625557,
+          "kg_kernel_backend_session_open_s": 6.0480087995529175e-06,
+          "kg_kernel_compile_and_load_s": 0.04027041792869568,
+          "kg_kernel_build_custom_model_s": 0.06729210168123245,
+          "correctness_early_stop_enabled": true,
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_reference_alias_clone_trials": [],
+          "correctness_reference_cache_poison_enabled": true,
+          "correctness_forward_seed_reset_enabled": true,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "aten_detection_enabled": false,
+          "correctness_inputs_generated_on_gpu": true,
+          "correctness_tf32_disabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "ieee",
+            "cuda.matmul.fp32_precision": "ieee"
+          },
+          "correctness_current_trial": 0,
+          "correctness_current_substage": "custom_forward",
+          "runtime_error": "Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_failed_trial_seed": 734796314,
+          "correctness_runtime_error_stage": "custom_forward",
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "correctness_trial_s": [0.007039226591587067],
+          "correctness_reference_trial_s": [0.0002720467746257782],
+          "correctness_custom_trial_s": [0.0011281650513410568],
+          "correctness_compare_trial_s": [],
+          "correctness_input_generation_trial_s": [0.0028067566454410553],
+          "correctness_input_transfer_trial_s": [
+            8.973851799964905e-05
+          ],
+          "correctness_reference_alias_clone_trial_s": [0.0],
+          "kg_kernel_correctness_s": 0.018670374527573586,
+          "runtime_sanitizer_trigger": "correctness_runtime_error",
+          "runtime_sanitizer_mode": "full",
+          "runtime_sanitizer_execution_mode": "full",
+          "runtime_sanitizer_tool_order": [
+            "memcheck",
+            "synccheck",
+            "racecheck",
+            "initcheck"
+          ],
+          "runtime_sanitizer_error_classification": "memcheck",
+          "runtime_sanitizer_run_all_checks": true,
+          "kg_kernel_runtime_sanitizer_s": 13.801376217976213,
+          "runtime_sanitizer_status": "issues_found",
+          "runtime_sanitizer_issue_count": 24,
+          "kg_kernel_total_s": 13.933069398626685,
+          "gpu_name": "NVIDIA H100 PCIe",
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA H100 PCIe",
+            "compute_capability": "9.0",
+            "cuda_version": "12.9",
+            "driver_version": "590.48.01",
+            "nvcc_version": "12.9"
+          },
+          "wg_pool_idle_wait_s": 7.104873657226562e-05,
+          "wg_pool_execute_s": 14.13875412940979,
+          "wg_pool_restart_s": 0.0019259452819824219,
+          "wg_pool_return_s": 0.0,
+          "wg_pool_total_s": 14.141252040863037,
+          "wg_pool_retry_count": 0,
+          "wg_run_toolkit_s": 14.141841411590576,
+          "tm_enter_monotonic_ns": 12560436092333658,
+          "tm_status_hset_s": 0.0009653568267822266,
+          "split_compile_and_execute": true,
+          "kernel_task_id": "single_cuda_kernel_oob_full_b7d181d7d66e_2_kernel",
+          "tm_json_dumps_s": 0.0007069110870361328,
+          "tm_result_hset_s": 0.0030443668365478516,
+          "tm_complete_task_s": 0.004803657531738281,
+          "tm_exit_monotonic_ns": 12560436097146158,
+          "kernel_eval_failure": true,
+          "task_id": "single_cuda_kernel_oob_full_b7d181d7d66e_2",
+          "entry_point": "Model"
+        },
+        "error_message": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes",
+        "error_code": "RUNTIME_ERROR",
+        "submitted_at": null,
+        "completed_at": null,
+        "processing_time": null,
+        "success": null,
+        "error": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes"
+      },
+      "normalized_env_state": {
+        "task_id": "single_cuda_kernel_oob_full_b7d181d7d66e_2",
+        "status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "reference_memory": null,
+        "kernel_memory": null,
+        "memory_comparison": null,
+        "runtime_sanitizer": {
+          "status": "issues_found",
+          "passed": false,
+          "measurement_complete": false,
+          "requested_checks": [
+            "memcheck",
+            "synccheck",
+            "racecheck",
+            "initcheck"
+          ],
+          "detected_issue_count": 24,
+          "check_results": [
+            {
+              "check": "memcheck",
+              "status": "issues_found",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": true,
+              "input_generation": "gpu",
+              "input_values_exactly_replayed": true,
+              "return_code": 86,
+              "summary_error_count": 24,
+              "observed_issue_count": 24,
+              "parsed_issue_count": 24,
+              "detected_issue_count": 24,
+              "unique_issue_count": 1,
+              "returned_issue_count": 1,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [
+                {
+                  "hazard_type": "invalid_global_write",
+                  "message": "Invalid __global__ write of size 4 bytes",
+                  "access_type": "write",
+                  "memory_space": "global",
+                  "access_size_bytes": 4,
+                  "occurrence_count": 24,
+                  "threads": {
+                    "x": [232, 255],
+                    "y": [0, 0],
+                    "z": [0, 0]
+                  },
+                  "blocks": {
+                    "x": [3, 3],
+                    "y": [0, 0],
+                    "z": [0, 0]
+                  },
+                  "addresses": {
+                    "ranges": ["0x7fbd8e000fa0", "0x7fbd8e000ffc"]
+                  },
+                  "representative_occurrences": [
+                    {
+                      "thread": {
+                        "x": 232,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "block": {
+                        "x": 3,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "address": "0x7fbd8e000fa0"
+                    },
+                    {
+                      "thread": {
+                        "x": 233,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "block": {
+                        "x": 3,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "address": "0x7fbd8e000fa4"
+                    }
+                  ],
+                  "kernel_info": [
+                    {
+                      "name": "single_oob_kernel",
+                      "source": "file generated.cu line 5"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "check": "synccheck",
+              "status": "error",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": false,
+              "input_generation": "gpu",
+              "input_values_exactly_replayed": true,
+              "return_code": 1,
+              "summary_error_count": 0,
+              "observed_issue_count": 0,
+              "parsed_issue_count": 0,
+              "detected_issue_count": 0,
+              "unique_issue_count": 0,
+              "returned_issue_count": 0,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [],
+              "error": "========= COMPUTE-SANITIZER\n========= Target application returned an error\n========= ERROR SUMMARY: 0 errors\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n"
+            },
+            {
+              "check": "racecheck",
+              "status": "error",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": false,
+              "input_generation": "gpu",
+              "input_values_exactly_replayed": true,
+              "return_code": 1,
+              "summary_error_count": 0,
+              "observed_issue_count": 0,
+              "parsed_issue_count": 0,
+              "detected_issue_count": 0,
+              "unique_issue_count": 0,
+              "returned_issue_count": 0,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [],
+              "error": "========= COMPUTE-SANITIZER\n========= Target application returned an error\n========= RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n"
+            },
+            {
+              "check": "initcheck",
+              "status": "error",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": false,
+              "input_generation": "cpu_then_h2d",
+              "input_values_exactly_replayed": false,
+              "return_code": 1,
+              "summary_error_count": 0,
+              "observed_issue_count": 0,
+              "parsed_issue_count": 0,
+              "detected_issue_count": 0,
+              "unique_issue_count": 0,
+              "returned_issue_count": 0,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [],
+              "error": "========= COMPUTE-SANITIZER\n========= Target application returned an error\n========= ERROR SUMMARY: 0 errors\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n"
+            }
+          ],
+          "mode": "full",
+          "run_all_checks": true,
+          "stopped_early": false,
+          "replayed_input_seed": 734796314,
+          "executed_checks": [
+            "memcheck",
+            "synccheck",
+            "racecheck",
+            "initcheck"
+          ],
+          "primary_check": "memcheck",
+          "primary_detected_issue_count": 24,
+          "issue_count_by_check": {
+            "memcheck": 24,
+            "synccheck": 0,
+            "racecheck": 0,
+            "initcheck": 0
+          },
+          "issues_truncated": false,
+          "selection_mode": "full",
+          "error_classification": "memcheck"
+        },
+        "metadata": {
+          "memory_environment_floor": {
+            "allocated_bytes": 512,
+            "reserved_bytes": 2097152
+          },
+          "kernel_memory_allocator_check": {
+            "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+            "severity": "warning",
+            "measurement_impact": "may_underestimate",
+            "direct_cuda_allocation_detected": true,
+            "direct_cuda_allocation_apis": ["cudaMalloc"],
+            "direct_cuda_allocation_matches": [
+              {
+                "api": "cudaMalloc",
+                "line": 15,
+                "snippet": "cudaMalloc(&exact_allocation, static_cast<size_t>(n) * sizeof(float));"
+              }
+            ],
+            "warning": "Direct CUDA allocation APIs were found. torch.cuda peak-memory counters only track allocations managed by PyTorch's CUDA caching allocator, so the reported memory can be an underestimate."
+          },
+          "precompiled_artifact_used": true,
+          "compile_artifact": {
+            "build_backend": "tvm_ffi.cpp.build"
+          },
+          "correctness_forward_seed_reset_enabled": true,
+          "aten_detection_enabled": false,
+          "correctness_inputs_generated_on_gpu": true,
+          "correctness_tf32_disabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "ieee",
+            "cuda.matmul.fp32_precision": "ieee"
+          },
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_failed_trial_seed": 734796314,
+          "correctness_runtime_error_stage": "custom_forward",
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "runtime_sanitizer_trigger": "correctness_runtime_error",
+          "runtime_sanitizer_mode": "full",
+          "runtime_sanitizer_execution_mode": "full",
+          "runtime_sanitizer_tool_order": [
+            "memcheck",
+            "synccheck",
+            "racecheck",
+            "initcheck"
+          ],
+          "runtime_sanitizer_error_classification": "memcheck",
+          "runtime_sanitizer_run_all_checks": true,
+          "runtime_sanitizer_status": "issues_found",
+          "runtime_sanitizer_issue_count": 24,
+          "kg_kernel_total_s": 13.9331,
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA H100 PCIe",
+            "compute_capability": "9.0",
+            "cuda_version": "12.9",
+            "driver_version": "590.48.01",
+            "nvcc_version": "12.9"
+          },
+          "kernel_eval_failure": true,
+          "refer_entry_point": "Model",
+          "kernel_entry_point": "ModelNew"
+        },
+        "error_message": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes\nother error message:\nTraceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/b1d4a267cbe7909f0609ecbbf3daf5c10448dd087dbce4f3c2c2d3d5b058916e/kernelgym_tvm_ffi_b1d4a267cbe7909f/model_new.py\", line 10, in forward\n    raise RuntimeError(\"illegal memory access out of bounds after CUDA launch\")\nRuntimeError: illegal memory access out of bounds after CUDA launch\n",
+        "processing_time": null,
+        "success": false,
+        "error": "KERNEL_EVAL_FAILED",
+        "precheck": "passed"
+      },
+      "env_extra_info": {
+        "time_coverage": 0.0,
+        "num_coverage": 0.0,
+        "correctness": false,
+        "compilation": true,
+        "speedup": 0.0,
+        "decoy_kernel": false,
+        "precheck": "passed",
+        "detail_env_time": {
+          "compile_time": 0.0,
+          "runtime_sanitizer_time_s": 13.8009
+        }
+      }
+    }
+  ],
+  "all_expectations_met": true,
+  "completed_at": "2026-08-25T17:04:36.001313+00:00"
+}

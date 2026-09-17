@@ -35,10 +35,11 @@ This file indexes stable repository docs and evidence locations.
 | `scripts/debug_line451_rmsnorm_nondeterminism.py` | Standalone reproduction for line 451 RMSNorm CUDA-Agent nondeterministic correctness. |
 | `scripts/benchmark_worker_spawn.py` | Isolated staged-import, real worker-constructor, and subprocess-pool replenishment benchmark with JSON evidence output. |
 | `scripts/reproduce_runtime_import_latency.py` | Fresh-process serial and concurrent module-import comparison between shared and node-local Python environments. |
+| `scripts/profile_speed_test_ncu.py`, `scripts/benchmark_speed_test_block_cv.py`, `scripts/benchmark_speed_test_block_cv_fresh_process.py`, `scripts/validate_noise_floor_cases.py` | Reproducible NCU, same/fresh-process block CV comparisons, and fresh-process compile/correctness validation of the ten-case TVM-FFI noise-floor suite. |
 | `kernelgym/backend/kernelbench/cuda_agent_backend.py` | CUDA-Agent parsing, validation scaffold, compile/load backend. |
 | `kernelgym/backend/kernelbench/tvm_ffi_backend.py` | TVM-FFI compile/load backend and compile artifact cache. |
 | `kernelgym/schema/precision.py` | Canonical FP32/FP16/BF16 aliases and fail-closed internal normalization. |
-| `kernelgym/toolkit/kernelbench/pipeline.py` | KernelBench compile/load/correctness/performance pipeline. |
+| `kernelgym/toolkit/kernelbench/pipeline.py` | KernelBench compile/load/correctness/performance pipeline, including request-gated detailed correctness and Sanitizer execution. |
 | `kernelgym/toolkit/kernelbench/input_perturbation.py` | Distribution-aware `torch.rand`/`torch.randn` correctness input capture and transformations. |
 | `kernelgym/toolkit/kernelbench/profiling.py` | CUDA profiling, exact MusaCoder Appendix J plus explicit PyTorch compatibility ATen classification, and named-kernel coverage extraction. |
 | `kernelgym/toolkit/kernelbench/compute_sanitizer.py` | Isolated scenario-ordered memcheck/racecheck/synccheck/initcheck execution, bounded budgets, and structured report parsing. |
@@ -62,7 +63,7 @@ This file indexes stable repository docs and evidence locations.
 | `tests/workers/` | CPU/GPU worker, subprocess-pool, monitor, shutdown-drain, and quarantine tests. |
 | `tests/utils/` | Core-dump and page-user notification utility tests. |
 | `tests/kernelbench/backends/` | CUDA-Agent and TVM-FFI backend/schema tests. |
-| `tests/kernelbench/correctness/` | Correctness, cache-poison, and true-FP32 policy tests. |
+| `tests/kernelbench/correctness/` | Legacy/default and detailed correctness, cache-poison, and true-FP32 policy tests. |
 | `tests/kernelbench/execution_modes/` | Active eval plus no-grad correctness, timing, Triton-detection, and cache-fence regressions. |
 | `tests/kernelbench/profiling/` | CUPTI, profiler capture/trial, and ATen decoy-detection tests. |
 | `tests/kernelbench/timing/` | CUDA timing-window tests. |
@@ -84,10 +85,14 @@ Tracked repository evidence artifacts only. Local-only `docs/evidence/`, run log
 
 | Path | Purpose |
 | --- | --- |
-| `benchmarks/review_evidence/gemm_large_memory_delta_kernel_schema_h100_20260826.json` | Final redeployed 1024x1024 H100 GEMM evidence using reference/kernel role names and a deterministic 64 MB Kernel memory delta. |
-| `benchmarks/review_evidence/gemm_rmsnorm_speed_test_local_20260902.json` | Three-run live-worker validation of the fixed TVM-FFI GEMM + RMSNorm speed-test handler, including per-run/average timings and zero retained Redis result records. |
+| `benchmarks/review_evidence/*memory*.json`, `benchmarks/review_evidence/torch_cuda_memory_trial_h100.json` | H100 memory accounting evidence spanning PyTorch and TVM-FFI trials, absolute peaks, deltas, response units, and the final reference/kernel schema. |
+| `benchmarks/review_evidence/gemm_rmsnorm_speed_test_local_20260902.json`, `benchmarks/review_evidence/gemm_rmsnorm_fused_speed_test_h100_20260902.json`, `benchmarks/review_evidence/gemm_rmsnorm_speed_test_ncu_h100_20260902.json` | Live-worker validation of the fixed and fused TVM-FFI GEMM + RMSNorm speed-test handler, including three-run timing, Redis cleanup, and NCU output. |
+| `benchmarks/review_evidence/gemm_rmsnorm_reference_vs_candidate_ncu_h100_20260903.json` | Full same-case NCU output and aggregate GPU-kernel comparison for eager PyTorch versus the fused TVM-FFI candidate. |
 | `benchmarks/review_evidence/official_27b_review_evidence.json` | Adversarial review evidence for official 27B 3-binding c3/c8 runs: pairing, sample IDs, coverage, statuses, queue deltas, residuals, and c3/c8 consistency. |
 | `benchmarks/review_evidence/official_27b_perf_step_correctness_summary.json` | Perf-step breakdown split by completed, correct-only, and incorrect-completed rows for official 27B c3/c8 runs. |
-| `benchmarks/review_evidence/runtime_sanitizer_tvm_ffi_h100_20260826_pass.json` | Current-schema H100 TVM-FFI validation for clean, OOB, race, invalid synchronization, and uninitialized-read fixtures. |
-
+| `benchmarks/review_evidence/runtime_sanitizer_*.json`, `benchmarks/review_evidence/kernelgym_post_sanitizer_recycle_pass_h100_20260825.json`, `benchmarks/review_evidence/cuda_stage_fault_propagation_h100_20260915.md`, `benchmarks/review_evidence/cuda_stage_fault_post_restart_h100_20260915.json` | Local/service/redeployment H100 sanitizer experiments plus current-schema clean, OOB, race, invalid synchronization, uninitialized-read fixtures, process recycle, early stage fault propagation, and post-restart verification. |
+| `benchmarks/review_evidence/current_correctness_nonfinite_case_h100_20260908.json`, `benchmarks/review_evidence/return_detail_correctness_gate_h100_20260909.json`, `benchmarks/review_evidence/deployed_return_detail_correctness_gate_h100_20260909.json` | Detailed-mode mismatch output plus local and deployed H100 default-vs-detailed gate comparisons, including effective Sanitizer gating. |
+| `benchmarks/review_evidence/current_correctness_finite_case_h100_20260908.json`, `benchmarks/review_evidence/correctness_diagnosis_v1_h100_20260917.json`, `benchmarks/review_evidence/correctness_diagnosis_deployed_h100_20260917.json` | Detailed-mode correctness response plus local and deployed metadata-only high-confidence diagnosis, terminal-tile localization, and Sanitizer-suppression A/B evidence. |
+| `benchmarks/review_evidence/mismatch_triggered_sanitizer_h100_20260908.json` | H100 integration evidence that output mismatches trigger full sanitizer replay, return detected race issues, and omit clean sanitizer feedback. |
+| `benchmarks/review_evidence/gemm_rmsnorm_block_cv_h100_20260908.json`, `benchmarks/review_evidence/gemm_rmsnorm_block_cv_internal_range_h100_20260908.json`, `benchmarks/review_evidence/gemm_rmsnorm_block_cv_post_restart_h100_20260908.json`, `benchmarks/review_evidence/gemm_rmsnorm_block_cv_post_restart_repeat2_h100_20260908.json`, `benchmarks/review_evidence/gemm_rmsnorm_block_cv_warmup10_h100_20260908.json`, `benchmarks/review_evidence/gemm_rmsnorm_block_cv_fresh_process_warmup10_h100_20260908.json`, `benchmarks/review_evidence/kernelgym_restart_gpu_ownership_h100_20260908.json`, `benchmarks/review_evidence/noise_floor_case_smoke_h100_20260909.json` | Six ten-block uncached H100 GEMM + RMSNorm studies plus 10/10 fresh-process compile/correctness evidence for the short/medium/long TVM-FFI calibration suite. |
 External end-to-end feedback evidence: `/data/lihongbin/code/Code-Agent/slime/examples/kernel_agent/test/log/pseudo_relu_tvm_ffi_input_perturbations_20260826_v2.json` contains the deployed TVM-FFI pseudo-ReLU A/B request, raw KernelGYM responses, and normalized slime environment feedback using the final difference-field schema.

@@ -1,0 +1,61 @@
+{
+  "captured_at_utc": "2026-09-17",
+  "environment": {
+    "gpu": "NVIDIA H100 PCIe",
+    "backend": "tvm_ffi",
+    "return_detail_correctness": true
+  },
+  "policy": {
+    "uses_existing_metadata_only": true,
+    "extra_kernel_runs": 0,
+    "extra_gpu_operations": 0,
+    "default_mode_unchanged": true,
+    "skip_when_sanitizer_dispatched": true,
+    "emit_only_high_confidence_patterns": true
+  },
+  "recognized_categories": [
+    "output_contract_error",
+    "nonfinite_output",
+    "tail_or_boundary_error",
+    "batch_indexing_error",
+    "row_localized_error",
+    "tile_localized_error",
+    "tolerance_sensitive_numerical_error",
+    "large_magnitude_or_indexing_error"
+  ],
+  "real_mismatch_ab": {
+    "case": "safe TVM-FFI copy kernel compared with reference output offset by +1.0",
+    "sanitizer_disabled": {
+      "compiled": true,
+      "correctness": false,
+      "error_code": "CORRECTNESS_ERROR",
+      "correctness_diagnosis": {
+        "version": "v1",
+        "category": "large_magnitude_or_indexing_error",
+        "confidence": 0.8,
+        "text": "Element correctness remains 0.00% through 16x tolerance; this is unlikely to be a small precision error, so inspect indexing, permutation, masking, or core logic.",
+        "evidence": [
+          "tolerance curve is flat from 1x through 16x"
+        ]
+      },
+      "diagnosis_appended_to_error_message": true,
+      "runtime_sanitizer_present": false
+    },
+    "sanitizer_enabled": {
+      "compiled": true,
+      "correctness": false,
+      "error_code": "CORRECTNESS_ERROR",
+      "sanitizer_executed_and_returned_clean": true,
+      "clean_sanitizer_feedback_omitted_by_existing_policy": true,
+      "correctness_diagnosis_present": false,
+      "diagnosis_appended_to_error_message": false
+    }
+  },
+  "verification": {
+    "targeted_tests": 43,
+    "broader_relevant_tests": 261,
+    "ruff": "passed",
+    "git_diff_check": "passed",
+    "service_restarted": false
+  }
+}

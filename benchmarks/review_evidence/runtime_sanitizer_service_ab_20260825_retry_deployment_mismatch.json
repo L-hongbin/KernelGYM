@@ -1,0 +1,1383 @@
+{
+  "schema_version": "kernelgym-runtime-sanitizer-service-ab-v1",
+  "generated_at": "2026-08-24T15:21:40.001344+00:00",
+  "kernel_env_url": "http://192.168.16.21:20111",
+  "health": {
+    "http_status": 200,
+    "response": {
+      "status": "healthy",
+      "timestamp": "2026-08-24T15:21:22.606729Z",
+      "gpu_status": {
+        "cuda:0": {
+          "name": "NVIDIA A800-SXM4-80GB",
+          "memory_total": "80.0GB",
+          "memory_used": "0.5GB",
+          "memory_used_percent": "0.6%",
+          "utilization_gpu_percent": "0.0%",
+          "available": true,
+          "source": "nvidia-smi"
+        },
+        "cuda:1": {
+          "name": "NVIDIA A800-SXM4-80GB",
+          "memory_total": "80.0GB",
+          "memory_used": "1.0GB",
+          "memory_used_percent": "1.3%",
+          "utilization_gpu_percent": "0.0%",
+          "available": true,
+          "source": "nvidia-smi"
+        },
+        "cuda:2": {
+          "name": "NVIDIA A800-SXM4-80GB",
+          "memory_total": "80.0GB",
+          "memory_used": "1.0GB",
+          "memory_used_percent": "1.2%",
+          "utilization_gpu_percent": "0.0%",
+          "available": true,
+          "source": "nvidia-smi"
+        },
+        "cuda:3": {
+          "name": "NVIDIA A800-SXM4-80GB",
+          "memory_total": "80.0GB",
+          "memory_used": "0.0GB",
+          "memory_used_percent": "0.0%",
+          "utilization_gpu_percent": "0.0%",
+          "available": true,
+          "source": "nvidia-smi"
+        },
+        "cuda:4": {
+          "name": "NVIDIA A800-SXM4-80GB",
+          "memory_total": "80.0GB",
+          "memory_used": "1.0GB",
+          "memory_used_percent": "1.2%",
+          "utilization_gpu_percent": "0.0%",
+          "available": true,
+          "source": "nvidia-smi"
+        },
+        "cuda:5": {
+          "name": "NVIDIA A800-SXM4-80GB",
+          "memory_total": "80.0GB",
+          "memory_used": "1.0GB",
+          "memory_used_percent": "1.2%",
+          "utilization_gpu_percent": "0.0%",
+          "available": true,
+          "source": "nvidia-smi"
+        },
+        "cuda:6": {
+          "name": "NVIDIA A800-SXM4-80GB",
+          "memory_total": "80.0GB",
+          "memory_used": "0.0GB",
+          "memory_used_percent": "0.0%",
+          "utilization_gpu_percent": "0.0%",
+          "available": true,
+          "source": "nvidia-smi"
+        },
+        "cuda:7": {
+          "name": "NVIDIA A800-SXM4-80GB",
+          "memory_total": "80.0GB",
+          "memory_used": "2.5GB",
+          "memory_used_percent": "3.1%",
+          "utilization_gpu_percent": "0.0%",
+          "available": true,
+          "source": "nvidia-smi"
+        }
+      },
+      "queue_status": {
+        "pending": 0,
+        "processing": 0,
+        "completed": 0
+      },
+      "memory_usage": {
+        "cpu_percent": 5.2,
+        "memory_percent": 5.8,
+        "memory_available": "949.4GB",
+        "memory_total": "1007.5GB"
+      },
+      "active_tasks": 0,
+      "total_processed": 0,
+      "uptime": 0.0,
+      "snapshot_age_s": 0.496
+    }
+  },
+  "cases": [
+    {
+      "case": "ambiguous_disabled",
+      "payload": {
+        "task_id": "sanitizer_ab_ambiguous_disabled_b670725f9389",
+        "reference_code": "\nimport torch\nimport torch.nn as nn\n\n\nclass Model(nn.Module):\n    def __init__(self, num_features, eps, momentum):\n        super().__init__()\n        self.batch_norm = nn.BatchNorm2d(num_features, eps=eps, momentum=momentum)\n\n    def forward(self, x):\n        x = self.batch_norm(x)\n        return x\n\n\nbatch_size = 128\nnum_features = 3\nheight, width = 1024, 32\nmomentum = 0.1\neps = 1e-5\n\n\ndef get_inputs():\n    return [torch.randn(batch_size, num_features, height, width)]\n\n\ndef get_init_inputs():\n    return [num_features, eps, momentum]\n",
+        "kernel_code": "\n### CUDA_KERNELS\n```cpp\n#include <cuda_runtime.h>\n\n__global__ void batch_norm_stats_kernel(\n    const float* input,\n    float* mean,\n    float* inv_std,\n    int batch,\n    int channels,\n    int spatial,\n    float eps) {\n    int channel = blockIdx.x;\n    int elements_per_channel = batch * spatial;\n    double local_sum = 0.0;\n    double local_square_sum = 0.0;\n\n    for (int offset = threadIdx.x; offset < elements_per_channel; offset += blockDim.x) {\n        int batch_index = offset / spatial;\n        int spatial_index = offset - batch_index * spatial;\n        int input_index = (batch_index * channels + channel) * spatial + spatial_index;\n        double value = static_cast<double>(input[input_index]);\n        local_sum += value;\n        local_square_sum += value * value;\n    }\n\n    __shared__ double shared_sum[256];\n    __shared__ double shared_square_sum[256];\n    shared_sum[threadIdx.x] = local_sum;\n    shared_square_sum[threadIdx.x] = local_square_sum;\n    __syncthreads();\n\n    for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {\n        if (threadIdx.x < stride) {\n            shared_sum[threadIdx.x] += shared_sum[threadIdx.x + stride];\n            shared_square_sum[threadIdx.x] += shared_square_sum[threadIdx.x + stride];\n        }\n        __syncthreads();\n    }\n\n    if (threadIdx.x == 0) {\n        double channel_mean = shared_sum[0] / elements_per_channel;\n        double channel_variance =\n            shared_square_sum[0] / elements_per_channel - channel_mean * channel_mean;\n        channel_variance = channel_variance > 0.0 ? channel_variance : 0.0;\n        mean[channel] = static_cast<float>(channel_mean);\n        inv_std[channel] = rsqrtf(static_cast<float>(channel_variance) + eps);\n    }\n}\n\n__global__ void batch_norm_kernel(\n    float* output,\n    const float* input,\n    const float* mean,\n    const float* inv_std,\n    int channels,\n    int spatial,\n    int output_size) {\n    int index = blockIdx.x * blockDim.x + threadIdx.x;\n    if (index < output_size) {\n        int channel = (index / spatial) % channels;\n        output[index] = (input[index] - mean[channel]) * inv_std[channel];\n    }\n}\n\nextern \"C\" void batch_norm_launcher(\n    float* output,\n    const float* input,\n    float* mean,\n    float* inv_std,\n    int batch,\n    int channels,\n    int spatial,\n    int output_size,\n    float eps,\n    void* stream_handle) {\n    auto stream = static_cast<cudaStream_t>(stream_handle);\n    constexpr int threads = 256;\n    batch_norm_stats_kernel<<<channels, threads, 0, stream>>>(\n        input, mean, inv_std, batch, channels, spatial, eps);\n    batch_norm_kernel<<<(output_size + threads - 1) / threads, threads, 0, stream>>>(\n        output, input, mean, inv_std, channels, spatial, output_size);\n}\n```\n\n### APPLY_BINDINGS\n```cpp\n#include <tvm/ffi/tvm_ffi.h>\n#include <tvm/ffi/extra/c_env_api.h>\n\nextern \"C\" void batch_norm_launcher(\n    float* output,\n    const float* input,\n    float* mean,\n    float* inv_std,\n    int batch,\n    int channels,\n    int spatial,\n    int output_size,\n    float eps,\n    void* stream_handle);\n\nvoid batch_norm_forward(\n    tvm::ffi::Tensor input,\n    tvm::ffi::Tensor output,\n    tvm::ffi::Tensor mean,\n    tvm::ffi::Tensor inv_std,\n    double eps) {\n    auto shape = input.shape();\n    TVM_FFI_ICHECK(shape.size() == 4) << \"BatchNorm2d expects an NCHW tensor\";\n    void* stream_handle = TVMFFIEnvGetStream(input.device().device_type, input.device().device_id);\n    batch_norm_launcher(\n        static_cast<float*>(output.data_ptr()),\n        static_cast<const float*>(input.data_ptr()),\n        static_cast<float*>(mean.data_ptr()),\n        static_cast<float*>(inv_std.data_ptr()),\n        static_cast<int>(shape[0]),\n        static_cast<int>(shape[1]),\n        static_cast<int>(shape[2] * shape[3]),\n        static_cast<int>(output.numel()),\n        static_cast<float>(eps),\n        stream_handle);\n}\n\nTVM_FFI_DLL_EXPORT_TYPED_FUNC(batch_norm_forward, batch_norm_forward);\n```\n\n### MODEL_NEW\n```python\nimport torch\nimport torch.nn as nn\nimport tvm_ffi_extension\n\n\nclass ModelNew(nn.Module):\n    def __init__(self, num_features, eps, momentum):\n        super().__init__()\n        self.num_features = num_features\n        self.eps = eps\n        self.momentum = momentum\n\n    def forward(self, x):\n        output = torch.empty_like(x)\n        mean = torch.empty((self.num_features,), device=x.device, dtype=torch.float32)\n        inv_std = torch.empty((self.num_features,), device=x.device, dtype=torch.float32)\n        tvm_ffi_extension.batch_norm_forward(\n            x.contiguous(), output, mean, inv_std, float(self.eps)\n        )\n        raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\n```\n",
+        "toolkit": "kernelbench",
+        "backend_adapter": "kernelbench",
+        "backend": "tvm_ffi",
+        "reference_backend": "torch",
+        "entry_point": "Model",
+        "uuid": "sanitizer-ab-b670725f9389",
+        "num_correct_trials": 1,
+        "num_perf_trials": 1,
+        "num_warmup": 0,
+        "timeout": 240,
+        "priority": "normal",
+        "force_refresh": true,
+        "run_correctness": true,
+        "run_performance": false,
+        "measure_performance": false,
+        "enable_profiling": false,
+        "enable_ncu": false,
+        "detect_decoy_kernel": false,
+        "run_triton_detection": false,
+        "use_reference_cache": false,
+        "enable_compile_artifact_cache": true,
+        "enable_compute_sanitizer": false,
+        "compute_sanitizer_tools": [
+          "memcheck",
+          "synccheck",
+          "racecheck",
+          "initcheck"
+        ]
+      },
+      "http_status": 200,
+      "observed": {
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/kernelgym/toolkit/kernelbench/correctness.py\", line 477, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad/kernelgym_tvm_ffi_da941b3aec4c3339/model_new.py\", line 20, in forward\n    raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\nRuntimeError: intentional correctness-stage runtime failure after CUDA launch\n",
+        "runtime_error": "Traceback (most recent call last):\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/kernelgym/toolkit/kernelbench/correctness.py\", line 477, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad/kernelgym_tvm_ffi_da941b3aec4c3339/model_new.py\", line 20, in forward\n    raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\nRuntimeError: intentional correctness-stage runtime failure after CUDA launch\n",
+        "runtime_sanitizer_status": null,
+        "runtime_sanitizer_reason": null,
+        "error_classification": null,
+        "run_all_checks": null,
+        "requested_tools": null,
+        "executed_tools": null,
+        "stopped_early": null,
+        "detected_issue_count": null
+      },
+      "timings": {
+        "http_elapsed_s": 9.605144,
+        "processing_time_s": null,
+        "kernel_total_s": 6.557972705923021,
+        "backend_compile_s": 0.0,
+        "correctness_s": 0.09221471752971411,
+        "runtime_sanitizer_stage_s": null,
+        "runtime_sanitizer_wall_s": null,
+        "per_tool_wall_s": {}
+      },
+      "raw_api_response": {
+        "task_id": "sanitizer_ab_ambiguous_disabled_b670725f9389",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "metadata": {
+          "hardware": "NVIDIA A800-SXM4-80GB",
+          "device": "cuda:3",
+          "precision": "fp32",
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "model_mode": "eval",
+          "grad_mode": "no_grad",
+          "fp32_math_mode": "tf32",
+          "kg_stage_completed_s": {
+            "kernel.load_original_src": 0.0019532907754182816,
+            "kernel.prepare_init_inputs": 0.0023470334708690643,
+            "kernel.build_reference_model": 0.02463681995868683,
+            "kernel.compile_and_load": 6.430263069458306,
+            "kernel.build_custom_model": 0.00218797754496336,
+            "kernel.correctness": 0.09221471752971411,
+            "kernel.incorrect_backend_usage_probe": 0.00020078197121620178
+          },
+          "kg_stage_total_started_at_unix_s": 1787584885.6488595,
+          "kg_stage_total_started_monotonic_ns": 7110599973622577,
+          "kg_stage_current_prefix": "kg_kernel",
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe",
+          "kg_stage_is_active": false,
+          "kg_stage_current_started_at_unix_s": 1787584892.2064493,
+          "kg_stage_current_started_monotonic_ns": 7110606531215502,
+          "kg_stage_current_elapsed_s": 0.00020078197121620178,
+          "kg_kernel_load_original_src_s": 0.0019532907754182816,
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "kg_kernel_prepare_init_inputs_s": 0.0023470334708690643,
+          "kg_kernel_build_reference_model_s": 0.02463681995868683,
+          "precompiled_artifact_used": true,
+          "kg_kernel_backend_compile_s": 0.0,
+          "build_backend": "tvm_ffi.cpp.build",
+          "compile_artifact_cache_enabled": true,
+          "compile_artifact_cache_hit": true,
+          "compile_artifact": {
+            "backend": "tvm_ffi",
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad",
+            "compiled": true,
+            "device": "cuda:0",
+            "entry_point": "ModelNew",
+            "module_name": "kernelgym_tvm_ffi_da941b3aec4c3339",
+            "precheck": {
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "binding_mode": "tvm_ffi",
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "cuda_source_count": 2,
+              "detected_extension_calls": [
+                "batch_norm_forward"
+              ],
+              "error_code": null,
+              "error_message": "",
+              "exported_functions": [
+                "batch_norm_forward"
+              ],
+              "header_files": [],
+              "passed": true,
+              "static_check": {
+                "errors": [],
+                "passed": true,
+                "precision": "fp32",
+                "warnings": []
+              }
+            },
+            "profiling_hints": {
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "batch_norm_kernel",
+                "batch_norm_stats_kernel"
+              ],
+              "detected_extension_calls": [
+                "batch_norm_forward"
+              ],
+              "exported_functions": [
+                "batch_norm_forward"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "compile_artifact_cache_hit": true,
+            "compile_cache_hit": true,
+            "compile_artifact_cache_enabled": true,
+            "artifact_node_id": "node-1",
+            "artifact_hostname": "ai-16-24",
+            "target_gpu_worker_id": "node-1_gpu_2",
+            "target_gpu_selection_strategy": "idle"
+          },
+          "kg_kernel_backend_load_s": 6.429283553734422,
+          "kg_kernel_backend_session_open_s": 1.0396353900432587e-05,
+          "kg_kernel_compile_and_load_s": 6.430263069458306,
+          "kg_kernel_build_custom_model_s": 0.00218797754496336,
+          "correctness_early_stop_enabled": true,
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_reference_alias_clone_trials": [],
+          "correctness_reference_cache_poison_enabled": true,
+          "correctness_forward_seed_reset_enabled": true,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "aten_detection_enabled": false,
+          "correctness_candidate_forward_completed": false,
+          "correctness_candidate_forward_completed_trials": [],
+          "correctness_output_mismatch": false,
+          "correctness_tf32_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "correctness_current_trial": 0,
+          "correctness_current_substage": "custom_forward",
+          "runtime_error": "Traceback (most recent call last):\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/kernelgym/toolkit/kernelbench/correctness.py\", line 477, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad/kernelgym_tvm_ffi_da941b3aec4c3339/model_new.py\", line 20, in forward\n    raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\nRuntimeError: intentional correctness-stage runtime failure after CUDA launch\n",
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "correctness_trial_s": [
+            0.08672911208122969
+          ],
+          "correctness_reference_trial_s": [
+            0.05069809779524803
+          ],
+          "correctness_custom_trial_s": [
+            0.00043884851038455963
+          ],
+          "correctness_compare_trial_s": [],
+          "correctness_input_generation_trial_s": [
+            0.03035547584295273
+          ],
+          "correctness_input_transfer_trial_s": [
+            4.646088927984238e-05
+          ],
+          "correctness_reference_alias_clone_trial_s": [
+            0.0
+          ],
+          "kg_kernel_correctness_s": 0.09221471752971411,
+          "incorrect_backend_usage_probe": {
+            "backend": "tvm_ffi",
+            "attempted": false,
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED"
+          },
+          "kg_kernel_incorrect_backend_usage_probe_s": 0.00020078197121620178,
+          "kg_kernel_total_s": 6.557972705923021,
+          "gpu_name": "NVIDIA A800-SXM4-80GB",
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA A800-SXM4-80GB",
+            "compute_capability": "8.0",
+            "cuda_version": "12.9",
+            "driver_version": "575.51.03",
+            "nvcc_version": "12.9"
+          },
+          "wg_pool_idle_wait_s": 0.0002186298370361328,
+          "wg_pool_execute_s": 8.540736198425293,
+          "wg_pool_restart_s": 0.16680622100830078,
+          "wg_pool_return_s": 0.0,
+          "wg_pool_total_s": 8.708148956298828,
+          "wg_pool_retry_count": 0,
+          "wg_run_toolkit_s": 8.71207070350647,
+          "tm_enter_monotonic_ns": 5404436491832268,
+          "split_compile_and_execute": true,
+          "kernel_task_id": "sanitizer_ab_ambiguous_disabled_b670725f9389_kernel",
+          "tm_status_hset_s": 0.0004189014434814453,
+          "tm_json_dumps_s": 0.00010323524475097656,
+          "tm_result_hset_s": 0.0004189014434814453,
+          "tm_complete_task_s": 0.0005452632904052734,
+          "tm_exit_monotonic_ns": 5404436492377565
+        },
+        "error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/kernelgym/toolkit/kernelbench/correctness.py\", line 477, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad/kernelgym_tvm_ffi_da941b3aec4c3339/model_new.py\", line 20, in forward\n    raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\nRuntimeError: intentional correctness-stage runtime failure after CUDA launch\n",
+        "error_code": "RUNTIME_ERROR",
+        "submitted_at": null,
+        "completed_at": null,
+        "processing_time": null
+      },
+      "raw_env_state": {
+        "task_id": "sanitizer_ab_ambiguous_disabled_b670725f9389",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "metadata": {
+          "hardware": "NVIDIA A800-SXM4-80GB",
+          "device": "cuda:3",
+          "precision": "fp32",
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "model_mode": "eval",
+          "grad_mode": "no_grad",
+          "fp32_math_mode": "tf32",
+          "kg_stage_completed_s": {
+            "kernel.load_original_src": 0.0019532907754182816,
+            "kernel.prepare_init_inputs": 0.0023470334708690643,
+            "kernel.build_reference_model": 0.02463681995868683,
+            "kernel.compile_and_load": 6.430263069458306,
+            "kernel.build_custom_model": 0.00218797754496336,
+            "kernel.correctness": 0.09221471752971411,
+            "kernel.incorrect_backend_usage_probe": 0.00020078197121620178
+          },
+          "kg_stage_total_started_at_unix_s": 1787584885.6488595,
+          "kg_stage_total_started_monotonic_ns": 7110599973622577,
+          "kg_stage_current_prefix": "kg_kernel",
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe",
+          "kg_stage_is_active": false,
+          "kg_stage_current_started_at_unix_s": 1787584892.2064493,
+          "kg_stage_current_started_monotonic_ns": 7110606531215502,
+          "kg_stage_current_elapsed_s": 0.00020078197121620178,
+          "kg_kernel_load_original_src_s": 0.0019532907754182816,
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "kg_kernel_prepare_init_inputs_s": 0.0023470334708690643,
+          "kg_kernel_build_reference_model_s": 0.02463681995868683,
+          "precompiled_artifact_used": true,
+          "kg_kernel_backend_compile_s": 0.0,
+          "build_backend": "tvm_ffi.cpp.build",
+          "compile_artifact_cache_enabled": true,
+          "compile_artifact_cache_hit": true,
+          "compile_artifact": {
+            "backend": "tvm_ffi",
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad",
+            "compiled": true,
+            "device": "cuda:0",
+            "entry_point": "ModelNew",
+            "module_name": "kernelgym_tvm_ffi_da941b3aec4c3339",
+            "precheck": {
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "binding_mode": "tvm_ffi",
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "cuda_source_count": 2,
+              "detected_extension_calls": [
+                "batch_norm_forward"
+              ],
+              "error_code": null,
+              "error_message": "",
+              "exported_functions": [
+                "batch_norm_forward"
+              ],
+              "header_files": [],
+              "passed": true,
+              "static_check": {
+                "errors": [],
+                "passed": true,
+                "precision": "fp32",
+                "warnings": []
+              }
+            },
+            "profiling_hints": {
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "batch_norm_kernel",
+                "batch_norm_stats_kernel"
+              ],
+              "detected_extension_calls": [
+                "batch_norm_forward"
+              ],
+              "exported_functions": [
+                "batch_norm_forward"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "compile_artifact_cache_hit": true,
+            "compile_cache_hit": true,
+            "compile_artifact_cache_enabled": true,
+            "artifact_node_id": "node-1",
+            "artifact_hostname": "ai-16-24",
+            "target_gpu_worker_id": "node-1_gpu_2",
+            "target_gpu_selection_strategy": "idle"
+          },
+          "kg_kernel_backend_load_s": 6.429283553734422,
+          "kg_kernel_backend_session_open_s": 1.0396353900432587e-05,
+          "kg_kernel_compile_and_load_s": 6.430263069458306,
+          "kg_kernel_build_custom_model_s": 0.00218797754496336,
+          "correctness_early_stop_enabled": true,
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_reference_alias_clone_trials": [],
+          "correctness_reference_cache_poison_enabled": true,
+          "correctness_forward_seed_reset_enabled": true,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "aten_detection_enabled": false,
+          "correctness_candidate_forward_completed": false,
+          "correctness_candidate_forward_completed_trials": [],
+          "correctness_output_mismatch": false,
+          "correctness_tf32_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "correctness_current_trial": 0,
+          "correctness_current_substage": "custom_forward",
+          "runtime_error": "Traceback (most recent call last):\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/kernelgym/toolkit/kernelbench/correctness.py\", line 477, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad/kernelgym_tvm_ffi_da941b3aec4c3339/model_new.py\", line 20, in forward\n    raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\nRuntimeError: intentional correctness-stage runtime failure after CUDA launch\n",
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "correctness_trial_s": [
+            0.08672911208122969
+          ],
+          "correctness_reference_trial_s": [
+            0.05069809779524803
+          ],
+          "correctness_custom_trial_s": [
+            0.00043884851038455963
+          ],
+          "correctness_compare_trial_s": [],
+          "correctness_input_generation_trial_s": [
+            0.03035547584295273
+          ],
+          "correctness_input_transfer_trial_s": [
+            4.646088927984238e-05
+          ],
+          "correctness_reference_alias_clone_trial_s": [
+            0.0
+          ],
+          "kg_kernel_correctness_s": 0.09221471752971411,
+          "incorrect_backend_usage_probe": {
+            "backend": "tvm_ffi",
+            "attempted": false,
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED"
+          },
+          "kg_kernel_incorrect_backend_usage_probe_s": 0.00020078197121620178,
+          "kg_kernel_total_s": 6.557972705923021,
+          "gpu_name": "NVIDIA A800-SXM4-80GB",
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA A800-SXM4-80GB",
+            "compute_capability": "8.0",
+            "cuda_version": "12.9",
+            "driver_version": "575.51.03",
+            "nvcc_version": "12.9"
+          },
+          "wg_pool_idle_wait_s": 0.0002186298370361328,
+          "wg_pool_execute_s": 8.540736198425293,
+          "wg_pool_restart_s": 0.16680622100830078,
+          "wg_pool_return_s": 0.0,
+          "wg_pool_total_s": 8.708148956298828,
+          "wg_pool_retry_count": 0,
+          "wg_run_toolkit_s": 8.71207070350647,
+          "tm_enter_monotonic_ns": 5404436491832268,
+          "split_compile_and_execute": true,
+          "kernel_task_id": "sanitizer_ab_ambiguous_disabled_b670725f9389_kernel",
+          "tm_status_hset_s": 0.0004189014434814453,
+          "tm_json_dumps_s": 0.00010323524475097656,
+          "tm_result_hset_s": 0.0004189014434814453,
+          "tm_complete_task_s": 0.0005452632904052734,
+          "tm_exit_monotonic_ns": 5404436492377565
+        },
+        "error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/kernelgym/toolkit/kernelbench/correctness.py\", line 477, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad/kernelgym_tvm_ffi_da941b3aec4c3339/model_new.py\", line 20, in forward\n    raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\nRuntimeError: intentional correctness-stage runtime failure after CUDA launch\n",
+        "error_code": "RUNTIME_ERROR",
+        "submitted_at": null,
+        "completed_at": null,
+        "processing_time": null
+      },
+      "normalized_env_state": {
+        "task_id": "sanitizer_ab_ambiguous_disabled_b670725f9389",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "metadata": {
+          "precision": "fp32",
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "model_mode": "eval",
+          "grad_mode": "no_grad",
+          "fp32_math_mode": "tf32",
+          "precompiled_artifact_used": true,
+          "compile_artifact": {
+            "build_backend": "tvm_ffi.cpp.build"
+          },
+          "correctness_forward_seed_reset_enabled": true,
+          "aten_detection_enabled": false,
+          "correctness_candidate_forward_completed": false,
+          "correctness_candidate_forward_completed_trials": [],
+          "correctness_output_mismatch": false,
+          "correctness_tf32_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "incorrect_backend_usage_probe": {
+            "backend": "tvm_ffi",
+            "attempted": false,
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED"
+          },
+          "kg_kernel_total_s": 6.558,
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA A800-SXM4-80GB",
+            "compute_capability": "8.0",
+            "cuda_version": "12.9",
+            "driver_version": "575.51.03",
+            "nvcc_version": "12.9"
+          },
+          "kernel_entry_point": "ModelNew"
+        },
+        "error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/kernelgym/toolkit/kernelbench/correctness.py\", line 477, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad/kernelgym_tvm_ffi_da941b3aec4c3339/model_new.py\", line 20, in forward\n    raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\nRuntimeError: intentional correctness-stage runtime failure after CUDA launch\n",
+        "processing_time": null,
+        "precheck": "passed",
+        "success": false,
+        "error": "KERNEL_EVAL_FAILED"
+      },
+      "env_extra_info": {
+        "time_coverage": 0.0,
+        "num_coverage": 0.0,
+        "correctness": false,
+        "compilation": true,
+        "speedup": 0.0,
+        "decoy_kernel": false,
+        "precheck": "passed",
+        "detail_env_time": {
+          "compile_time": 0.0
+        }
+      }
+    },
+    {
+      "case": "ambiguous_enabled_all_checks",
+      "payload": {
+        "task_id": "sanitizer_ab_ambiguous_enabled_cfaa173f263c",
+        "reference_code": "\nimport torch\nimport torch.nn as nn\n\n\nclass Model(nn.Module):\n    def __init__(self, num_features, eps, momentum):\n        super().__init__()\n        self.batch_norm = nn.BatchNorm2d(num_features, eps=eps, momentum=momentum)\n\n    def forward(self, x):\n        x = self.batch_norm(x)\n        return x\n\n\nbatch_size = 128\nnum_features = 3\nheight, width = 1024, 32\nmomentum = 0.1\neps = 1e-5\n\n\ndef get_inputs():\n    return [torch.randn(batch_size, num_features, height, width)]\n\n\ndef get_init_inputs():\n    return [num_features, eps, momentum]\n",
+        "kernel_code": "\n### CUDA_KERNELS\n```cpp\n#include <cuda_runtime.h>\n\n__global__ void batch_norm_stats_kernel(\n    const float* input,\n    float* mean,\n    float* inv_std,\n    int batch,\n    int channels,\n    int spatial,\n    float eps) {\n    int channel = blockIdx.x;\n    int elements_per_channel = batch * spatial;\n    double local_sum = 0.0;\n    double local_square_sum = 0.0;\n\n    for (int offset = threadIdx.x; offset < elements_per_channel; offset += blockDim.x) {\n        int batch_index = offset / spatial;\n        int spatial_index = offset - batch_index * spatial;\n        int input_index = (batch_index * channels + channel) * spatial + spatial_index;\n        double value = static_cast<double>(input[input_index]);\n        local_sum += value;\n        local_square_sum += value * value;\n    }\n\n    __shared__ double shared_sum[256];\n    __shared__ double shared_square_sum[256];\n    shared_sum[threadIdx.x] = local_sum;\n    shared_square_sum[threadIdx.x] = local_square_sum;\n    __syncthreads();\n\n    for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {\n        if (threadIdx.x < stride) {\n            shared_sum[threadIdx.x] += shared_sum[threadIdx.x + stride];\n            shared_square_sum[threadIdx.x] += shared_square_sum[threadIdx.x + stride];\n        }\n        __syncthreads();\n    }\n\n    if (threadIdx.x == 0) {\n        double channel_mean = shared_sum[0] / elements_per_channel;\n        double channel_variance =\n            shared_square_sum[0] / elements_per_channel - channel_mean * channel_mean;\n        channel_variance = channel_variance > 0.0 ? channel_variance : 0.0;\n        mean[channel] = static_cast<float>(channel_mean);\n        inv_std[channel] = rsqrtf(static_cast<float>(channel_variance) + eps);\n    }\n}\n\n__global__ void batch_norm_kernel(\n    float* output,\n    const float* input,\n    const float* mean,\n    const float* inv_std,\n    int channels,\n    int spatial,\n    int output_size) {\n    int index = blockIdx.x * blockDim.x + threadIdx.x;\n    if (index < output_size) {\n        int channel = (index / spatial) % channels;\n        output[index] = (input[index] - mean[channel]) * inv_std[channel];\n    }\n}\n\nextern \"C\" void batch_norm_launcher(\n    float* output,\n    const float* input,\n    float* mean,\n    float* inv_std,\n    int batch,\n    int channels,\n    int spatial,\n    int output_size,\n    float eps,\n    void* stream_handle) {\n    auto stream = static_cast<cudaStream_t>(stream_handle);\n    constexpr int threads = 256;\n    batch_norm_stats_kernel<<<channels, threads, 0, stream>>>(\n        input, mean, inv_std, batch, channels, spatial, eps);\n    batch_norm_kernel<<<(output_size + threads - 1) / threads, threads, 0, stream>>>(\n        output, input, mean, inv_std, channels, spatial, output_size);\n}\n```\n\n### APPLY_BINDINGS\n```cpp\n#include <tvm/ffi/tvm_ffi.h>\n#include <tvm/ffi/extra/c_env_api.h>\n\nextern \"C\" void batch_norm_launcher(\n    float* output,\n    const float* input,\n    float* mean,\n    float* inv_std,\n    int batch,\n    int channels,\n    int spatial,\n    int output_size,\n    float eps,\n    void* stream_handle);\n\nvoid batch_norm_forward(\n    tvm::ffi::Tensor input,\n    tvm::ffi::Tensor output,\n    tvm::ffi::Tensor mean,\n    tvm::ffi::Tensor inv_std,\n    double eps) {\n    auto shape = input.shape();\n    TVM_FFI_ICHECK(shape.size() == 4) << \"BatchNorm2d expects an NCHW tensor\";\n    void* stream_handle = TVMFFIEnvGetStream(input.device().device_type, input.device().device_id);\n    batch_norm_launcher(\n        static_cast<float*>(output.data_ptr()),\n        static_cast<const float*>(input.data_ptr()),\n        static_cast<float*>(mean.data_ptr()),\n        static_cast<float*>(inv_std.data_ptr()),\n        static_cast<int>(shape[0]),\n        static_cast<int>(shape[1]),\n        static_cast<int>(shape[2] * shape[3]),\n        static_cast<int>(output.numel()),\n        static_cast<float>(eps),\n        stream_handle);\n}\n\nTVM_FFI_DLL_EXPORT_TYPED_FUNC(batch_norm_forward, batch_norm_forward);\n```\n\n### MODEL_NEW\n```python\nimport torch\nimport torch.nn as nn\nimport tvm_ffi_extension\n\n\nclass ModelNew(nn.Module):\n    def __init__(self, num_features, eps, momentum):\n        super().__init__()\n        self.num_features = num_features\n        self.eps = eps\n        self.momentum = momentum\n\n    def forward(self, x):\n        output = torch.empty_like(x)\n        mean = torch.empty((self.num_features,), device=x.device, dtype=torch.float32)\n        inv_std = torch.empty((self.num_features,), device=x.device, dtype=torch.float32)\n        tvm_ffi_extension.batch_norm_forward(\n            x.contiguous(), output, mean, inv_std, float(self.eps)\n        )\n        raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\n```\n",
+        "toolkit": "kernelbench",
+        "backend_adapter": "kernelbench",
+        "backend": "tvm_ffi",
+        "reference_backend": "torch",
+        "entry_point": "Model",
+        "uuid": "sanitizer-ab-cfaa173f263c",
+        "num_correct_trials": 1,
+        "num_perf_trials": 1,
+        "num_warmup": 0,
+        "timeout": 240,
+        "priority": "normal",
+        "force_refresh": true,
+        "run_correctness": true,
+        "run_performance": false,
+        "measure_performance": false,
+        "enable_profiling": false,
+        "enable_ncu": false,
+        "detect_decoy_kernel": false,
+        "run_triton_detection": false,
+        "use_reference_cache": false,
+        "enable_compile_artifact_cache": true,
+        "enable_compute_sanitizer": true,
+        "compute_sanitizer_tools": [
+          "memcheck",
+          "synccheck",
+          "racecheck",
+          "initcheck"
+        ]
+      },
+      "http_status": 200,
+      "observed": {
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/kernelgym/toolkit/kernelbench/correctness.py\", line 477, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad/kernelgym_tvm_ffi_da941b3aec4c3339/model_new.py\", line 20, in forward\n    raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\nRuntimeError: intentional correctness-stage runtime failure after CUDA launch\n",
+        "runtime_error": "Traceback (most recent call last):\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/kernelgym/toolkit/kernelbench/correctness.py\", line 477, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad/kernelgym_tvm_ffi_da941b3aec4c3339/model_new.py\", line 20, in forward\n    raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\nRuntimeError: intentional correctness-stage runtime failure after CUDA launch\n",
+        "runtime_sanitizer_status": null,
+        "runtime_sanitizer_reason": null,
+        "error_classification": null,
+        "run_all_checks": null,
+        "requested_tools": null,
+        "executed_tools": null,
+        "stopped_early": null,
+        "detected_issue_count": null
+      },
+      "timings": {
+        "http_elapsed_s": 2.598657,
+        "processing_time_s": null,
+        "kernel_total_s": 1.3011733395978808,
+        "backend_compile_s": 0.0,
+        "correctness_s": 0.10196480620652437,
+        "runtime_sanitizer_stage_s": null,
+        "runtime_sanitizer_wall_s": null,
+        "per_tool_wall_s": {}
+      },
+      "raw_api_response": {
+        "task_id": "sanitizer_ab_ambiguous_enabled_cfaa173f263c",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "metadata": {
+          "hardware": "NVIDIA A800-SXM4-80GB",
+          "device": "cuda:0",
+          "precision": "fp32",
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "model_mode": "eval",
+          "grad_mode": "no_grad",
+          "fp32_math_mode": "tf32",
+          "kg_stage_completed_s": {
+            "kernel.load_original_src": 0.001335148699581623,
+            "kernel.prepare_init_inputs": 0.0017570722848176956,
+            "kernel.build_reference_model": 0.004032505676150322,
+            "kernel.compile_and_load": 1.1869969358667731,
+            "kernel.build_custom_model": 0.0016911029815673828,
+            "kernel.correctness": 0.10196480620652437,
+            "kernel.incorrect_backend_usage_probe": 0.0002708146348595619
+          },
+          "kg_stage_total_started_at_unix_s": 1787584893.394464,
+          "kg_stage_total_started_monotonic_ns": 7110607719229757,
+          "kg_stage_current_prefix": "kg_kernel",
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe",
+          "kg_stage_is_active": false,
+          "kg_stage_current_started_at_unix_s": 1787584894.6951153,
+          "kg_stage_current_started_monotonic_ns": 7110609019880953,
+          "kg_stage_current_elapsed_s": 0.0002708146348595619,
+          "kg_kernel_load_original_src_s": 0.001335148699581623,
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "kg_kernel_prepare_init_inputs_s": 0.0017570722848176956,
+          "kg_kernel_build_reference_model_s": 0.004032505676150322,
+          "precompiled_artifact_used": true,
+          "kg_kernel_backend_compile_s": 0.0,
+          "build_backend": "tvm_ffi.cpp.build",
+          "compile_artifact_cache_enabled": true,
+          "compile_artifact_cache_hit": true,
+          "compile_artifact": {
+            "backend": "tvm_ffi",
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad",
+            "compiled": true,
+            "device": "cuda:0",
+            "entry_point": "ModelNew",
+            "module_name": "kernelgym_tvm_ffi_da941b3aec4c3339",
+            "precheck": {
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "binding_mode": "tvm_ffi",
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "cuda_source_count": 2,
+              "detected_extension_calls": [
+                "batch_norm_forward"
+              ],
+              "error_code": null,
+              "error_message": "",
+              "exported_functions": [
+                "batch_norm_forward"
+              ],
+              "header_files": [],
+              "passed": true,
+              "static_check": {
+                "errors": [],
+                "passed": true,
+                "precision": "fp32",
+                "warnings": []
+              }
+            },
+            "profiling_hints": {
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "batch_norm_kernel",
+                "batch_norm_stats_kernel"
+              ],
+              "detected_extension_calls": [
+                "batch_norm_forward"
+              ],
+              "exported_functions": [
+                "batch_norm_forward"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "compile_artifact_cache_hit": true,
+            "compile_cache_hit": true,
+            "compile_artifact_cache_enabled": true,
+            "artifact_node_id": "node-1",
+            "artifact_hostname": "ai-16-24",
+            "target_gpu_worker_id": "node-1_gpu_0",
+            "target_gpu_selection_strategy": "idle"
+          },
+          "kg_kernel_backend_load_s": 1.1865465892478824,
+          "kg_kernel_backend_session_open_s": 7.42543488740921e-06,
+          "kg_kernel_compile_and_load_s": 1.1869969358667731,
+          "kg_kernel_build_custom_model_s": 0.0016911029815673828,
+          "correctness_early_stop_enabled": true,
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_reference_alias_clone_trials": [],
+          "correctness_reference_cache_poison_enabled": true,
+          "correctness_forward_seed_reset_enabled": true,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "aten_detection_enabled": false,
+          "correctness_candidate_forward_completed": false,
+          "correctness_candidate_forward_completed_trials": [],
+          "correctness_output_mismatch": false,
+          "correctness_tf32_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "correctness_current_trial": 0,
+          "correctness_current_substage": "custom_forward",
+          "runtime_error": "Traceback (most recent call last):\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/kernelgym/toolkit/kernelbench/correctness.py\", line 477, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad/kernelgym_tvm_ffi_da941b3aec4c3339/model_new.py\", line 20, in forward\n    raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\nRuntimeError: intentional correctness-stage runtime failure after CUDA launch\n",
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "correctness_trial_s": [
+            0.09452258516103029
+          ],
+          "correctness_reference_trial_s": [
+            0.06639520637691021
+          ],
+          "correctness_custom_trial_s": [
+            0.0004995809867978096
+          ],
+          "correctness_compare_trial_s": [],
+          "correctness_input_generation_trial_s": [
+            0.02252618968486786
+          ],
+          "correctness_input_transfer_trial_s": [
+            4.9454160034656525e-05
+          ],
+          "correctness_reference_alias_clone_trial_s": [
+            0.0
+          ],
+          "kg_kernel_correctness_s": 0.10196480620652437,
+          "incorrect_backend_usage_probe": {
+            "backend": "tvm_ffi",
+            "attempted": false,
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED"
+          },
+          "kg_kernel_incorrect_backend_usage_probe_s": 0.0002708146348595619,
+          "kg_kernel_total_s": 1.3011733395978808,
+          "gpu_name": "NVIDIA A800-SXM4-80GB",
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA A800-SXM4-80GB",
+            "compute_capability": "8.0",
+            "cuda_version": "12.9",
+            "driver_version": "575.51.03",
+            "nvcc_version": "12.9"
+          },
+          "wg_pool_idle_wait_s": 0.00013256072998046875,
+          "wg_pool_execute_s": 1.403984546661377,
+          "wg_pool_restart_s": 0.17915844917297363,
+          "wg_pool_return_s": 0.0,
+          "wg_pool_total_s": 1.5837602615356445,
+          "wg_pool_retry_count": 0,
+          "wg_run_toolkit_s": 1.5875394344329834,
+          "tm_enter_monotonic_ns": 5404439093008031,
+          "split_compile_and_execute": true,
+          "kernel_task_id": "sanitizer_ab_ambiguous_enabled_cfaa173f263c_kernel",
+          "tm_status_hset_s": 0.0013349056243896484,
+          "tm_json_dumps_s": 0.00030350685119628906,
+          "tm_result_hset_s": 0.0013349056243896484,
+          "tm_complete_task_s": 0.0016934871673583984,
+          "tm_exit_monotonic_ns": 5404439094701569
+        },
+        "error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/kernelgym/toolkit/kernelbench/correctness.py\", line 477, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad/kernelgym_tvm_ffi_da941b3aec4c3339/model_new.py\", line 20, in forward\n    raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\nRuntimeError: intentional correctness-stage runtime failure after CUDA launch\n",
+        "error_code": "RUNTIME_ERROR",
+        "submitted_at": null,
+        "completed_at": null,
+        "processing_time": null
+      },
+      "raw_env_state": {
+        "task_id": "sanitizer_ab_ambiguous_enabled_cfaa173f263c",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "metadata": {
+          "hardware": "NVIDIA A800-SXM4-80GB",
+          "device": "cuda:0",
+          "precision": "fp32",
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "model_mode": "eval",
+          "grad_mode": "no_grad",
+          "fp32_math_mode": "tf32",
+          "kg_stage_completed_s": {
+            "kernel.load_original_src": 0.001335148699581623,
+            "kernel.prepare_init_inputs": 0.0017570722848176956,
+            "kernel.build_reference_model": 0.004032505676150322,
+            "kernel.compile_and_load": 1.1869969358667731,
+            "kernel.build_custom_model": 0.0016911029815673828,
+            "kernel.correctness": 0.10196480620652437,
+            "kernel.incorrect_backend_usage_probe": 0.0002708146348595619
+          },
+          "kg_stage_total_started_at_unix_s": 1787584893.394464,
+          "kg_stage_total_started_monotonic_ns": 7110607719229757,
+          "kg_stage_current_prefix": "kg_kernel",
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe",
+          "kg_stage_is_active": false,
+          "kg_stage_current_started_at_unix_s": 1787584894.6951153,
+          "kg_stage_current_started_monotonic_ns": 7110609019880953,
+          "kg_stage_current_elapsed_s": 0.0002708146348595619,
+          "kg_kernel_load_original_src_s": 0.001335148699581623,
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "kg_kernel_prepare_init_inputs_s": 0.0017570722848176956,
+          "kg_kernel_build_reference_model_s": 0.004032505676150322,
+          "precompiled_artifact_used": true,
+          "kg_kernel_backend_compile_s": 0.0,
+          "build_backend": "tvm_ffi.cpp.build",
+          "compile_artifact_cache_enabled": true,
+          "compile_artifact_cache_hit": true,
+          "compile_artifact": {
+            "backend": "tvm_ffi",
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad",
+            "compiled": true,
+            "device": "cuda:0",
+            "entry_point": "ModelNew",
+            "module_name": "kernelgym_tvm_ffi_da941b3aec4c3339",
+            "precheck": {
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "binding_mode": "tvm_ffi",
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "cuda_source_count": 2,
+              "detected_extension_calls": [
+                "batch_norm_forward"
+              ],
+              "error_code": null,
+              "error_message": "",
+              "exported_functions": [
+                "batch_norm_forward"
+              ],
+              "header_files": [],
+              "passed": true,
+              "static_check": {
+                "errors": [],
+                "passed": true,
+                "precision": "fp32",
+                "warnings": []
+              }
+            },
+            "profiling_hints": {
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "batch_norm_kernel",
+                "batch_norm_stats_kernel"
+              ],
+              "detected_extension_calls": [
+                "batch_norm_forward"
+              ],
+              "exported_functions": [
+                "batch_norm_forward"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "compile_artifact_cache_hit": true,
+            "compile_cache_hit": true,
+            "compile_artifact_cache_enabled": true,
+            "artifact_node_id": "node-1",
+            "artifact_hostname": "ai-16-24",
+            "target_gpu_worker_id": "node-1_gpu_0",
+            "target_gpu_selection_strategy": "idle"
+          },
+          "kg_kernel_backend_load_s": 1.1865465892478824,
+          "kg_kernel_backend_session_open_s": 7.42543488740921e-06,
+          "kg_kernel_compile_and_load_s": 1.1869969358667731,
+          "kg_kernel_build_custom_model_s": 0.0016911029815673828,
+          "correctness_early_stop_enabled": true,
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_reference_alias_clone_trials": [],
+          "correctness_reference_cache_poison_enabled": true,
+          "correctness_forward_seed_reset_enabled": true,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "aten_detection_enabled": false,
+          "correctness_candidate_forward_completed": false,
+          "correctness_candidate_forward_completed_trials": [],
+          "correctness_output_mismatch": false,
+          "correctness_tf32_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "correctness_current_trial": 0,
+          "correctness_current_substage": "custom_forward",
+          "runtime_error": "Traceback (most recent call last):\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/kernelgym/toolkit/kernelbench/correctness.py\", line 477, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad/kernelgym_tvm_ffi_da941b3aec4c3339/model_new.py\", line 20, in forward\n    raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\nRuntimeError: intentional correctness-stage runtime failure after CUDA launch\n",
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "correctness_trial_s": [
+            0.09452258516103029
+          ],
+          "correctness_reference_trial_s": [
+            0.06639520637691021
+          ],
+          "correctness_custom_trial_s": [
+            0.0004995809867978096
+          ],
+          "correctness_compare_trial_s": [],
+          "correctness_input_generation_trial_s": [
+            0.02252618968486786
+          ],
+          "correctness_input_transfer_trial_s": [
+            4.9454160034656525e-05
+          ],
+          "correctness_reference_alias_clone_trial_s": [
+            0.0
+          ],
+          "kg_kernel_correctness_s": 0.10196480620652437,
+          "incorrect_backend_usage_probe": {
+            "backend": "tvm_ffi",
+            "attempted": false,
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED"
+          },
+          "kg_kernel_incorrect_backend_usage_probe_s": 0.0002708146348595619,
+          "kg_kernel_total_s": 1.3011733395978808,
+          "gpu_name": "NVIDIA A800-SXM4-80GB",
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA A800-SXM4-80GB",
+            "compute_capability": "8.0",
+            "cuda_version": "12.9",
+            "driver_version": "575.51.03",
+            "nvcc_version": "12.9"
+          },
+          "wg_pool_idle_wait_s": 0.00013256072998046875,
+          "wg_pool_execute_s": 1.403984546661377,
+          "wg_pool_restart_s": 0.17915844917297363,
+          "wg_pool_return_s": 0.0,
+          "wg_pool_total_s": 1.5837602615356445,
+          "wg_pool_retry_count": 0,
+          "wg_run_toolkit_s": 1.5875394344329834,
+          "tm_enter_monotonic_ns": 5404439093008031,
+          "split_compile_and_execute": true,
+          "kernel_task_id": "sanitizer_ab_ambiguous_enabled_cfaa173f263c_kernel",
+          "tm_status_hset_s": 0.0013349056243896484,
+          "tm_json_dumps_s": 0.00030350685119628906,
+          "tm_result_hset_s": 0.0013349056243896484,
+          "tm_complete_task_s": 0.0016934871673583984,
+          "tm_exit_monotonic_ns": 5404439094701569
+        },
+        "error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/kernelgym/toolkit/kernelbench/correctness.py\", line 477, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad/kernelgym_tvm_ffi_da941b3aec4c3339/model_new.py\", line 20, in forward\n    raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\nRuntimeError: intentional correctness-stage runtime failure after CUDA launch\n",
+        "error_code": "RUNTIME_ERROR",
+        "submitted_at": null,
+        "completed_at": null,
+        "processing_time": null
+      },
+      "normalized_env_state": {
+        "task_id": "sanitizer_ab_ambiguous_enabled_cfaa173f263c",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "metadata": {
+          "precision": "fp32",
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "model_mode": "eval",
+          "grad_mode": "no_grad",
+          "fp32_math_mode": "tf32",
+          "precompiled_artifact_used": true,
+          "compile_artifact": {
+            "build_backend": "tvm_ffi.cpp.build"
+          },
+          "correctness_forward_seed_reset_enabled": true,
+          "aten_detection_enabled": false,
+          "correctness_candidate_forward_completed": false,
+          "correctness_candidate_forward_completed_trials": [],
+          "correctness_output_mismatch": false,
+          "correctness_tf32_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "incorrect_backend_usage_probe": {
+            "backend": "tvm_ffi",
+            "attempted": false,
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED"
+          },
+          "kg_kernel_total_s": 1.3012,
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA A800-SXM4-80GB",
+            "compute_capability": "8.0",
+            "cuda_version": "12.9",
+            "driver_version": "575.51.03",
+            "nvcc_version": "12.9"
+          },
+          "kernel_entry_point": "ModelNew"
+        },
+        "error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/kernelgym/toolkit/kernelbench/correctness.py\", line 477, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nfs/FM/chenshuailin/projects/kernel_agents/KernelGYM-reward-only/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/da941b3aec4c3339cd56baa4489e3f22b58e994316a769472a1d83212cf934ad/kernelgym_tvm_ffi_da941b3aec4c3339/model_new.py\", line 20, in forward\n    raise RuntimeError(\"intentional correctness-stage runtime failure after CUDA launch\")\nRuntimeError: intentional correctness-stage runtime failure after CUDA launch\n",
+        "processing_time": null,
+        "precheck": "passed",
+        "success": false,
+        "error": "KERNEL_EVAL_FAILED"
+      },
+      "env_extra_info": {
+        "time_coverage": 0.0,
+        "num_coverage": 0.0,
+        "correctness": false,
+        "compilation": true,
+        "speedup": 0.0,
+        "decoy_kernel": false,
+        "precheck": "passed",
+        "detail_env_time": {
+          "compile_time": 0.0
+        }
+      }
+    },
+    {
+      "case": "illegal_address_enabled",
+      "payload": {
+        "task_id": "sanitizer_ab_illegal_address_enabled_19a7282f915e",
+        "reference_code": "\nimport torch\nimport torch.nn as nn\n\n\nclass Model(nn.Module):\n    def __init__(self, mode):\n        super().__init__()\n        self.mode = mode\n\n    def forward(self, x):\n        return x.clone()\n\n\ndef get_init_inputs():\n    return [1]\n\n\ndef get_inputs():\n    return [torch.randn(1000, dtype=torch.float32)]\n",
+        "kernel_code": "\n### CUDA_KERNELS\n```cpp\n#include <cuda_runtime.h>\n\n__global__ void sanitizer_safe_kernel(const float* input, float* output, int n) {\n    int index = blockIdx.x * blockDim.x + threadIdx.x;\n    if (index < n) {\n        output[index] = input[index];\n    }\n}\n\n__global__ void sanitizer_oob_kernel(const float* input, float* output, int n) {\n    int index = blockIdx.x * blockDim.x + threadIdx.x;\n    if (index == 0) { *reinterpret_cast<volatile float*>(0x1) = 1.0f; }\n}\n\n__global__ void sanitizer_race_kernel(const float* input, float* output, int n) {\n    __shared__ volatile float scratch;\n    int index = blockIdx.x * blockDim.x + threadIdx.x;\n    scratch = index < n ? input[index] : 0.0f;\n    __syncthreads();\n    if (index < n) {\n        output[index] = input[index];\n    }\n}\n\n__global__ void sanitizer_sync_kernel(const float* input, float* output, int n) {\n    __shared__ float scratch[16];\n    int index = blockIdx.x * blockDim.x + threadIdx.x;\n    int lane = threadIdx.x & 31;\n    if (lane < 16) {\n        scratch[lane] = input[index];\n    }\n    unsigned int active = __ballot_sync(0xffffffff, lane < 16);\n    if (lane <= 16) {\n        __syncwarp(active);\n    }\n    if (lane == 0) {\n        float sum = 0.0f;\n        for (int i = 0; i < 16; ++i) sum += scratch[i];\n        output[index] = sum;\n    } else if (index < n) {\n        output[index] = input[index];\n    }\n}\n\n__global__ void sanitizer_init_kernel(\n    const float* input, const float* uninitialized, float* output, int n) {\n    int index = blockIdx.x * blockDim.x + threadIdx.x;\n    if (index < n) {\n        output[index] = input[index] + uninitialized[index];\n    }\n}\n\nextern \"C\" void sanitizer_launcher(\n    const float* input, float* output, int n, int mode, void* stream_handle) {\n    cudaStream_t stream = static_cast<cudaStream_t>(stream_handle);\n    int grid = (n + 255) / 256;\n    if (mode == 0) {\n        sanitizer_safe_kernel<<<grid, 256, 0, stream>>>(input, output, n);\n    } else if (mode == 1) {\n        float* exact_allocation = nullptr;\n        cudaMalloc(&exact_allocation, static_cast<size_t>(n) * sizeof(float));\n        sanitizer_oob_kernel<<<grid, 256, 0, stream>>>(input, exact_allocation, n);\n        cudaMemcpyAsync(\n            output, exact_allocation, static_cast<size_t>(n) * sizeof(float),\n            cudaMemcpyDeviceToDevice, stream);\n        cudaFree(exact_allocation);\n    } else if (mode == 2) {\n        sanitizer_race_kernel<<<grid, 256, 0, stream>>>(input, output, n);\n    } else if (mode == 3) {\n        sanitizer_sync_kernel<<<grid, 256, 0, stream>>>(input, output, n);\n    } else {\n        float* uninitialized = nullptr;\n        cudaMalloc(&uninitialized, static_cast<size_t>(n) * sizeof(float));\n        sanitizer_init_kernel<<<grid, 256, 0, stream>>>(input, uninitialized, output, n);\n        cudaFree(uninitialized);\n    }\n}\n```\n\n### APPLY_BINDINGS\n```cpp\n#include <tvm/ffi/tvm_ffi.h>\n#include <tvm/ffi/extra/c_env_api.h>\n\nextern \"C\" void sanitizer_launcher(\n    const float* input, float* output, int n, int mode, void* stream_handle);\n\nvoid sanitizer_forward(tvm::ffi::Tensor input, tvm::ffi::Tensor output, int64_t mode) {\n    void* stream =\n        TVMFFIEnvGetStream(input.device().device_type, input.device().device_id);\n    sanitizer_launcher(\n        static_cast<const float*>(input.data_ptr()),\n        static_cast<float*>(output.data_ptr()),\n        static_cast<int>(input.numel()),\n        static_cast<int>(mode),\n        stream);\n}\n\nTVM_FFI_DLL_EXPORT_TYPED_FUNC(sanitizer_forward, sanitizer_forward);\n```\n\n### MODEL_NEW\n```python\nimport torch\nimport torch.nn as nn\nimport tvm_ffi_extension\n\n\nclass ModelNew(nn.Module):\n    def __init__(self, mode):\n        super().__init__()\n        self.mode = mode\n\n    def forward(self, x):\n        output = torch.empty_like(x)\n        tvm_ffi_extension.sanitizer_forward(x, output, int(self.mode))\n        return output\n```\n",
+        "toolkit": "kernelbench",
+        "backend_adapter": "kernelbench",
+        "backend": "tvm_ffi",
+        "reference_backend": "torch",
+        "entry_point": "Model",
+        "uuid": "sanitizer-ab-19a7282f915e",
+        "num_correct_trials": 1,
+        "num_perf_trials": 1,
+        "num_warmup": 0,
+        "timeout": 240,
+        "priority": "normal",
+        "force_refresh": true,
+        "run_correctness": true,
+        "run_performance": false,
+        "measure_performance": false,
+        "enable_profiling": false,
+        "enable_ncu": false,
+        "detect_decoy_kernel": false,
+        "run_triton_detection": false,
+        "use_reference_cache": false,
+        "enable_compile_artifact_cache": true,
+        "enable_compute_sanitizer": true,
+        "compute_sanitizer_tools": [
+          "memcheck",
+          "synccheck",
+          "racecheck",
+          "initcheck"
+        ]
+      },
+      "http_status": 200,
+      "observed": {
+        "status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "error_message": "Task processing failed: CudaFinalSyncError: CUDA final synchronize failed: CUDA error: misaligned address\nSearch for `cudaErrorMisalignedAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n",
+        "runtime_error": null,
+        "runtime_sanitizer_status": null,
+        "runtime_sanitizer_reason": null,
+        "error_classification": null,
+        "run_all_checks": null,
+        "requested_tools": null,
+        "executed_tools": null,
+        "stopped_early": null,
+        "detected_issue_count": null
+      },
+      "timings": {
+        "http_elapsed_s": 19.627275,
+        "processing_time_s": null,
+        "kernel_total_s": null,
+        "backend_compile_s": null,
+        "correctness_s": null,
+        "runtime_sanitizer_stage_s": null,
+        "runtime_sanitizer_wall_s": null,
+        "per_tool_wall_s": {}
+      },
+      "raw_api_response": {
+        "task_id": "sanitizer_ab_illegal_address_enabled_19a7282f915e",
+        "status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "metadata": {
+          "error": "Task processing failed: CudaFinalSyncError: CUDA final synchronize failed: CUDA error: misaligned address\nSearch for `cudaErrorMisalignedAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n",
+          "kg_stage_completed_s": {
+            "kernel.build_custom_model": 0.001881568692624569,
+            "kernel.build_reference_model": 0.0009772023186087608,
+            "kernel.compile_and_load": 0.8192613050341606,
+            "kernel.correctness": 0.5065974555909634,
+            "kernel.incorrect_backend_usage_probe": 0.00022344011813402176,
+            "kernel.load_original_src": 0.00231047160923481,
+            "kernel.prepare_init_inputs": 0.0020120590925216675
+          },
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe",
+          "kg_stage_current_elapsed_s": 0.00022344011813402176,
+          "kg_stage_current_prefix": "kg_kernel",
+          "kg_stage_current_started_at_unix_s": 1787584914.3554754,
+          "kg_stage_current_started_monotonic_ns": 7110628680240590,
+          "kg_stage_is_active": false,
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "kg_stage_last_update_at_unix_s": 1787584914.3557682,
+          "kg_stage_last_update_monotonic_ns": 7110628680536613,
+          "kg_stage_metadata_path": "/dev/shm/kernelgym/stage_metadata/kernelgym_stage_1366_0_7d9885840f444707b20636109b794b4b.json",
+          "kg_stage_total_elapsed_s": 1.483910785,
+          "kg_stage_total_started_at_unix_s": 1787584913.0191681,
+          "kg_stage_total_started_monotonic_ns": 7110627343931874,
+          "device_info": {
+            "gpu_name": "NVIDIA A800-SXM4-80GB",
+            "compute_capability": "8.0",
+            "cuda_version": "12.9",
+            "driver_version": "575.51.03",
+            "nvcc_version": "12.9"
+          },
+          "tm_enter_monotonic_ns": 5404458726786176,
+          "split_compile_and_execute": true,
+          "kernel_task_id": "sanitizer_ab_illegal_address_enabled_19a7282f915e_kernel",
+          "tm_status_hset_s": 0.0012328624725341797,
+          "tm_json_dumps_s": 0.0001418590545654297,
+          "tm_result_hset_s": 0.0012328624725341797,
+          "tm_complete_task_s": 0.0014345645904541016,
+          "tm_exit_monotonic_ns": 5404458728220660
+        },
+        "error_message": "Task processing failed: CudaFinalSyncError: CUDA final synchronize failed: CUDA error: misaligned address\nSearch for `cudaErrorMisalignedAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n",
+        "error_code": "RUNTIME_ERROR",
+        "submitted_at": null,
+        "completed_at": null,
+        "processing_time": null
+      },
+      "raw_env_state": {
+        "task_id": "sanitizer_ab_illegal_address_enabled_19a7282f915e",
+        "status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "metadata": {
+          "error": "Task processing failed: CudaFinalSyncError: CUDA final synchronize failed: CUDA error: misaligned address\nSearch for `cudaErrorMisalignedAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n",
+          "kg_stage_completed_s": {
+            "kernel.build_custom_model": 0.001881568692624569,
+            "kernel.build_reference_model": 0.0009772023186087608,
+            "kernel.compile_and_load": 0.8192613050341606,
+            "kernel.correctness": 0.5065974555909634,
+            "kernel.incorrect_backend_usage_probe": 0.00022344011813402176,
+            "kernel.load_original_src": 0.00231047160923481,
+            "kernel.prepare_init_inputs": 0.0020120590925216675
+          },
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe",
+          "kg_stage_current_elapsed_s": 0.00022344011813402176,
+          "kg_stage_current_prefix": "kg_kernel",
+          "kg_stage_current_started_at_unix_s": 1787584914.3554754,
+          "kg_stage_current_started_monotonic_ns": 7110628680240590,
+          "kg_stage_is_active": false,
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "kg_stage_last_update_at_unix_s": 1787584914.3557682,
+          "kg_stage_last_update_monotonic_ns": 7110628680536613,
+          "kg_stage_metadata_path": "/dev/shm/kernelgym/stage_metadata/kernelgym_stage_1366_0_7d9885840f444707b20636109b794b4b.json",
+          "kg_stage_total_elapsed_s": 1.483910785,
+          "kg_stage_total_started_at_unix_s": 1787584913.0191681,
+          "kg_stage_total_started_monotonic_ns": 7110627343931874,
+          "device_info": {
+            "gpu_name": "NVIDIA A800-SXM4-80GB",
+            "compute_capability": "8.0",
+            "cuda_version": "12.9",
+            "driver_version": "575.51.03",
+            "nvcc_version": "12.9"
+          },
+          "tm_enter_monotonic_ns": 5404458726786176,
+          "split_compile_and_execute": true,
+          "kernel_task_id": "sanitizer_ab_illegal_address_enabled_19a7282f915e_kernel",
+          "tm_status_hset_s": 0.0012328624725341797,
+          "tm_json_dumps_s": 0.0001418590545654297,
+          "tm_result_hset_s": 0.0012328624725341797,
+          "tm_complete_task_s": 0.0014345645904541016,
+          "tm_exit_monotonic_ns": 5404458728220660,
+          "kernel_eval_failure": true,
+          "task_id": "sanitizer_ab_illegal_address_enabled_19a7282f915e",
+          "entry_point": "Model",
+          "backend": "tvm_ffi"
+        },
+        "error_message": "Task processing failed: CudaFinalSyncError: CUDA final synchronize failed: CUDA error: misaligned address\nSearch for `cudaErrorMisalignedAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n",
+        "error_code": "RUNTIME_ERROR",
+        "submitted_at": null,
+        "completed_at": null,
+        "processing_time": null,
+        "success": null,
+        "error": "Task processing failed: CudaFinalSyncError: CUDA final synchronize failed: CUDA error: misaligned address\nSearch for `cudaErrorMisalignedAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n"
+      },
+      "normalized_env_state": {
+        "task_id": "sanitizer_ab_illegal_address_enabled_19a7282f915e",
+        "status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "metadata": {
+          "error": "Task processing failed: CudaFinalSyncError: CUDA final synchronize failed: CUDA error: misaligned address\nSearch for `cudaErrorMisalignedAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n",
+          "device_info": {
+            "gpu_name": "NVIDIA A800-SXM4-80GB",
+            "compute_capability": "8.0",
+            "cuda_version": "12.9",
+            "driver_version": "575.51.03",
+            "nvcc_version": "12.9"
+          },
+          "kernel_eval_failure": true,
+          "backend": "tvm_ffi",
+          "refer_entry_point": "Model"
+        },
+        "error_message": "Task processing failed: CudaFinalSyncError: CUDA final synchronize failed: CUDA error: misaligned address\nSearch for `cudaErrorMisalignedAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n",
+        "processing_time": null,
+        "success": false,
+        "error": "KERNEL_EVAL_FAILED",
+        "precheck": "passed"
+      },
+      "env_extra_info": {
+        "time_coverage": 0.0,
+        "num_coverage": 0.0,
+        "correctness": false,
+        "compilation": true,
+        "speedup": 0.0,
+        "decoy_kernel": false,
+        "precheck": "passed",
+        "detail_env_time": {}
+      }
+    }
+  ]
+}

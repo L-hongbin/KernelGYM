@@ -1,0 +1,53 @@
+{
+  "captured_at": "2026-08-24",
+  "device": "NVIDIA H100 PCIe",
+  "implementation": {
+    "primary_tool": "torch.cuda allocator statistics",
+    "schema_version": 2,
+    "comparison_metric": "total_task_peak_allocated_bytes",
+    "backward_compatible_metric": "peak_allocated_bytes",
+    "backward_compatible_metric_semantics": "forward incremental peak allocated bytes"
+  },
+  "standalone_gemm_1024_float32": {
+    "environment_floor_allocated_bytes": 0,
+    "persistent_allocated_bytes": 41943040,
+    "forward_incremental_peak_allocated_bytes": 4194304,
+    "total_task_peak_allocated_bytes": 46137344,
+    "output_tensor_bytes": 4194304,
+    "post_cleanup_allocated_bytes": 41943040,
+    "measurement_complete": true
+  },
+  "candidate_pipeline_gemm_512_performance_disabled": {
+    "compiled": true,
+    "correctness": true,
+    "runtime_ms": -1.0,
+    "environment_floor_allocated_bytes": 0,
+    "persistent_allocated_bytes": 35651584,
+    "forward_incremental_peak_allocated_bytes": 1048576,
+    "total_task_peak_allocated_bytes": 36700160,
+    "output_tensor_bytes": 1048576,
+    "measurement_complete": true,
+    "memory_stage_seconds": 0.12105887569487095
+  },
+  "reference_pipeline_gemm_512": {
+    "compiled": true,
+    "correctness": true,
+    "runtime_ms": 0.138,
+    "persistent_allocated_bytes": 35651584,
+    "forward_incremental_peak_allocated_bytes": 1048576,
+    "total_task_peak_allocated_bytes": 36700160,
+    "measurement_complete": true,
+    "memory_stage_seconds": 0.10785032249987125
+  },
+  "verification": {
+    "memory_regression_command": "python -m pytest tests/test_memory_feedback.py tests/test_correctness_memory_gpu.py tests/test_kernelbench_memory_gpu.py -q --disable-warnings",
+    "memory_regression_result": "8 passed",
+    "broader_regression_result": "18 passed, 3 unrelated pre-existing failures",
+    "broader_regression_failures": [
+      "tests/test_reward_schema_and_cuda_agent.py::test_cuda_agent_object_reuse_skips_module_bound_sources",
+      "tests/test_kernelbench_split_affinity.py::test_split_compile_execute_targets_idle_gpu_node",
+      "tests/test_kernelbench_split_affinity.py::test_split_compile_execute_falls_back_to_task_id_mod_when_all_gpus_busy"
+    ]
+  },
+  "scope_note": "torch.cuda measures allocations managed by the PyTorch CUDA caching allocator. Direct cudaMalloc/cuMemAlloc-family calls are statically flagged and make the reported value a lower bound."
+}

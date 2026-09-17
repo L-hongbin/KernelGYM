@@ -1,0 +1,1400 @@
+{
+  "generated_at": "2026-08-26T03:09:09.820523+00:00",
+  "kernel_env_url": "http://127.0.0.1:20111",
+  "run_id": "77c6957442fb",
+  "gpu": {
+    "name": "NVIDIA H100 PCIe",
+    "memory_total": "79.6GB",
+    "memory_used": "13.8GB",
+    "memory_used_percent": "17.3%",
+    "utilization_gpu_percent": "0.0%",
+    "available": true,
+    "source": "nvidia-smi"
+  },
+  "backend": "tvm_ffi",
+  "fixture": {
+    "operation": "GEMM",
+    "shape": {
+      "m": 16,
+      "n": 16,
+      "k": 32
+    },
+    "cuda_global_kernel_count": 1,
+    "kernel_names": ["faulty_gemm_kernel"],
+    "fault": "The final output thread writes one float to c[m * n], one element past the exact allocation."
+  },
+  "health": {
+    "http_status": 200,
+    "response": {
+      "status": "healthy",
+      "timestamp": "2026-08-26T03:09:06.357015Z",
+      "gpu_status": {
+        "cuda:0": {
+          "name": "NVIDIA H100 PCIe",
+          "memory_total": "79.6GB",
+          "memory_used": "13.8GB",
+          "memory_used_percent": "17.3%",
+          "utilization_gpu_percent": "0.0%",
+          "available": true,
+          "source": "nvidia-smi"
+        }
+      },
+      "queue_status": {
+        "pending": 0,
+        "processing": 0,
+        "completed": 0
+      },
+      "memory_usage": {
+        "cpu_percent": 1.8,
+        "memory_percent": 29.5,
+        "memory_available": "177.5GB",
+        "memory_total": "251.5GB"
+      },
+      "active_tasks": 0,
+      "total_processed": 0,
+      "uptime": 0.0,
+      "snapshot_age_s": 3.458
+    }
+  },
+  "cases": [
+    {
+      "label": "disabled",
+      "sanitizer_enabled": false,
+      "payload_strategy": "error_based",
+      "http_status": 200,
+      "elapsed_s": 1.640541,
+      "summary": {
+        "raw_status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "error_code": "RUNTIME_ERROR",
+        "normalized_error": "KERNEL_EVAL_FAILED",
+        "sanitizer_status": "skipped",
+        "sanitizer_reason": "disabled",
+        "sanitizer_mode": null,
+        "sanitizer_issue_count": 0,
+        "sanitizer_wall_time_s": null
+      },
+      "error_messages": {
+        "raw_api_error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+        "raw_api_error_message_chars": 1040,
+        "raw_env_error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+        "raw_env_error_message_chars": 1040,
+        "normalized_error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+        "normalized_error_message_chars": 1040,
+        "metadata_runtime_error": "Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+        "metadata_runtime_error_chars": 1015
+      },
+      "payload": {
+        "task_id": "faulty_gemm_sanitizer_disabled_77c6957442fb_1",
+        "reference_code": "\nimport torch\nimport torch.nn as nn\n\n\nclass Model(nn.Module):\n    def forward(self, a, b):\n        return torch.matmul(a, b)\n\n\ndef get_init_inputs():\n    return []\n\n\ndef get_inputs():\n    return [\n        torch.randn(16, 32, dtype=torch.float32),\n        torch.randn(32, 16, dtype=torch.float32),\n    ]\n",
+        "kernel_code": "\n### CUDA_KERNELS\n```cpp\n#include <cuda_runtime.h>\n\n__global__ void faulty_gemm_kernel(\n    const float* a,\n    const float* b,\n    float* c,\n    int m,\n    int n,\n    int k) {\n    int row = blockIdx.y * blockDim.y + threadIdx.y;\n    int col = blockIdx.x * blockDim.x + threadIdx.x;\n    if (row < m && col < n) {\n        float sum = 0.0f;\n        for (int inner = 0; inner < k; ++inner) {\n            sum += a[row * k + inner] * b[inner * n + col];\n        }\n        c[row * n + col] = sum;\n        if (row == m - 1 && col == n - 1) {\n            c[m * n] = sum;\n        }\n    }\n}\n\nextern \"C\" void faulty_gemm_launcher(\n    const float* a,\n    const float* b,\n    float* output,\n    int m,\n    int n,\n    int k,\n    void* stream_handle) {\n    cudaStream_t stream = static_cast<cudaStream_t>(stream_handle);\n    float* exact_output = nullptr;\n    cudaMalloc(\n        &exact_output,\n        static_cast<size_t>(m) * static_cast<size_t>(n) * sizeof(float));\n    dim3 threads(16, 16);\n    dim3 blocks(\n        (static_cast<unsigned int>(n) + threads.x - 1) / threads.x,\n        (static_cast<unsigned int>(m) + threads.y - 1) / threads.y);\n    faulty_gemm_kernel<<<blocks, threads, 0, stream>>>(\n        a, b, exact_output, m, n, k);\n    cudaMemcpyAsync(\n        output,\n        exact_output,\n        static_cast<size_t>(m) * static_cast<size_t>(n) * sizeof(float),\n        cudaMemcpyDeviceToDevice,\n        stream);\n    cudaFree(exact_output);\n}\n```\n\n### APPLY_BINDINGS\n```cpp\n#include <tvm/ffi/tvm_ffi.h>\n#include <tvm/ffi/extra/c_env_api.h>\n\nextern \"C\" void faulty_gemm_launcher(\n    const float* a,\n    const float* b,\n    float* output,\n    int m,\n    int n,\n    int k,\n    void* stream_handle);\n\nvoid faulty_gemm_forward(\n    tvm::ffi::Tensor a,\n    tvm::ffi::Tensor b,\n    tvm::ffi::Tensor output) {\n    auto a_shape = a.shape();\n    auto b_shape = b.shape();\n    int m = static_cast<int>(a_shape[0]);\n    int k = static_cast<int>(a_shape[1]);\n    int n = static_cast<int>(b_shape[1]);\n    void* stream =\n        TVMFFIEnvGetStream(a.device().device_type, a.device().device_id);\n    faulty_gemm_launcher(\n        static_cast<const float*>(a.data_ptr()),\n        static_cast<const float*>(b.data_ptr()),\n        static_cast<float*>(output.data_ptr()),\n        m,\n        n,\n        k,\n        stream);\n}\n\nTVM_FFI_DLL_EXPORT_TYPED_FUNC(faulty_gemm_forward, faulty_gemm_forward);\n```\n\n### MODEL_NEW\n```python\nimport torch\nimport torch.nn as nn\nimport tvm_ffi_extension\n\n\nclass ModelNew(nn.Module):\n    def forward(self, a, b):\n        output = torch.empty(\n            (a.shape[0], b.shape[1]),\n            device=a.device,\n            dtype=a.dtype,\n        )\n        tvm_ffi_extension.faulty_gemm_forward(a, b, output)\n        raise RuntimeError(\n            \"illegal memory access out of bounds after faulty GEMM CUDA launch\"\n        )\n```\n",
+        "toolkit": "kernelbench",
+        "backend_adapter": "kernelbench",
+        "backend": "tvm_ffi",
+        "reference_backend": "torch",
+        "entry_point": "Model",
+        "num_correct_trials": 1,
+        "num_perf_trials": 1,
+        "num_warmup": 0,
+        "timeout": 240,
+        "priority": "normal",
+        "force_refresh": true,
+        "enable_profiling": false,
+        "enable_ncu": false,
+        "enable_compute_sanitizer": false,
+        "compute_sanitizer_mode": "error_based",
+        "detect_decoy_kernel": false,
+        "run_triton_detection": false,
+        "run_performance": false,
+        "measure_performance": false,
+        "use_reference_cache": false,
+        "enable_compile_artifact_cache": true
+      },
+      "raw_api_response": {
+        "task_id": "faulty_gemm_sanitizer_disabled_77c6957442fb_1",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "reference_memory": null,
+        "kernel_memory": null,
+        "memory_comparison": null,
+        "runtime_sanitizer": {
+          "status": "skipped",
+          "passed": null,
+          "measurement_complete": false,
+          "reason": "disabled",
+          "requested_checks": [],
+          "detected_issue_count": 0,
+          "check_results": [],
+          "selection_mode": "error_based",
+          "mode": null
+        },
+        "metadata": {
+          "memory_environment_floor": {
+            "allocated_bytes": 512,
+            "reserved_bytes": 2097152
+          },
+          "hardware": "NVIDIA H100 PCIe",
+          "device": "cuda:0",
+          "kernel_memory_allocator_check": {
+            "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+            "severity": "warning",
+            "measurement_impact": "may_underestimate",
+            "direct_cuda_allocation_detected": true,
+            "direct_cuda_allocation_apis": ["cudaMalloc"],
+            "direct_cuda_allocation_matches": [
+              {
+                "api": "cudaMalloc",
+                "line": 37,
+                "snippet": "cudaMalloc("
+              }
+            ],
+            "warning": "Direct CUDA allocation APIs were found. torch.cuda peak-memory counters only track allocations managed by PyTorch's CUDA caching allocator, so the reported memory can be an underestimate."
+          },
+          "kg_stage_completed_s": {
+            "kernel.load_original_src": 0.0009409040212631226,
+            "kernel.prepare_init_inputs": 0.0010206997394561768,
+            "kernel.build_reference_model": 0.0005594026297330856,
+            "kernel.compile_and_load": 0.03987676277756691,
+            "kernel.build_custom_model": 0.061158232390880585,
+            "kernel.correctness": 0.15249278023838997
+          },
+          "kg_stage_total_started_at_unix_s": 1787713750.637509,
+          "kg_stage_total_started_monotonic_ns": 12596710750264140,
+          "kg_stage_current_prefix": "kg_kernel",
+          "kg_stage_current": "kernel.correctness.custom_forward",
+          "kg_stage_is_active": false,
+          "kg_stage_current_started_at_unix_s": 1787713750.893325,
+          "kg_stage_current_started_monotonic_ns": 12596711006080003,
+          "kg_stage_current_elapsed_s": 0.15249278023838997,
+          "kg_kernel_load_original_src_s": 0.0009409040212631226,
+          "kg_stage_last_completed": "kernel.correctness",
+          "kg_kernel_prepare_init_inputs_s": 0.0010206997394561768,
+          "kg_kernel_build_reference_model_s": 0.0005594026297330856,
+          "precompiled_artifact_used": true,
+          "kg_kernel_backend_compile_s": 0.0,
+          "build_backend": "tvm_ffi.cpp.build",
+          "compile_artifact_cache_enabled": true,
+          "compile_artifact_cache_hit": true,
+          "compile_artifact": {
+            "backend": "tvm_ffi",
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19",
+            "compiled": true,
+            "device": "cuda:0",
+            "entry_point": "ModelNew",
+            "module_name": "kernelgym_tvm_ffi_87b70fc55b4f7401",
+            "precheck": {
+              "binding_files": ["kernels/generated_binding.cpp"],
+              "binding_mode": "tvm_ffi",
+              "cpp_files": ["kernels/generated_binding.cpp"],
+              "cu_files": ["kernels/generated.cu"],
+              "cuda_source_count": 2,
+              "detected_extension_calls": ["faulty_gemm_forward"],
+              "error_code": null,
+              "error_message": "",
+              "exported_functions": ["faulty_gemm_forward"],
+              "header_files": [],
+              "passed": true,
+              "static_check": {
+                "errors": [],
+                "passed": true,
+                "precision": "fp32",
+                "warnings": []
+              }
+            },
+            "profiling_hints": {
+              "backend": "tvm_ffi",
+              "custom_kernel_names": ["faulty_gemm_kernel"],
+              "detected_extension_calls": ["faulty_gemm_forward"],
+              "exported_functions": ["faulty_gemm_forward"],
+              "source_files": ["kernels/generated.cu", "kernels/generated_binding.cpp"]
+            },
+            "compile_artifact_cache_hit": true,
+            "compile_cache_hit": true,
+            "compile_artifact_cache_enabled": true,
+            "artifact_node_id": "v1",
+            "artifact_hostname": "ai-11-229",
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle"
+          },
+          "kg_kernel_backend_load_s": 0.03958352282643318,
+          "kg_kernel_backend_session_open_s": 5.295500159263611e-06,
+          "kg_kernel_compile_and_load_s": 0.03987676277756691,
+          "kg_kernel_build_custom_model_s": 0.061158232390880585,
+          "correctness_early_stop_enabled": true,
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_reference_alias_clone_trials": [],
+          "correctness_reference_cache_poison_enabled": true,
+          "correctness_forward_seed_reset_enabled": true,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "aten_detection_enabled": false,
+          "correctness_inputs_generated_on_gpu": true,
+          "correctness_tf32_disabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "ieee",
+            "cuda.matmul.fp32_precision": "ieee"
+          },
+          "correctness_current_trial": 0,
+          "correctness_current_substage": "custom_forward",
+          "runtime_error": "Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_failed_trial_seed": 734796314,
+          "correctness_runtime_error_stage": "custom_forward",
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "correctness_trial_s": [0.14064567536115646],
+          "correctness_reference_trial_s": [0.13390466384589672],
+          "correctness_custom_trial_s": [0.0005785580724477768],
+          "correctness_compare_trial_s": [],
+          "correctness_input_generation_trial_s": [0.002890152856707573],
+          "correctness_input_transfer_trial_s": [
+            8.084066212177277e-05
+          ],
+          "correctness_reference_alias_clone_trial_s": [0.0],
+          "kg_kernel_correctness_s": 0.15249278023838997,
+          "runtime_sanitizer_status": "skipped",
+          "runtime_sanitizer_issue_count": 0,
+          "kg_kernel_total_s": 0.2580543588846922,
+          "gpu_name": "NVIDIA H100 PCIe",
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA H100 PCIe",
+            "compute_capability": "9.0",
+            "cuda_version": "12.9",
+            "driver_version": "590.48.01",
+            "nvcc_version": "12.9"
+          },
+          "wg_pool_idle_wait_s": 0.00011396408081054688,
+          "wg_pool_execute_s": 0.46246814727783203,
+          "wg_pool_restart_s": 0.002490520477294922,
+          "wg_pool_return_s": 0.0,
+          "wg_pool_total_s": 0.4657609462738037,
+          "wg_pool_retry_count": 0,
+          "wg_run_toolkit_s": 0.4664485454559326,
+          "tm_enter_monotonic_ns": 12596711567266691,
+          "tm_status_hset_s": 0.0009019374847412109,
+          "split_compile_and_execute": true,
+          "kernel_task_id": "faulty_gemm_sanitizer_disabled_77c6957442fb_1_kernel",
+          "tm_json_dumps_s": 0.0003116130828857422,
+          "tm_result_hset_s": 0.002676725387573242,
+          "tm_complete_task_s": 0.003985881805419922,
+          "tm_exit_monotonic_ns": 12596711571251808
+        },
+        "error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+        "error_code": "RUNTIME_ERROR",
+        "submitted_at": null,
+        "completed_at": null,
+        "processing_time": null
+      },
+      "raw_env_state": {
+        "task_id": "faulty_gemm_sanitizer_disabled_77c6957442fb_1",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "reference_memory": null,
+        "kernel_memory": null,
+        "memory_comparison": null,
+        "runtime_sanitizer": {
+          "status": "skipped",
+          "passed": null,
+          "measurement_complete": false,
+          "reason": "disabled",
+          "requested_checks": [],
+          "detected_issue_count": 0,
+          "check_results": [],
+          "selection_mode": "error_based",
+          "mode": null
+        },
+        "metadata": {
+          "memory_environment_floor": {
+            "allocated_bytes": 512,
+            "reserved_bytes": 2097152
+          },
+          "hardware": "NVIDIA H100 PCIe",
+          "device": "cuda:0",
+          "kernel_memory_allocator_check": {
+            "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+            "severity": "warning",
+            "measurement_impact": "may_underestimate",
+            "direct_cuda_allocation_detected": true,
+            "direct_cuda_allocation_apis": ["cudaMalloc"],
+            "direct_cuda_allocation_matches": [
+              {
+                "api": "cudaMalloc",
+                "line": 37,
+                "snippet": "cudaMalloc("
+              }
+            ],
+            "warning": "Direct CUDA allocation APIs were found. torch.cuda peak-memory counters only track allocations managed by PyTorch's CUDA caching allocator, so the reported memory can be an underestimate."
+          },
+          "kg_stage_completed_s": {
+            "kernel.load_original_src": 0.0009409040212631226,
+            "kernel.prepare_init_inputs": 0.0010206997394561768,
+            "kernel.build_reference_model": 0.0005594026297330856,
+            "kernel.compile_and_load": 0.03987676277756691,
+            "kernel.build_custom_model": 0.061158232390880585,
+            "kernel.correctness": 0.15249278023838997
+          },
+          "kg_stage_total_started_at_unix_s": 1787713750.637509,
+          "kg_stage_total_started_monotonic_ns": 12596710750264140,
+          "kg_stage_current_prefix": "kg_kernel",
+          "kg_stage_current": "kernel.correctness.custom_forward",
+          "kg_stage_is_active": false,
+          "kg_stage_current_started_at_unix_s": 1787713750.893325,
+          "kg_stage_current_started_monotonic_ns": 12596711006080003,
+          "kg_stage_current_elapsed_s": 0.15249278023838997,
+          "kg_kernel_load_original_src_s": 0.0009409040212631226,
+          "kg_stage_last_completed": "kernel.correctness",
+          "kg_kernel_prepare_init_inputs_s": 0.0010206997394561768,
+          "kg_kernel_build_reference_model_s": 0.0005594026297330856,
+          "precompiled_artifact_used": true,
+          "kg_kernel_backend_compile_s": 0.0,
+          "build_backend": "tvm_ffi.cpp.build",
+          "compile_artifact_cache_enabled": true,
+          "compile_artifact_cache_hit": true,
+          "compile_artifact": {
+            "backend": "tvm_ffi",
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19",
+            "compiled": true,
+            "device": "cuda:0",
+            "entry_point": "ModelNew",
+            "module_name": "kernelgym_tvm_ffi_87b70fc55b4f7401",
+            "precheck": {
+              "binding_files": ["kernels/generated_binding.cpp"],
+              "binding_mode": "tvm_ffi",
+              "cpp_files": ["kernels/generated_binding.cpp"],
+              "cu_files": ["kernels/generated.cu"],
+              "cuda_source_count": 2,
+              "detected_extension_calls": ["faulty_gemm_forward"],
+              "error_code": null,
+              "error_message": "",
+              "exported_functions": ["faulty_gemm_forward"],
+              "header_files": [],
+              "passed": true,
+              "static_check": {
+                "errors": [],
+                "passed": true,
+                "precision": "fp32",
+                "warnings": []
+              }
+            },
+            "profiling_hints": {
+              "backend": "tvm_ffi",
+              "custom_kernel_names": ["faulty_gemm_kernel"],
+              "detected_extension_calls": ["faulty_gemm_forward"],
+              "exported_functions": ["faulty_gemm_forward"],
+              "source_files": ["kernels/generated.cu", "kernels/generated_binding.cpp"]
+            },
+            "compile_artifact_cache_hit": true,
+            "compile_cache_hit": true,
+            "compile_artifact_cache_enabled": true,
+            "artifact_node_id": "v1",
+            "artifact_hostname": "ai-11-229",
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle"
+          },
+          "kg_kernel_backend_load_s": 0.03958352282643318,
+          "kg_kernel_backend_session_open_s": 5.295500159263611e-06,
+          "kg_kernel_compile_and_load_s": 0.03987676277756691,
+          "kg_kernel_build_custom_model_s": 0.061158232390880585,
+          "correctness_early_stop_enabled": true,
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_reference_alias_clone_trials": [],
+          "correctness_reference_cache_poison_enabled": true,
+          "correctness_forward_seed_reset_enabled": true,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "aten_detection_enabled": false,
+          "correctness_inputs_generated_on_gpu": true,
+          "correctness_tf32_disabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "ieee",
+            "cuda.matmul.fp32_precision": "ieee"
+          },
+          "correctness_current_trial": 0,
+          "correctness_current_substage": "custom_forward",
+          "runtime_error": "Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_failed_trial_seed": 734796314,
+          "correctness_runtime_error_stage": "custom_forward",
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "correctness_trial_s": [0.14064567536115646],
+          "correctness_reference_trial_s": [0.13390466384589672],
+          "correctness_custom_trial_s": [0.0005785580724477768],
+          "correctness_compare_trial_s": [],
+          "correctness_input_generation_trial_s": [0.002890152856707573],
+          "correctness_input_transfer_trial_s": [
+            8.084066212177277e-05
+          ],
+          "correctness_reference_alias_clone_trial_s": [0.0],
+          "kg_kernel_correctness_s": 0.15249278023838997,
+          "runtime_sanitizer_status": "skipped",
+          "runtime_sanitizer_issue_count": 0,
+          "kg_kernel_total_s": 0.2580543588846922,
+          "gpu_name": "NVIDIA H100 PCIe",
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA H100 PCIe",
+            "compute_capability": "9.0",
+            "cuda_version": "12.9",
+            "driver_version": "590.48.01",
+            "nvcc_version": "12.9"
+          },
+          "wg_pool_idle_wait_s": 0.00011396408081054688,
+          "wg_pool_execute_s": 0.46246814727783203,
+          "wg_pool_restart_s": 0.002490520477294922,
+          "wg_pool_return_s": 0.0,
+          "wg_pool_total_s": 0.4657609462738037,
+          "wg_pool_retry_count": 0,
+          "wg_run_toolkit_s": 0.4664485454559326,
+          "tm_enter_monotonic_ns": 12596711567266691,
+          "tm_status_hset_s": 0.0009019374847412109,
+          "split_compile_and_execute": true,
+          "kernel_task_id": "faulty_gemm_sanitizer_disabled_77c6957442fb_1_kernel",
+          "tm_json_dumps_s": 0.0003116130828857422,
+          "tm_result_hset_s": 0.002676725387573242,
+          "tm_complete_task_s": 0.003985881805419922,
+          "tm_exit_monotonic_ns": 12596711571251808
+        },
+        "error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+        "error_code": "RUNTIME_ERROR",
+        "submitted_at": null,
+        "completed_at": null,
+        "processing_time": null
+      },
+      "normalized_env_state": {
+        "task_id": "faulty_gemm_sanitizer_disabled_77c6957442fb_1",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "reference_memory": null,
+        "kernel_memory": null,
+        "memory_comparison": null,
+        "runtime_sanitizer": {
+          "status": "skipped",
+          "passed": null,
+          "measurement_complete": false,
+          "reason": "disabled",
+          "requested_checks": [],
+          "detected_issue_count": 0,
+          "check_results": [],
+          "selection_mode": "error_based",
+          "mode": null
+        },
+        "metadata": {
+          "memory_environment_floor": {
+            "allocated_bytes": 512,
+            "reserved_bytes": 2097152
+          },
+          "kernel_memory_allocator_check": {
+            "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+            "severity": "warning",
+            "measurement_impact": "may_underestimate",
+            "direct_cuda_allocation_detected": true,
+            "direct_cuda_allocation_apis": ["cudaMalloc"],
+            "direct_cuda_allocation_matches": [
+              {
+                "api": "cudaMalloc",
+                "line": 37,
+                "snippet": "cudaMalloc("
+              }
+            ],
+            "warning": "Direct CUDA allocation APIs were found. torch.cuda peak-memory counters only track allocations managed by PyTorch's CUDA caching allocator, so the reported memory can be an underestimate."
+          },
+          "precompiled_artifact_used": true,
+          "compile_artifact": {
+            "build_backend": "tvm_ffi.cpp.build"
+          },
+          "correctness_forward_seed_reset_enabled": true,
+          "aten_detection_enabled": false,
+          "correctness_inputs_generated_on_gpu": true,
+          "correctness_tf32_disabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "ieee",
+            "cuda.matmul.fp32_precision": "ieee"
+          },
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_failed_trial_seed": 734796314,
+          "correctness_runtime_error_stage": "custom_forward",
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "runtime_sanitizer_status": "skipped",
+          "runtime_sanitizer_issue_count": 0,
+          "kg_kernel_total_s": 0.2581,
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA H100 PCIe",
+            "compute_capability": "9.0",
+            "cuda_version": "12.9",
+            "driver_version": "590.48.01",
+            "nvcc_version": "12.9"
+          },
+          "kernel_entry_point": "ModelNew"
+        },
+        "error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+        "processing_time": null,
+        "precheck": "passed",
+        "success": false,
+        "error": "KERNEL_EVAL_FAILED"
+      },
+      "env_extra_info": {
+        "time_coverage": 0.0,
+        "num_coverage": 0.0,
+        "correctness": false,
+        "compilation": true,
+        "speedup": 0.0,
+        "decoy_kernel": false,
+        "precheck": "passed",
+        "detail_env_time": {
+          "compile_time": 0.0
+        }
+      }
+    },
+    {
+      "label": "enabled_error_based",
+      "sanitizer_enabled": true,
+      "payload_strategy": "error_based",
+      "http_status": 200,
+      "elapsed_s": 4.58783,
+      "summary": {
+        "raw_status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "error_code": "RUNTIME_ERROR",
+        "normalized_error": "KERNEL_EVAL_FAILED",
+        "sanitizer_status": "issues_found",
+        "sanitizer_reason": null,
+        "sanitizer_mode": "memcheck",
+        "sanitizer_issue_count": 1,
+        "sanitizer_wall_time_s": 3.3543491438031197
+      },
+      "error_messages": {
+        "raw_api_error_message": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes",
+        "raw_api_error_message_chars": 90,
+        "raw_env_error_message": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes",
+        "raw_env_error_message_chars": 90,
+        "normalized_error_message": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes\nother error message:\nTraceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+        "normalized_error_message_chars": 1127,
+        "metadata_runtime_error": "Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+        "metadata_runtime_error_chars": 1015
+      },
+      "payload": {
+        "task_id": "faulty_gemm_sanitizer_enabled_error_based_77c6957442fb_2",
+        "reference_code": "\nimport torch\nimport torch.nn as nn\n\n\nclass Model(nn.Module):\n    def forward(self, a, b):\n        return torch.matmul(a, b)\n\n\ndef get_init_inputs():\n    return []\n\n\ndef get_inputs():\n    return [\n        torch.randn(16, 32, dtype=torch.float32),\n        torch.randn(32, 16, dtype=torch.float32),\n    ]\n",
+        "kernel_code": "\n### CUDA_KERNELS\n```cpp\n#include <cuda_runtime.h>\n\n__global__ void faulty_gemm_kernel(\n    const float* a,\n    const float* b,\n    float* c,\n    int m,\n    int n,\n    int k) {\n    int row = blockIdx.y * blockDim.y + threadIdx.y;\n    int col = blockIdx.x * blockDim.x + threadIdx.x;\n    if (row < m && col < n) {\n        float sum = 0.0f;\n        for (int inner = 0; inner < k; ++inner) {\n            sum += a[row * k + inner] * b[inner * n + col];\n        }\n        c[row * n + col] = sum;\n        if (row == m - 1 && col == n - 1) {\n            c[m * n] = sum;\n        }\n    }\n}\n\nextern \"C\" void faulty_gemm_launcher(\n    const float* a,\n    const float* b,\n    float* output,\n    int m,\n    int n,\n    int k,\n    void* stream_handle) {\n    cudaStream_t stream = static_cast<cudaStream_t>(stream_handle);\n    float* exact_output = nullptr;\n    cudaMalloc(\n        &exact_output,\n        static_cast<size_t>(m) * static_cast<size_t>(n) * sizeof(float));\n    dim3 threads(16, 16);\n    dim3 blocks(\n        (static_cast<unsigned int>(n) + threads.x - 1) / threads.x,\n        (static_cast<unsigned int>(m) + threads.y - 1) / threads.y);\n    faulty_gemm_kernel<<<blocks, threads, 0, stream>>>(\n        a, b, exact_output, m, n, k);\n    cudaMemcpyAsync(\n        output,\n        exact_output,\n        static_cast<size_t>(m) * static_cast<size_t>(n) * sizeof(float),\n        cudaMemcpyDeviceToDevice,\n        stream);\n    cudaFree(exact_output);\n}\n```\n\n### APPLY_BINDINGS\n```cpp\n#include <tvm/ffi/tvm_ffi.h>\n#include <tvm/ffi/extra/c_env_api.h>\n\nextern \"C\" void faulty_gemm_launcher(\n    const float* a,\n    const float* b,\n    float* output,\n    int m,\n    int n,\n    int k,\n    void* stream_handle);\n\nvoid faulty_gemm_forward(\n    tvm::ffi::Tensor a,\n    tvm::ffi::Tensor b,\n    tvm::ffi::Tensor output) {\n    auto a_shape = a.shape();\n    auto b_shape = b.shape();\n    int m = static_cast<int>(a_shape[0]);\n    int k = static_cast<int>(a_shape[1]);\n    int n = static_cast<int>(b_shape[1]);\n    void* stream =\n        TVMFFIEnvGetStream(a.device().device_type, a.device().device_id);\n    faulty_gemm_launcher(\n        static_cast<const float*>(a.data_ptr()),\n        static_cast<const float*>(b.data_ptr()),\n        static_cast<float*>(output.data_ptr()),\n        m,\n        n,\n        k,\n        stream);\n}\n\nTVM_FFI_DLL_EXPORT_TYPED_FUNC(faulty_gemm_forward, faulty_gemm_forward);\n```\n\n### MODEL_NEW\n```python\nimport torch\nimport torch.nn as nn\nimport tvm_ffi_extension\n\n\nclass ModelNew(nn.Module):\n    def forward(self, a, b):\n        output = torch.empty(\n            (a.shape[0], b.shape[1]),\n            device=a.device,\n            dtype=a.dtype,\n        )\n        tvm_ffi_extension.faulty_gemm_forward(a, b, output)\n        raise RuntimeError(\n            \"illegal memory access out of bounds after faulty GEMM CUDA launch\"\n        )\n```\n",
+        "toolkit": "kernelbench",
+        "backend_adapter": "kernelbench",
+        "backend": "tvm_ffi",
+        "reference_backend": "torch",
+        "entry_point": "Model",
+        "num_correct_trials": 1,
+        "num_perf_trials": 1,
+        "num_warmup": 0,
+        "timeout": 240,
+        "priority": "normal",
+        "force_refresh": true,
+        "enable_profiling": false,
+        "enable_ncu": false,
+        "enable_compute_sanitizer": true,
+        "compute_sanitizer_mode": "error_based",
+        "detect_decoy_kernel": false,
+        "run_triton_detection": false,
+        "run_performance": false,
+        "measure_performance": false,
+        "use_reference_cache": false,
+        "enable_compile_artifact_cache": true
+      },
+      "raw_api_response": {
+        "task_id": "faulty_gemm_sanitizer_enabled_error_based_77c6957442fb_2",
+        "status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "reference_memory": null,
+        "kernel_memory": null,
+        "memory_comparison": null,
+        "runtime_sanitizer": {
+          "status": "issues_found",
+          "passed": false,
+          "measurement_complete": true,
+          "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+          "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+          "requested_checks": ["memcheck"],
+          "kernel_filter": ["faulty_gemm_kernel"],
+          "detected_issue_count": 1,
+          "check_results": [
+            {
+              "check": "memcheck",
+              "status": "issues_found",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": true,
+              "input_generation": "gpu",
+              "input_values_exactly_replayed": true,
+              "return_code": 86,
+              "summary_error_count": 1,
+              "observed_issue_count": 1,
+              "parsed_issue_count": 1,
+              "detected_issue_count": 1,
+              "unique_issue_count": 1,
+              "returned_issue_count": 1,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [
+                {
+                  "hazard_type": "invalid_global_write",
+                  "message": "Invalid __global__ write of size 4 bytes",
+                  "access_type": "write",
+                  "memory_space": "global",
+                  "access_size_bytes": 4,
+                  "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat faulty_gemm_kernel+0xcf0 in generated.cu:19\nby thread (15,15,0) in block (0,0,0)\nAccess at 0x7f4db4000400 is out of bounds\nand is 1 bytes after the nearest allocation at 0x7f4db4000000 of size 1,024 bytes\nTarget application returned an error",
+                  "occurrence_count": 1,
+                  "threads": {
+                    "x": [15, 15],
+                    "y": [15, 15],
+                    "z": [0, 0]
+                  },
+                  "blocks": {
+                    "x": [0, 0],
+                    "y": [0, 0],
+                    "z": [0, 0]
+                  },
+                  "addresses": {
+                    "ranges": ["0x7f4db4000400", "0x7f4db4000400"]
+                  },
+                  "representative_occurrences": [
+                    {
+                      "thread": {
+                        "x": 15,
+                        "y": 15,
+                        "z": 0
+                      },
+                      "block": {
+                        "x": 0,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "address": "0x7f4db4000400"
+                    }
+                  ],
+                  "kernel_info": [
+                    {
+                      "name": "faulty_gemm_kernel",
+                      "source": "file generated.cu line 19"
+                    }
+                  ]
+                }
+              ],
+              "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Invalid __global__ write of size 4 bytes\n=========     at faulty_gemm_kernel+0xcf0 in generated.cu:19\n=========     by thread (15,15,0) in block (0,0,0)\n=========     Access at 0x7f4db4000400 is out of bounds\n=========     and is 1 bytes after the nearest allocation at 0x7f4db4000000 of size 1,024 bytes\n========= \n========= Target application returned an error\n========= ERROR SUMMARY: 1 error\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+              "wall_time_s": 3.3377031087875366
+            }
+          ],
+          "mode": "memcheck",
+          "run_all_checks": false,
+          "stopped_early": false,
+          "replayed_input_seed": 734796314,
+          "executed_checks": ["memcheck"],
+          "primary_check": "memcheck",
+          "primary_detected_issue_count": 1,
+          "issue_count_by_check": {
+            "memcheck": 1
+          },
+          "issues_truncated": false,
+          "wall_time_s": 3.3543491438031197,
+          "selection_mode": "error_based",
+          "error_classification": "memcheck"
+        },
+        "metadata": {
+          "memory_environment_floor": {
+            "allocated_bytes": 512,
+            "reserved_bytes": 2097152
+          },
+          "hardware": "NVIDIA H100 PCIe",
+          "device": "cuda:0",
+          "kernel_memory_allocator_check": {
+            "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+            "severity": "warning",
+            "measurement_impact": "may_underestimate",
+            "direct_cuda_allocation_detected": true,
+            "direct_cuda_allocation_apis": ["cudaMalloc"],
+            "direct_cuda_allocation_matches": [
+              {
+                "api": "cudaMalloc",
+                "line": 37,
+                "snippet": "cudaMalloc("
+              }
+            ],
+            "warning": "Direct CUDA allocation APIs were found. torch.cuda peak-memory counters only track allocations managed by PyTorch's CUDA caching allocator, so the reported memory can be an underestimate."
+          },
+          "kg_stage_completed_s": {
+            "kernel.load_original_src": 0.0011685043573379517,
+            "kernel.prepare_init_inputs": 0.0010298285633325577,
+            "kernel.build_reference_model": 0.0005434267222881317,
+            "kernel.compile_and_load": 0.04050019755959511,
+            "kernel.build_custom_model": 0.06815303675830364,
+            "kernel.correctness": 0.15955850668251514,
+            "kernel.runtime_sanitizer": 3.354840647429228
+          },
+          "kg_stage_total_started_at_unix_s": 1787713752.2236016,
+          "kg_stage_total_started_monotonic_ns": 12596712336356358,
+          "kg_stage_current_prefix": "kg_kernel",
+          "kg_stage_current": "kernel.runtime_sanitizer",
+          "kg_stage_is_active": false,
+          "kg_stage_current_started_at_unix_s": 1787713752.4965782,
+          "kg_stage_current_started_monotonic_ns": 12596712609333539,
+          "kg_stage_current_elapsed_s": 3.354840647429228,
+          "kg_kernel_load_original_src_s": 0.0011685043573379517,
+          "kg_stage_last_completed": "kernel.runtime_sanitizer",
+          "kg_kernel_prepare_init_inputs_s": 0.0010298285633325577,
+          "kg_kernel_build_reference_model_s": 0.0005434267222881317,
+          "precompiled_artifact_used": true,
+          "kg_kernel_backend_compile_s": 0.0,
+          "build_backend": "tvm_ffi.cpp.build",
+          "compile_artifact_cache_enabled": true,
+          "compile_artifact_cache_hit": true,
+          "compile_artifact": {
+            "backend": "tvm_ffi",
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19",
+            "compiled": true,
+            "device": "cuda:0",
+            "entry_point": "ModelNew",
+            "module_name": "kernelgym_tvm_ffi_87b70fc55b4f7401",
+            "precheck": {
+              "binding_files": ["kernels/generated_binding.cpp"],
+              "binding_mode": "tvm_ffi",
+              "cpp_files": ["kernels/generated_binding.cpp"],
+              "cu_files": ["kernels/generated.cu"],
+              "cuda_source_count": 2,
+              "detected_extension_calls": ["faulty_gemm_forward"],
+              "error_code": null,
+              "error_message": "",
+              "exported_functions": ["faulty_gemm_forward"],
+              "header_files": [],
+              "passed": true,
+              "static_check": {
+                "errors": [],
+                "passed": true,
+                "precision": "fp32",
+                "warnings": []
+              }
+            },
+            "profiling_hints": {
+              "backend": "tvm_ffi",
+              "custom_kernel_names": ["faulty_gemm_kernel"],
+              "detected_extension_calls": ["faulty_gemm_forward"],
+              "exported_functions": ["faulty_gemm_forward"],
+              "source_files": ["kernels/generated.cu", "kernels/generated_binding.cpp"]
+            },
+            "compile_artifact_cache_hit": true,
+            "compile_cache_hit": true,
+            "compile_artifact_cache_enabled": true,
+            "artifact_node_id": "v1",
+            "artifact_hostname": "ai-11-229",
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle"
+          },
+          "kg_kernel_backend_load_s": 0.04016207158565521,
+          "kg_kernel_backend_session_open_s": 6.366521120071411e-06,
+          "kg_kernel_compile_and_load_s": 0.04050019755959511,
+          "kg_kernel_build_custom_model_s": 0.06815303675830364,
+          "correctness_early_stop_enabled": true,
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_reference_alias_clone_trials": [],
+          "correctness_reference_cache_poison_enabled": true,
+          "correctness_forward_seed_reset_enabled": true,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "aten_detection_enabled": false,
+          "correctness_inputs_generated_on_gpu": true,
+          "correctness_tf32_disabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "ieee",
+            "cuda.matmul.fp32_precision": "ieee"
+          },
+          "correctness_current_trial": 0,
+          "correctness_current_substage": "custom_forward",
+          "runtime_error": "Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_failed_trial_seed": 734796314,
+          "correctness_runtime_error_stage": "custom_forward",
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "correctness_trial_s": [0.14781491830945015],
+          "correctness_reference_trial_s": [0.14093450084328651],
+          "correctness_custom_trial_s": [0.0006362516433000565],
+          "correctness_compare_trial_s": [],
+          "correctness_input_generation_trial_s": [0.0028816629201173782],
+          "correctness_input_transfer_trial_s": [
+            8.431635797023773e-05
+          ],
+          "correctness_reference_alias_clone_trial_s": [0.0],
+          "kg_kernel_correctness_s": 0.15955850668251514,
+          "runtime_sanitizer_trigger": "correctness_runtime_error",
+          "runtime_sanitizer_mode": "error_based",
+          "runtime_sanitizer_execution_mode": "memcheck",
+          "runtime_sanitizer_tool_order": ["memcheck"],
+          "runtime_sanitizer_error_classification": "memcheck",
+          "runtime_sanitizer_run_all_checks": false,
+          "kg_kernel_runtime_sanitizer_s": 3.354840647429228,
+          "runtime_sanitizer_status": "issues_found",
+          "runtime_sanitizer_issue_count": 1,
+          "kg_kernel_total_s": 3.628684874624014,
+          "gpu_name": "NVIDIA H100 PCIe",
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA H100 PCIe",
+            "compute_capability": "9.0",
+            "cuda_version": "12.9",
+            "driver_version": "590.48.01",
+            "nvcc_version": "12.9"
+          },
+          "wg_pool_idle_wait_s": 6.985664367675781e-05,
+          "wg_pool_execute_s": 3.8297863006591797,
+          "wg_pool_restart_s": 0.0017521381378173828,
+          "wg_pool_return_s": 0.0,
+          "wg_pool_total_s": 3.8320534229278564,
+          "wg_pool_retry_count": 0,
+          "wg_run_toolkit_s": 3.8326210975646973,
+          "tm_enter_monotonic_ns": 12596716160315502,
+          "tm_status_hset_s": 0.0008296966552734375,
+          "split_compile_and_execute": true,
+          "kernel_task_id": "faulty_gemm_sanitizer_enabled_error_based_77c6957442fb_2_kernel",
+          "tm_json_dumps_s": 0.00042438507080078125,
+          "tm_result_hset_s": 0.002629518508911133,
+          "tm_complete_task_s": 0.003963947296142578,
+          "tm_exit_monotonic_ns": 12596716164286945
+        },
+        "error_message": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes",
+        "error_code": "RUNTIME_ERROR",
+        "submitted_at": null,
+        "completed_at": null,
+        "processing_time": null
+      },
+      "raw_env_state": {
+        "task_id": "faulty_gemm_sanitizer_enabled_error_based_77c6957442fb_2",
+        "status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "reference_memory": null,
+        "kernel_memory": null,
+        "memory_comparison": null,
+        "runtime_sanitizer": {
+          "status": "issues_found",
+          "passed": false,
+          "measurement_complete": true,
+          "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+          "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+          "requested_checks": ["memcheck"],
+          "kernel_filter": ["faulty_gemm_kernel"],
+          "detected_issue_count": 1,
+          "check_results": [
+            {
+              "check": "memcheck",
+              "status": "issues_found",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": true,
+              "input_generation": "gpu",
+              "input_values_exactly_replayed": true,
+              "return_code": 86,
+              "summary_error_count": 1,
+              "observed_issue_count": 1,
+              "parsed_issue_count": 1,
+              "detected_issue_count": 1,
+              "unique_issue_count": 1,
+              "returned_issue_count": 1,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [
+                {
+                  "hazard_type": "invalid_global_write",
+                  "message": "Invalid __global__ write of size 4 bytes",
+                  "access_type": "write",
+                  "memory_space": "global",
+                  "access_size_bytes": 4,
+                  "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat faulty_gemm_kernel+0xcf0 in generated.cu:19\nby thread (15,15,0) in block (0,0,0)\nAccess at 0x7f4db4000400 is out of bounds\nand is 1 bytes after the nearest allocation at 0x7f4db4000000 of size 1,024 bytes\nTarget application returned an error",
+                  "occurrence_count": 1,
+                  "threads": {
+                    "x": [15, 15],
+                    "y": [15, 15],
+                    "z": [0, 0]
+                  },
+                  "blocks": {
+                    "x": [0, 0],
+                    "y": [0, 0],
+                    "z": [0, 0]
+                  },
+                  "addresses": {
+                    "ranges": ["0x7f4db4000400", "0x7f4db4000400"]
+                  },
+                  "representative_occurrences": [
+                    {
+                      "thread": {
+                        "x": 15,
+                        "y": 15,
+                        "z": 0
+                      },
+                      "block": {
+                        "x": 0,
+                        "y": 0,
+                        "z": 0
+                      },
+                      "address": "0x7f4db4000400"
+                    }
+                  ],
+                  "kernel_info": [
+                    {
+                      "name": "faulty_gemm_kernel",
+                      "source": "file generated.cu line 19"
+                    }
+                  ]
+                }
+              ],
+              "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Invalid __global__ write of size 4 bytes\n=========     at faulty_gemm_kernel+0xcf0 in generated.cu:19\n=========     by thread (15,15,0) in block (0,0,0)\n=========     Access at 0x7f4db4000400 is out of bounds\n=========     and is 1 bytes after the nearest allocation at 0x7f4db4000000 of size 1,024 bytes\n========= \n========= Target application returned an error\n========= ERROR SUMMARY: 1 error\n\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 126, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 121, in main\n    run(Path(args[0]))\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 107, in run\n    _invoke(model, inputs)\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/compute_sanitizer_runner.py\", line 28, in _invoke\n    return model(**inputs) if isinstance(inputs, dict) else model(*inputs)\n                                                            ^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+              "wall_time_s": 3.3377031087875366
+            }
+          ],
+          "mode": "memcheck",
+          "run_all_checks": false,
+          "stopped_early": false,
+          "replayed_input_seed": 734796314,
+          "executed_checks": ["memcheck"],
+          "primary_check": "memcheck",
+          "primary_detected_issue_count": 1,
+          "issue_count_by_check": {
+            "memcheck": 1
+          },
+          "issues_truncated": false,
+          "wall_time_s": 3.3543491438031197,
+          "selection_mode": "error_based",
+          "error_classification": "memcheck"
+        },
+        "metadata": {
+          "memory_environment_floor": {
+            "allocated_bytes": 512,
+            "reserved_bytes": 2097152
+          },
+          "hardware": "NVIDIA H100 PCIe",
+          "device": "cuda:0",
+          "kernel_memory_allocator_check": {
+            "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+            "severity": "warning",
+            "measurement_impact": "may_underestimate",
+            "direct_cuda_allocation_detected": true,
+            "direct_cuda_allocation_apis": ["cudaMalloc"],
+            "direct_cuda_allocation_matches": [
+              {
+                "api": "cudaMalloc",
+                "line": 37,
+                "snippet": "cudaMalloc("
+              }
+            ],
+            "warning": "Direct CUDA allocation APIs were found. torch.cuda peak-memory counters only track allocations managed by PyTorch's CUDA caching allocator, so the reported memory can be an underestimate."
+          },
+          "kg_stage_completed_s": {
+            "kernel.load_original_src": 0.0011685043573379517,
+            "kernel.prepare_init_inputs": 0.0010298285633325577,
+            "kernel.build_reference_model": 0.0005434267222881317,
+            "kernel.compile_and_load": 0.04050019755959511,
+            "kernel.build_custom_model": 0.06815303675830364,
+            "kernel.correctness": 0.15955850668251514,
+            "kernel.runtime_sanitizer": 3.354840647429228
+          },
+          "kg_stage_total_started_at_unix_s": 1787713752.2236016,
+          "kg_stage_total_started_monotonic_ns": 12596712336356358,
+          "kg_stage_current_prefix": "kg_kernel",
+          "kg_stage_current": "kernel.runtime_sanitizer",
+          "kg_stage_is_active": false,
+          "kg_stage_current_started_at_unix_s": 1787713752.4965782,
+          "kg_stage_current_started_monotonic_ns": 12596712609333539,
+          "kg_stage_current_elapsed_s": 3.354840647429228,
+          "kg_kernel_load_original_src_s": 0.0011685043573379517,
+          "kg_stage_last_completed": "kernel.runtime_sanitizer",
+          "kg_kernel_prepare_init_inputs_s": 0.0010298285633325577,
+          "kg_kernel_build_reference_model_s": 0.0005434267222881317,
+          "precompiled_artifact_used": true,
+          "kg_kernel_backend_compile_s": 0.0,
+          "build_backend": "tvm_ffi.cpp.build",
+          "compile_artifact_cache_enabled": true,
+          "compile_artifact_cache_hit": true,
+          "compile_artifact": {
+            "backend": "tvm_ffi",
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19",
+            "compiled": true,
+            "device": "cuda:0",
+            "entry_point": "ModelNew",
+            "module_name": "kernelgym_tvm_ffi_87b70fc55b4f7401",
+            "precheck": {
+              "binding_files": ["kernels/generated_binding.cpp"],
+              "binding_mode": "tvm_ffi",
+              "cpp_files": ["kernels/generated_binding.cpp"],
+              "cu_files": ["kernels/generated.cu"],
+              "cuda_source_count": 2,
+              "detected_extension_calls": ["faulty_gemm_forward"],
+              "error_code": null,
+              "error_message": "",
+              "exported_functions": ["faulty_gemm_forward"],
+              "header_files": [],
+              "passed": true,
+              "static_check": {
+                "errors": [],
+                "passed": true,
+                "precision": "fp32",
+                "warnings": []
+              }
+            },
+            "profiling_hints": {
+              "backend": "tvm_ffi",
+              "custom_kernel_names": ["faulty_gemm_kernel"],
+              "detected_extension_calls": ["faulty_gemm_forward"],
+              "exported_functions": ["faulty_gemm_forward"],
+              "source_files": ["kernels/generated.cu", "kernels/generated_binding.cpp"]
+            },
+            "compile_artifact_cache_hit": true,
+            "compile_cache_hit": true,
+            "compile_artifact_cache_enabled": true,
+            "artifact_node_id": "v1",
+            "artifact_hostname": "ai-11-229",
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle"
+          },
+          "kg_kernel_backend_load_s": 0.04016207158565521,
+          "kg_kernel_backend_session_open_s": 6.366521120071411e-06,
+          "kg_kernel_compile_and_load_s": 0.04050019755959511,
+          "kg_kernel_build_custom_model_s": 0.06815303675830364,
+          "correctness_early_stop_enabled": true,
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_reference_alias_clone_trials": [],
+          "correctness_reference_cache_poison_enabled": true,
+          "correctness_forward_seed_reset_enabled": true,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "aten_detection_enabled": false,
+          "correctness_inputs_generated_on_gpu": true,
+          "correctness_tf32_disabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "ieee",
+            "cuda.matmul.fp32_precision": "ieee"
+          },
+          "correctness_current_trial": 0,
+          "correctness_current_substage": "custom_forward",
+          "runtime_error": "Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_failed_trial_seed": 734796314,
+          "correctness_runtime_error_stage": "custom_forward",
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "correctness_trial_s": [0.14781491830945015],
+          "correctness_reference_trial_s": [0.14093450084328651],
+          "correctness_custom_trial_s": [0.0006362516433000565],
+          "correctness_compare_trial_s": [],
+          "correctness_input_generation_trial_s": [0.0028816629201173782],
+          "correctness_input_transfer_trial_s": [
+            8.431635797023773e-05
+          ],
+          "correctness_reference_alias_clone_trial_s": [0.0],
+          "kg_kernel_correctness_s": 0.15955850668251514,
+          "runtime_sanitizer_trigger": "correctness_runtime_error",
+          "runtime_sanitizer_mode": "error_based",
+          "runtime_sanitizer_execution_mode": "memcheck",
+          "runtime_sanitizer_tool_order": ["memcheck"],
+          "runtime_sanitizer_error_classification": "memcheck",
+          "runtime_sanitizer_run_all_checks": false,
+          "kg_kernel_runtime_sanitizer_s": 3.354840647429228,
+          "runtime_sanitizer_status": "issues_found",
+          "runtime_sanitizer_issue_count": 1,
+          "kg_kernel_total_s": 3.628684874624014,
+          "gpu_name": "NVIDIA H100 PCIe",
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA H100 PCIe",
+            "compute_capability": "9.0",
+            "cuda_version": "12.9",
+            "driver_version": "590.48.01",
+            "nvcc_version": "12.9"
+          },
+          "wg_pool_idle_wait_s": 6.985664367675781e-05,
+          "wg_pool_execute_s": 3.8297863006591797,
+          "wg_pool_restart_s": 0.0017521381378173828,
+          "wg_pool_return_s": 0.0,
+          "wg_pool_total_s": 3.8320534229278564,
+          "wg_pool_retry_count": 0,
+          "wg_run_toolkit_s": 3.8326210975646973,
+          "tm_enter_monotonic_ns": 12596716160315502,
+          "tm_status_hset_s": 0.0008296966552734375,
+          "split_compile_and_execute": true,
+          "kernel_task_id": "faulty_gemm_sanitizer_enabled_error_based_77c6957442fb_2_kernel",
+          "tm_json_dumps_s": 0.00042438507080078125,
+          "tm_result_hset_s": 0.002629518508911133,
+          "tm_complete_task_s": 0.003963947296142578,
+          "tm_exit_monotonic_ns": 12596716164286945,
+          "kernel_eval_failure": true,
+          "task_id": "faulty_gemm_sanitizer_enabled_error_based_77c6957442fb_2",
+          "entry_point": "Model"
+        },
+        "error_message": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes",
+        "error_code": "RUNTIME_ERROR",
+        "submitted_at": null,
+        "completed_at": null,
+        "processing_time": null,
+        "success": null,
+        "error": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes"
+      },
+      "normalized_env_state": {
+        "task_id": "faulty_gemm_sanitizer_enabled_error_based_77c6957442fb_2",
+        "status": "failed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "reference_memory": null,
+        "kernel_memory": null,
+        "memory_comparison": null,
+        "runtime_sanitizer": {
+          "status": "issues_found",
+          "passed": false,
+          "measurement_complete": true,
+          "requested_checks": ["memcheck"],
+          "detected_issue_count": 1,
+          "check_results": [
+            {
+              "check": "memcheck",
+              "status": "issues_found",
+              "passed": false,
+              "process_completed": true,
+              "target_application_failed": true,
+              "sanitizer_issue_found": true,
+              "input_generation": "gpu",
+              "input_values_exactly_replayed": true,
+              "return_code": 86,
+              "summary_error_count": 1,
+              "observed_issue_count": 1,
+              "parsed_issue_count": 1,
+              "detected_issue_count": 1,
+              "unique_issue_count": 1,
+              "returned_issue_count": 1,
+              "occurrences_truncated": false,
+              "issue_groups_truncated": false,
+              "issues_truncated": false,
+              "aggregation_complete": true,
+              "issues": [
+                {
+                  "hazard_type": "invalid_global_write",
+                  "message": "Invalid __global__ write of size 4 bytes",
+                  "access_type": "write",
+                  "memory_space": "global",
+                  "access_size_bytes": 4,
+                  "occurrence_count": 1,
+                  "threads": {
+                    "x": [15, 15],
+                    "y": [15, 15],
+                    "z": [0, 0]
+                  },
+                  "blocks": {
+                    "x": [0, 0],
+                    "y": [0, 0],
+                    "z": [0, 0]
+                  },
+                  "addresses": {
+                    "ranges": ["0x7f4db4000400", "0x7f4db4000400"]
+                  },
+                  "kernel_info": [
+                    {
+                      "name": "faulty_gemm_kernel",
+                      "source": "file generated.cu line 19"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "mode": "memcheck",
+          "run_all_checks": false,
+          "stopped_early": false,
+          "replayed_input_seed": 734796314,
+          "executed_checks": ["memcheck"],
+          "primary_check": "memcheck",
+          "primary_detected_issue_count": 1,
+          "issue_count_by_check": {
+            "memcheck": 1
+          },
+          "issues_truncated": false,
+          "selection_mode": "error_based",
+          "error_classification": "memcheck"
+        },
+        "metadata": {
+          "memory_environment_floor": {
+            "allocated_bytes": 512,
+            "reserved_bytes": 2097152
+          },
+          "kernel_memory_allocator_check": {
+            "rule_id": "DIRECT_CUDA_ALLOCATION_BYPASSES_TORCH_ALLOCATOR",
+            "severity": "warning",
+            "measurement_impact": "may_underestimate",
+            "direct_cuda_allocation_detected": true,
+            "direct_cuda_allocation_apis": ["cudaMalloc"],
+            "direct_cuda_allocation_matches": [
+              {
+                "api": "cudaMalloc",
+                "line": 37,
+                "snippet": "cudaMalloc("
+              }
+            ],
+            "warning": "Direct CUDA allocation APIs were found. torch.cuda peak-memory counters only track allocations managed by PyTorch's CUDA caching allocator, so the reported memory can be an underestimate."
+          },
+          "precompiled_artifact_used": true,
+          "compile_artifact": {
+            "build_backend": "tvm_ffi.cpp.build"
+          },
+          "correctness_forward_seed_reset_enabled": true,
+          "aten_detection_enabled": false,
+          "correctness_inputs_generated_on_gpu": true,
+          "correctness_tf32_disabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "ieee",
+            "cuda.matmul.fp32_precision": "ieee"
+          },
+          "runtime_error_name": "builtins.RuntimeError",
+          "correctness_failed_trial": 0,
+          "correctness_failed_trial_seed": 734796314,
+          "correctness_runtime_error_stage": "custom_forward",
+          "correctness_trials": "(0 / 1)",
+          "correctness_trials_run": 1,
+          "runtime_sanitizer_trigger": "correctness_runtime_error",
+          "runtime_sanitizer_mode": "error_based",
+          "runtime_sanitizer_execution_mode": "memcheck",
+          "runtime_sanitizer_tool_order": ["memcheck"],
+          "runtime_sanitizer_error_classification": "memcheck",
+          "runtime_sanitizer_run_all_checks": false,
+          "runtime_sanitizer_status": "issues_found",
+          "runtime_sanitizer_issue_count": 1,
+          "kg_kernel_total_s": 3.6287,
+          "backend": "tvm_ffi",
+          "num_correct_trials": 1,
+          "num_perf_trials": 1,
+          "device_info": {
+            "gpu_name": "NVIDIA H100 PCIe",
+            "compute_capability": "9.0",
+            "cuda_version": "12.9",
+            "driver_version": "590.48.01",
+            "nvcc_version": "12.9"
+          },
+          "kernel_eval_failure": true,
+          "refer_entry_point": "Model",
+          "kernel_entry_point": "ModelNew"
+        },
+        "error_message": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes\nother error message:\nTraceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+        "processing_time": null,
+        "success": false,
+        "error": "KERNEL_EVAL_FAILED",
+        "precheck": "passed"
+      },
+      "env_extra_info": {
+        "time_coverage": 0.0,
+        "num_coverage": 0.0,
+        "correctness": false,
+        "compilation": true,
+        "speedup": 0.0,
+        "decoy_kernel": false,
+        "precheck": "passed",
+        "detail_env_time": {
+          "compile_time": 0.0,
+          "runtime_sanitizer_time_s": 3.3543
+        }
+      }
+    }
+  ],
+  "comparison": {
+    "disabled_raw_error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+    "enabled_raw_error_message": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes",
+    "disabled_normalized_error_message": "Kernel execution failed: Traceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+    "enabled_normalized_error_message": "Runtime Sanitizer detected an unsafe CUDA kernel: Invalid __global__ write of size 4 bytes\nother error message:\nTraceback (most recent call last):\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/kernelgym/toolkit/kernelbench/correctness.py\", line 648, in run_and_check_correctness\n    output_new = model_new(*inputs)\n                 ^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/data/lihongbin/code/Code-Agent/KernelGYM_Merge/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/87b70fc55b4f7401beef07abbeb9c7abfc1086661842bd9f5840e02908f91f19/kernelgym_tvm_ffi_87b70fc55b4f7401/model_new.py\", line 14, in forward\n    raise RuntimeError(\nRuntimeError: illegal memory access out of bounds after faulty GEMM CUDA launch\n",
+    "disabled_raw_error_message_chars": 1040,
+    "enabled_raw_error_message_chars": 90,
+    "disabled_normalized_error_message_chars": 1040,
+    "enabled_normalized_error_message_chars": 1127,
+    "disabled_elapsed_s": 1.640541,
+    "enabled_elapsed_s": 4.58783,
+    "raw_difference": "Disabled returns the correctness Python traceback directly; enabled replaces the raw top-level message with a concise structured Compute Sanitizer diagnostic.",
+    "normalized_difference": "Normalization retains the concise sanitizer diagnostic and appends metadata.runtime_error; disabled normalization keeps the original correctness failure traceback."
+  },
+  "all_expectations_met": true,
+  "completed_at": "2026-08-26T03:09:16.063690+00:00"
+}

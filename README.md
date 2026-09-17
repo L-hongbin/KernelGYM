@@ -49,21 +49,22 @@ bash deploy_node.sh --clear-cache --nnodes 1
 bash check_node.sh                  # GPU + worker health summary (ASCII tables with -v)
 bash test_reward.sh                 # round-trip a hand-written CUDA add kernel
 curl -sS http://127.0.0.1:20111/device-info  # locally detected static GPU capabilities
-curl -sS -X POST http://127.0.0.1:20111/benchmark/speed-test  # 3-run end-to-end speed test
+curl -sS -X POST http://127.0.0.1:20111/benchmark/speed-test  # 3-run end-to-end speed test with NCU
 ```
 
 ### 4. Control evaluation features through the request payload
 
-The optional evaluation features below can be controlled independently for each `POST /evaluate` request. NCU,
-Compute Sanitizer, correctness input perturbations, and adaptive performance trials are disabled by default. Passing
-`true` enables the corresponding feature for that request; no service restart is required.
+The optional evaluation features below can be controlled for each `POST /evaluate` request. Detailed correctness,
+NCU, Compute Sanitizer, correctness input perturbations, and adaptive performance trials are disabled by default.
+Passing `true` enables the corresponding feature for that request; no service restart is required.
 
 | Payload field | Default | Effect |
 |---|---:|---|
 | `adaptive_perf_trials` | `false` | Adaptively stop kernel timing trials after the configured minimum when timing variation is low. |
 | `enable_ncu` | `false` | Collect the compact Nsight Compute metric set, including L1/L2 throughput and hit rates, after correctness and performance pass. `null` inherits the server setting. |
-| `enable_compute_sanitizer` | `false` | Run isolated Compute Sanitizer diagnostics after a correctness forward raises. `null` inherits the server setting. |
-| `compute_sanitizer_mode` | `"error_based"` | `error_based` selects relevant checks from the failure; `full` runs memcheck, synccheck, racecheck, and initcheck. |
+| `return_detail_correctness` | `false` | Add element/curve/non-finite/coordinate/tile mismatch diagnostics, high-confidence pattern diagnosis, and allow Compute Sanitizer. False preserves legacy correctness metadata and skips the extra calculations. |
+| `enable_compute_sanitizer` | `false` | With `return_detail_correctness=true`, run isolated Compute Sanitizer diagnostics after a correctness runtime error or output mismatch. Mismatch-triggered feedback is returned only when an issue is found. `null` inherits the server setting. |
+| `compute_sanitizer_mode` | `"error_based"` | `error_based` uses trigger-specific ordering and stops after the first issue; `full` runs memcheck, synccheck, racecheck, and initcheck without early stopping. |
 | `enable_correctness_input_perturbations` | `null` → server `false` | Add distribution-aware scale and sign-challenge correctness trials. |
 | `simplify_error` | `true` | Remove local `.venv`, kernel work-directory, and KernelGYM source-root prefixes from compilation, runtime, and Sanitizer raw errors. Set `false` to retain full paths for debugging. |
 | `memory_ratio_threshold` | `1.8` | Add `memory.comparison.warning` when Kernel total-task peak memory is greater than or equal to this multiple of reference memory. Use a number greater than `1`, or `null` to disable only this warning. |

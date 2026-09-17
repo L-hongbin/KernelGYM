@@ -1,0 +1,258 @@
+{
+  "captured_at": "2026-09-08T09:58:40.744109+00:00",
+  "case_name": "gemm_rmsnorm_fp32",
+  "backend": "tvm_ffi",
+  "input_shapes": {
+    "lhs": [
+      4096,
+      16
+    ],
+    "rhs": [
+      16,
+      512
+    ]
+  },
+  "device": "cuda:0",
+  "gpu": "NVIDIA H100 PCIe",
+  "post_run_environment_observation": {
+    "exclusive_gpu": false,
+    "other_resident_cuda_processes": 2,
+    "note": "Two persistent KernelGYM service child processes held CUDA contexts; isolated trial outliers therefore cannot be attributed to the benchmark alone."
+  },
+  "protocol": {
+    "blocks": 10,
+    "warmup_per_block": 3,
+    "measurements_per_block": 100,
+    "std_ddof": 0,
+    "block_order": "kernel_then_reference",
+    "result_cache": false,
+    "reference_cache": false,
+    "compile_artifact_cache": false,
+    "adaptive_perf_trials": false,
+    "profiling": false,
+    "ncu": false,
+    "compute_sanitizer": false
+  },
+  "summary": {
+    "kernel": {
+      "mean_ms": 0.06514368012920022,
+      "std_ms": 0.00672427836360862,
+      "cv": 0.10322226730624184,
+      "cv_percent": 10.322226730624184,
+      "min_ms": 0.056126400083303454,
+      "max_ms": 0.08134240046143532,
+      "within_block_trial_cv": {
+        "mean": 0.322464623578086,
+        "min": 0.07037686354616303,
+        "max": 2.200574349718932
+      }
+    },
+    "reference": {
+      "mean_ms": 0.1061899839937687,
+      "std_ms": 0.00925065697396822,
+      "cv": 0.08711421384629886,
+      "cv_percent": 8.711421384629887,
+      "min_ms": 0.09725663989782334,
+      "max_ms": 0.13241920083761216,
+      "within_block_trial_cv": {
+        "mean": 0.3400133466573312,
+        "min": 0.0672447660835378,
+        "max": 2.318394900876038
+      }
+    },
+    "block_speedup": {
+      "mean": 1.6462531651107812,
+      "std": 0.21774940367832704,
+      "cv": 0.132269694779098,
+      "min": 1.2958594740255265,
+      "max": 2.189783737753086
+    },
+    "within_block_trial_runtime_range_ms": {
+      "kernel": {
+        "min": 0.051,
+        "max": 1.86
+      },
+      "reference": {
+        "min": 0.0917,
+        "max": 3.17
+      }
+    },
+    "unpaired_trial_speedup_envelope": {
+      "min": 0.049301075268817204,
+      "max": 62.15686274509804,
+      "interpretation": "conservative envelope from independent reference/kernel trial extrema"
+    }
+  },
+  "blocks": [
+    {
+      "block": 1,
+      "kernel_block_mean_ms": 0.06047136005014181,
+      "reference_block_mean_ms": 0.13241920083761216,
+      "block_speedup": 2.189783737753086,
+      "kernel_returned_runtime_ms": 0.0605,
+      "reference_returned_runtime_ms": 0.132,
+      "kernel_within_block_std_ms": 0.00707,
+      "reference_within_block_std_ms": 0.307,
+      "kernel_within_block_min_ms": 0.0546,
+      "kernel_within_block_max_ms": 0.116,
+      "reference_within_block_min_ms": 0.0932,
+      "reference_within_block_max_ms": 3.17,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 3.5903545799665153
+    },
+    {
+      "block": 2,
+      "kernel_block_mean_ms": 0.05636000033468008,
+      "reference_block_mean_ms": 0.09725663989782334,
+      "block_speedup": 1.7256323513181078,
+      "kernel_returned_runtime_ms": 0.0564,
+      "reference_returned_runtime_ms": 0.0973,
+      "kernel_within_block_std_ms": 0.00408,
+      "reference_within_block_std_ms": 0.00654,
+      "kernel_within_block_min_ms": 0.052,
+      "kernel_within_block_max_ms": 0.0843,
+      "reference_within_block_min_ms": 0.0927,
+      "reference_within_block_max_ms": 0.13,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 2.9223886789986864
+    },
+    {
+      "block": 3,
+      "kernel_block_mean_ms": 0.06560576003044843,
+      "reference_block_mean_ms": 0.10552191980183125,
+      "block_speedup": 1.6084246223632992,
+      "kernel_returned_runtime_ms": 0.0656,
+      "reference_returned_runtime_ms": 0.106,
+      "kernel_within_block_std_ms": 0.00837,
+      "reference_within_block_std_ms": 0.0139,
+      "kernel_within_block_min_ms": 0.051,
+      "kernel_within_block_max_ms": 0.091,
+      "reference_within_block_min_ms": 0.094,
+      "reference_within_block_max_ms": 0.155,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 2.9202657530549914
+    },
+    {
+      "block": 4,
+      "kernel_block_mean_ms": 0.08134240046143532,
+      "reference_block_mean_ms": 0.1054083202779293,
+      "block_speedup": 1.2958594740255265,
+      "kernel_returned_runtime_ms": 0.0813,
+      "reference_returned_runtime_ms": 0.105,
+      "kernel_within_block_std_ms": 0.179,
+      "reference_within_block_std_ms": 0.0138,
+      "kernel_within_block_min_ms": 0.0516,
+      "kernel_within_block_max_ms": 1.86,
+      "reference_within_block_min_ms": 0.0917,
+      "reference_within_block_max_ms": 0.149,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 2.922175423009321
+    },
+    {
+      "block": 5,
+      "kernel_block_mean_ms": 0.06576799970120191,
+      "reference_block_mean_ms": 0.10561952009797096,
+      "block_speedup": 1.6059408918900229,
+      "kernel_returned_runtime_ms": 0.0658,
+      "reference_returned_runtime_ms": 0.106,
+      "kernel_within_block_std_ms": 0.00857,
+      "reference_within_block_std_ms": 0.0138,
+      "kernel_within_block_min_ms": 0.053,
+      "kernel_within_block_max_ms": 0.0987,
+      "reference_within_block_min_ms": 0.0926,
+      "reference_within_block_max_ms": 0.15,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 2.9254323760978878
+    },
+    {
+      "block": 6,
+      "kernel_block_mean_ms": 0.06550592012703418,
+      "reference_block_mean_ms": 0.10549215942621232,
+      "block_speedup": 1.6104217637372882,
+      "kernel_returned_runtime_ms": 0.0655,
+      "reference_returned_runtime_ms": 0.105,
+      "kernel_within_block_std_ms": 0.00774,
+      "reference_within_block_std_ms": 0.0142,
+      "kernel_within_block_min_ms": 0.0524,
+      "kernel_within_block_max_ms": 0.0907,
+      "reference_within_block_min_ms": 0.0929,
+      "reference_within_block_max_ms": 0.148,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 2.9158666640287265
+    },
+    {
+      "block": 7,
+      "kernel_block_mean_ms": 0.06755520012229681,
+      "reference_block_mean_ms": 0.10498528026044368,
+      "block_speedup": 1.554066601392436,
+      "kernel_returned_runtime_ms": 0.0676,
+      "reference_returned_runtime_ms": 0.105,
+      "kernel_within_block_std_ms": 0.00915,
+      "reference_within_block_std_ms": 0.015,
+      "kernel_within_block_min_ms": 0.0535,
+      "kernel_within_block_max_ms": 0.0973,
+      "reference_within_block_min_ms": 0.0922,
+      "reference_within_block_max_ms": 0.165,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 2.9449308960465714
+    },
+    {
+      "block": 8,
+      "kernel_block_mean_ms": 0.06632736001163721,
+      "reference_block_mean_ms": 0.10579104006290435,
+      "block_speedup": 1.5949834283219353,
+      "kernel_returned_runtime_ms": 0.0663,
+      "reference_returned_runtime_ms": 0.106,
+      "kernel_within_block_std_ms": 0.00854,
+      "reference_within_block_std_ms": 0.0151,
+      "kernel_within_block_min_ms": 0.053,
+      "kernel_within_block_max_ms": 0.0969,
+      "reference_within_block_min_ms": 0.0924,
+      "reference_within_block_max_ms": 0.163,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 2.9228275979403406
+    },
+    {
+      "block": 9,
+      "kernel_block_mean_ms": 0.06637440036982298,
+      "reference_block_mean_ms": 0.10010591946542263,
+      "block_speedup": 1.5082007356398754,
+      "kernel_returned_runtime_ms": 0.0664,
+      "reference_returned_runtime_ms": 0.1,
+      "kernel_within_block_std_ms": 0.00824,
+      "reference_within_block_std_ms": 0.00913,
+      "kernel_within_block_min_ms": 0.0536,
+      "kernel_within_block_max_ms": 0.0949,
+      "reference_within_block_min_ms": 0.0935,
+      "reference_within_block_max_ms": 0.138,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 2.945486144046299
+    },
+    {
+      "block": 10,
+      "kernel_block_mean_ms": 0.056126400083303454,
+      "reference_block_mean_ms": 0.09929983980953694,
+      "block_speedup": 1.769218044666235,
+      "kernel_returned_runtime_ms": 0.0561,
+      "reference_returned_runtime_ms": 0.0993,
+      "kernel_within_block_std_ms": 0.00395,
+      "reference_within_block_std_ms": 0.0109,
+      "kernel_within_block_min_ms": 0.0524,
+      "kernel_within_block_max_ms": 0.0793,
+      "reference_within_block_min_ms": 0.0931,
+      "reference_within_block_max_ms": 0.165,
+      "kernel_compile_artifact_cache_enabled": false,
+      "kernel_compile_artifact_cache_hit": false,
+      "wall_time_s": 2.939341205987148
+    }
+  ]
+}

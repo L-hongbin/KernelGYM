@@ -1,0 +1,30 @@
+{
+  "captured_at_utc": "2026-09-08",
+  "environment": {
+    "gpu": "NVIDIA H100 PCIe",
+    "compute_capability": "9.0"
+  },
+  "command": "RUN_COMPUTE_SANITIZER_INTEGRATION=1 .venv/bin/python -m pytest -q tests/test_compute_sanitizer_gpu.py::test_tvm_ffi_sanitizer_runs_after_output_mismatch_and_omits_clean_result tests/test_compute_sanitizer_gpu.py::test_tvm_ffi_sanitizer_reports_issue_after_output_mismatch",
+  "result": "2 passed",
+  "cases": [
+    {
+      "name": "finite_output_mismatch_clean_under_sanitizer",
+      "correctness": false,
+      "correctness_issue_name": "numerical_mismatch",
+      "sanitizer_execution_mode": "full",
+      "internal_sanitizer_status": "clean",
+      "returned_runtime_sanitizer": null,
+      "returned_runtime_sanitizer_metadata": false
+    },
+    {
+      "name": "finite_output_mismatch_with_shared_memory_race",
+      "correctness": false,
+      "correctness_issue_name": "numerical_mismatch",
+      "sanitizer_trigger": "correctness_output_mismatch",
+      "sanitizer_execution_mode": "full",
+      "executed_checks": ["memcheck", "synccheck", "racecheck", "initcheck"],
+      "returned_runtime_sanitizer_status": "issues_found",
+      "racecheck_issue_count_positive": true
+    }
+  ]
+}

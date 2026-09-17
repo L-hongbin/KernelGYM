@@ -1,0 +1,103 @@
+{
+  "captured_at_utc": "2026-09-08",
+  "environment": {
+    "gpu": "NVIDIA H100 PCIe",
+    "compute_capability": "9.0"
+  },
+  "case": {
+    "output_shape": [2, 4],
+    "reference": [
+      [0.0, 0.0, 0.0, 0.0],
+      [0.0, 0.0, 0.0, 0.0]
+    ],
+    "candidate": [
+      [0.0, 0.0005, 0.0015, 0.003],
+      [0.005, 0.009, 0.02, 0.0]
+    ]
+  },
+  "returned_correctness": false,
+  "returned_metadata": {
+    "correctness_issue_name": "numerical_mismatch",
+    "correctness_atol": 0.001,
+    "correctness_rtol": 0.001,
+    "max_difference": ["0.020000"],
+    "avg_difference": ["0.004875"],
+    "element_correctness": ["37.50%"],
+    "element_correctness_curve": [
+      {
+        "1x": "37.50%",
+        "2x": "50.00%",
+        "4x": "62.50%",
+        "8x": "75.00%",
+        "16x": "87.50%"
+      }
+    ],
+    "nan_count": [0],
+    "inf_count": [0],
+    "mismatch_coordinate": [
+      {
+        "first": {"output_path": "output", "coordinate": [0, 2]},
+        "last": {"output_path": "output", "coordinate": [1, 2]},
+        "top_3": [
+          {"output_path": "output", "coordinate": [1, 2]},
+          {"output_path": "output", "coordinate": [1, 1]},
+          {"output_path": "output", "coordinate": [1, 0]}
+        ]
+      }
+    ],
+    "batch_correctness": [0.0],
+    "row_correctness": [0.0],
+    "tile_correctness": [0.0],
+    "output_space_localization": [
+      {
+        "tile_shape": [32, 32],
+        "tensors": [
+          {
+            "output_path": "output",
+            "shape": [2, 4],
+            "mismatch_bounds": {"M": [0, 1], "N": [0, 3]},
+            "batch": {
+              "correctness": 0.0,
+              "correct": 0,
+              "total": 1,
+              "failed_count": 1,
+              "failed": [{"batch": 0}],
+              "failed_truncated": false
+            },
+            "row": {
+              "correctness": 0.0,
+              "correct": 0,
+              "total": 2,
+              "failed_count": 2,
+              "failed": [
+                {"batch_index": [], "row": 0},
+                {"batch_index": [], "row": 1}
+              ],
+              "failed_truncated": false
+            },
+            "tile": {
+              "correctness": 0.0,
+              "correct": 0,
+              "total": 1,
+              "failed_count": 1,
+              "failed": [
+                {"batch_index": [], "M": [0, 2], "N": [0, 4]}
+              ],
+              "failed_truncated": false
+            }
+          }
+        ],
+        "batch_correctness": 0.0,
+        "batch_correct": 0,
+        "batch_total": 1,
+        "row_correctness": 0.0,
+        "row_correct": 0,
+        "row_total": 2,
+        "tile_correctness": 0.0,
+        "tile_correct": 0,
+        "tile_total": 1
+      }
+    ],
+    "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=0.02, avg_difference=0.004875, element_correctness=37.50%, element_correctness_curve={1x:37.50%,2x:50.00%,4x:62.50%,8x:75.00%,16x:87.50%}, atol=0.001, rtol=0.001"
+  }
+}

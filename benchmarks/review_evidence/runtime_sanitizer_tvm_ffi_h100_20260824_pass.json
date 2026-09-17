@@ -1,0 +1,2129 @@
+{
+  "captured_at": "2026-08-24T09:35:28.872229+00:00",
+  "device": "cuda:0",
+  "gpu": "NVIDIA H100 PCIe",
+  "backend": "tvm_ffi",
+  "compiled": true,
+  "all_expectations_met": true,
+  "cases": [
+    {
+      "case": "safe",
+      "mode": 0,
+      "tool": "memcheck",
+      "kernel_name": "sanitizer_safe_kernel",
+      "expected_status": "passed",
+      "status_matches": true,
+      "hazard_matches": true,
+      "result": {
+        "schema_version": 1,
+        "status": "passed",
+        "passed": true,
+        "measurement_complete": true,
+        "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+        "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+        "requested_tools": [
+          "memcheck"
+        ],
+        "kernel_filter": [
+          "sanitizer_safe_kernel"
+        ],
+        "detected_issue_count": 0,
+        "tools": [
+          {
+            "tool": "memcheck",
+            "status": "clean",
+            "passed": true,
+            "return_code": 0,
+            "summary_error_count": 0,
+            "parsed_issue_count": 0,
+            "detected_issue_count": 0,
+            "issues": [],
+            "raw_output_tail": "========= COMPUTE-SANITIZER\n========= ERROR SUMMARY: 0 errors\n",
+            "wall_time_s": 3.2014862652868032
+          }
+        ],
+        "wall_time_s": 3.218426825478673
+      }
+    },
+    {
+      "case": "global_oob",
+      "mode": 1,
+      "tool": "memcheck",
+      "kernel_name": "sanitizer_oob_kernel",
+      "expected_status": "failed",
+      "status_matches": true,
+      "hazard_matches": true,
+      "result": {
+        "schema_version": 1,
+        "status": "failed",
+        "passed": false,
+        "measurement_complete": true,
+        "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+        "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+        "requested_tools": [
+          "memcheck"
+        ],
+        "kernel_filter": [
+          "sanitizer_oob_kernel"
+        ],
+        "detected_issue_count": 24,
+        "tools": [
+          {
+            "tool": "memcheck",
+            "status": "issues_found",
+            "passed": false,
+            "return_code": 86,
+            "summary_error_count": 24,
+            "parsed_issue_count": 20,
+            "detected_issue_count": 24,
+            "issues": [
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 232,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (232,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fa0 is out of bounds\nand is 1 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 233,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (233,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fa4 is out of bounds\nand is 5 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 234,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (234,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fa8 is out of bounds\nand is 9 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 235,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (235,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fac is out of bounds\nand is 13 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 236,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (236,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fb0 is out of bounds\nand is 17 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 237,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (237,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fb4 is out of bounds\nand is 21 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 238,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (238,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fb8 is out of bounds\nand is 25 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 239,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (239,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fbc is out of bounds\nand is 29 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 240,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (240,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fc0 is out of bounds\nand is 33 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 241,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (241,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fc4 is out of bounds\nand is 37 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 242,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (242,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fc8 is out of bounds\nand is 41 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 243,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (243,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fcc is out of bounds\nand is 45 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 244,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (244,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fd0 is out of bounds\nand is 49 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 245,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (245,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fd4 is out of bounds\nand is 53 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 246,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (246,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fd8 is out of bounds\nand is 57 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 247,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (247,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fdc is out of bounds\nand is 61 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 248,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (248,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fe0 is out of bounds\nand is 65 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 249,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (249,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fe4 is out of bounds\nand is 69 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 250,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (250,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fe8 is out of bounds\nand is 73 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              },
+              {
+                "tool": "memcheck",
+                "hazard_type": "invalid_global_write",
+                "message": "Invalid __global__ write of size 4 bytes",
+                "kernel": "sanitizer_oob_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 12
+                },
+                "thread": {
+                  "x": 251,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "write",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Invalid __global__ write of size 4 bytes\nat sanitizer_oob_kernel+0x110 in generated.cu:12\nby thread (251,0,0) in block (3,0,0)\nAccess at 0x7ff07be00fec is out of bounds\nand is 77 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes"
+              }
+            ],
+            "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (232,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fa0 is out of bounds\n=========     and is 1 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (233,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fa4 is out of bounds\n=========     and is 5 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (234,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fa8 is out of bounds\n=========     and is 9 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (235,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fac is out of bounds\n=========     and is 13 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (236,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fb0 is out of bounds\n=========     and is 17 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (237,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fb4 is out of bounds\n=========     and is 21 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (238,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fb8 is out of bounds\n=========     and is 25 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (239,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fbc is out of bounds\n=========     and is 29 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (240,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fc0 is out of bounds\n=========     and is 33 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (241,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fc4 is out of bounds\n=========     and is 37 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (242,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fc8 is out of bounds\n=========     and is 41 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (243,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fcc is out of bounds\n=========     and is 45 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (244,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fd0 is out of bounds\n=========     and is 49 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (245,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fd4 is out of bounds\n=========     and is 53 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (246,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fd8 is out of bounds\n=========     and is 57 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (247,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fdc is out of bounds\n=========     and is 61 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (248,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fe0 is out of bounds\n=========     and is 65 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (249,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fe4 is out of bounds\n=========     and is 69 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (250,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fe8 is out of bounds\n=========     and is 73 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= Invalid __global__ write of size 4 bytes\n=========     at sanitizer_oob_kernel+0x110 in generated.cu:12\n=========     by thread (251,0,0) in block (3,0,0)\n=========     Access at 0x7ff07be00fec is out of bounds\n=========     and is 77 bytes after the nearest allocation at 0x7ff07be00000 of size 4000 bytes\n========= \n========= ERROR SUMMARY: 24 errors\n========= ERROR SUMMARY: 4 errors were not printed. Use --print-limit option to adjust the number of printed errors\n",
+            "wall_time_s": 3.792328482493758
+          }
+        ],
+        "wall_time_s": 3.7933633886277676
+      }
+    },
+    {
+      "case": "shared_race",
+      "mode": 2,
+      "tool": "racecheck",
+      "kernel_name": "sanitizer_race_kernel",
+      "expected_status": "failed",
+      "status_matches": true,
+      "hazard_matches": true,
+      "result": {
+        "schema_version": 1,
+        "status": "failed",
+        "passed": false,
+        "measurement_complete": true,
+        "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+        "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+        "requested_tools": [
+          "racecheck"
+        ],
+        "kernel_filter": [
+          "sanitizer_race_kernel"
+        ],
+        "detected_issue_count": 20,
+        "tools": [
+          {
+            "tool": "racecheck",
+            "status": "issues_found",
+            "passed": false,
+            "return_code": 86,
+            "summary_error_count": 20,
+            "parsed_issue_count": 20,
+            "detected_issue_count": 20,
+            "issues": [
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 128,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :\nWrite Thread (128,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 69, Incoming Value : 193"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 128,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :\nWrite Thread (128,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 48, Incoming Value : 132"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 128,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :\nWrite Thread (128,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 247, Incoming Value : 129"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 129,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :\nWrite Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (130,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 193, Incoming Value : 43"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 129,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :\nWrite Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (130,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 132, Incoming Value : 220"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 129,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :\nWrite Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (130,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 129, Incoming Value : 183"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x403 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 129,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x403 in block (0,0,0) :\nWrite Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (130,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 63, Incoming Value : 191"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 130,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :\nWrite Thread (130,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (131,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 43, Incoming Value : 63"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 130,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :\nWrite Thread (130,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (131,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 220, Incoming Value : 159"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 130,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :\nWrite Thread (130,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (131,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 183, Incoming Value : 144"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 131,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :\nWrite Thread (131,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 63, Incoming Value : 163"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 131,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :\nWrite Thread (131,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 159, Incoming Value : 76"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 131,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :\nWrite Thread (131,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 144, Incoming Value : 11"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x403 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 131,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x403 in block (0,0,0) :\nWrite Thread (131,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 191, Incoming Value : 190"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 132,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :\nWrite Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (133,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 163, Incoming Value : 26"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 132,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :\nWrite Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (133,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 76, Incoming Value : 85"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 132,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :\nWrite Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (133,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 11, Incoming Value : 209"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x403 in block (0,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 132,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x403 in block (0,0,0) :\nWrite Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (133,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 190, Incoming Value : 63"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (3,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 224,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x400 in block (3,0,0) :\nWrite Thread (224,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (225,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 120, Incoming Value : 106"
+              },
+              {
+                "tool": "racecheck",
+                "hazard_type": "shared_memory_race",
+                "message": "Error: Potential WAW hazard detected at __shared__ 0x401 in block (3,0,0) :",
+                "kernel": "sanitizer_race_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 18
+                },
+                "thread": {
+                  "x": 224,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 3,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Error: Potential WAW hazard detected at __shared__ 0x401 in block (3,0,0) :\nWrite Thread (224,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nWrite Thread (225,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\nCurrent Value : 17, Incoming Value : 43"
+              }
+            ],
+            "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :\n=========     Write Thread (128,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 69, Incoming Value : 193\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :\n=========     Write Thread (128,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 48, Incoming Value : 132\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :\n=========     Write Thread (128,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 247, Incoming Value : 129\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :\n=========     Write Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (130,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 193, Incoming Value : 43\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :\n=========     Write Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (130,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 132, Incoming Value : 220\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :\n=========     Write Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (130,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 129, Incoming Value : 183\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x403 in block (0,0,0) :\n=========     Write Thread (129,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (130,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 63, Incoming Value : 191\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :\n=========     Write Thread (130,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (131,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 43, Incoming Value : 63\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :\n=========     Write Thread (130,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (131,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 220, Incoming Value : 159\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :\n=========     Write Thread (130,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (131,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 183, Incoming Value : 144\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :\n=========     Write Thread (131,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 63, Incoming Value : 163\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :\n=========     Write Thread (131,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 159, Incoming Value : 76\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :\n=========     Write Thread (131,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 144, Incoming Value : 11\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x403 in block (0,0,0) :\n=========     Write Thread (131,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 191, Incoming Value : 190\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x400 in block (0,0,0) :\n=========     Write Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (133,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 163, Incoming Value : 26\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x401 in block (0,0,0) :\n=========     Write Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (133,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 76, Incoming Value : 85\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x402 in block (0,0,0) :\n=========     Write Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (133,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 11, Incoming Value : 209\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x403 in block (0,0,0) :\n=========     Write Thread (132,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (133,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 190, Incoming Value : 63\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x400 in block (3,0,0) :\n=========     Write Thread (224,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (225,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 120, Incoming Value : 106\n========= \n========= Error: Potential WAW hazard detected at __shared__ 0x401 in block (3,0,0) :\n=========     Write Thread (224,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Write Thread (225,0,0) at sanitizer_race_kernel+0xf0 in generated.cu:18\n=========     Current Value : 17, Incoming Value : 43\n========= \n========= RACECHECK SUMMARY: 20 hazards displayed (3749 errors, 0 warnings)\n",
+            "wall_time_s": 8.327431747689843
+          }
+        ],
+        "wall_time_s": 8.32839466072619
+      }
+    },
+    {
+      "case": "divergent_sync",
+      "mode": 3,
+      "tool": "synccheck",
+      "kernel_name": "sanitizer_sync_kernel",
+      "expected_status": "failed",
+      "status_matches": true,
+      "hazard_matches": true,
+      "result": {
+        "schema_version": 1,
+        "status": "failed",
+        "passed": false,
+        "measurement_complete": true,
+        "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+        "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+        "requested_tools": [
+          "synccheck"
+        ],
+        "kernel_filter": [
+          "sanitizer_sync_kernel"
+        ],
+        "detected_issue_count": 544,
+        "tools": [
+          {
+            "tool": "synccheck",
+            "status": "issues_found",
+            "passed": false,
+            "return_code": 86,
+            "summary_error_count": 544,
+            "parsed_issue_count": 20,
+            "detected_issue_count": 544,
+            "issues": [
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 96,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (96,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 97,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (97,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 98,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (98,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 99,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (99,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 100,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (100,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 101,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (101,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 102,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (102,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 103,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (103,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 104,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (104,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 105,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (105,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 106,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (106,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 107,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (107,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 108,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (108,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 109,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (109,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 110,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (110,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 111,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (111,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 112,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (112,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (0,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 1,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (1,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              },
+              {
+                "tool": "synccheck",
+                "hazard_type": "synchronization_error",
+                "message": "Barrier error detected. Invalid arguments.",
+                "kernel": "sanitizer_sync_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 34
+                },
+                "thread": {
+                  "x": 2,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": null,
+                "memory_space": null,
+                "access_size_bytes": null,
+                "raw_excerpt": "Barrier error detected. Invalid arguments.\nat __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\nby thread (2,0,0) in block (0,0,0)\nDevice Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34"
+              }
+            ],
+            "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (96,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (97,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (98,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (99,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (100,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (101,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (102,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (103,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (104,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (105,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (106,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (107,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (108,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (109,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (110,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (111,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (112,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (0,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (1,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= Barrier error detected. Invalid arguments.\n=========     at __syncwarp+0x1b0 in sm_30_intrinsics.hpp:110\n=========     by thread (2,0,0) in block (0,0,0)\n=========         Device Frame: sanitizer_sync_kernel+0x1b0 in generated.cu:34\n========= \n========= ERROR SUMMARY: 544 errors\n========= ERROR SUMMARY: 524 errors were not printed. Use --print-limit option to adjust the number of printed errors\n",
+            "wall_time_s": 4.206067766994238
+          }
+        ],
+        "wall_time_s": 4.207018483430147
+      }
+    },
+    {
+      "case": "uninitialized_read",
+      "mode": 4,
+      "tool": "initcheck",
+      "kernel_name": "sanitizer_init_kernel",
+      "expected_status": "failed",
+      "status_matches": true,
+      "hazard_matches": true,
+      "result": {
+        "schema_version": 1,
+        "status": "failed",
+        "passed": false,
+        "measurement_complete": true,
+        "tool_path": "/usr/local/cuda-12.9/bin/compute-sanitizer",
+        "tool_version": "Version 2025.2.1.0 (build 35969825) (public-release)",
+        "requested_tools": [
+          "initcheck"
+        ],
+        "kernel_filter": [
+          "sanitizer_init_kernel"
+        ],
+        "detected_issue_count": 1000,
+        "tools": [
+          {
+            "tool": "initcheck",
+            "status": "issues_found",
+            "passed": false,
+            "return_code": 86,
+            "summary_error_count": 1000,
+            "parsed_issue_count": 20,
+            "detected_issue_count": 1000,
+            "issues": [
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 64,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (64,0,0) in block (0,0,0)\nAddress 0x7fb392a00100"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 65,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (65,0,0) in block (0,0,0)\nAddress 0x7fb392a00104"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 66,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (66,0,0) in block (0,0,0)\nAddress 0x7fb392a00108"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 67,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (67,0,0) in block (0,0,0)\nAddress 0x7fb392a0010c"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 68,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (68,0,0) in block (0,0,0)\nAddress 0x7fb392a00110"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 69,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (69,0,0) in block (0,0,0)\nAddress 0x7fb392a00114"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 70,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (70,0,0) in block (0,0,0)\nAddress 0x7fb392a00118"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 71,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (71,0,0) in block (0,0,0)\nAddress 0x7fb392a0011c"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 72,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (72,0,0) in block (0,0,0)\nAddress 0x7fb392a00120"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 73,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (73,0,0) in block (0,0,0)\nAddress 0x7fb392a00124"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 74,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (74,0,0) in block (0,0,0)\nAddress 0x7fb392a00128"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 75,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (75,0,0) in block (0,0,0)\nAddress 0x7fb392a0012c"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 76,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (76,0,0) in block (0,0,0)\nAddress 0x7fb392a00130"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 77,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (77,0,0) in block (0,0,0)\nAddress 0x7fb392a00134"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 78,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (78,0,0) in block (0,0,0)\nAddress 0x7fb392a00138"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 79,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (79,0,0) in block (0,0,0)\nAddress 0x7fb392a0013c"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 80,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (80,0,0) in block (0,0,0)\nAddress 0x7fb392a00140"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 81,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (81,0,0) in block (0,0,0)\nAddress 0x7fb392a00144"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 82,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (82,0,0) in block (0,0,0)\nAddress 0x7fb392a00148"
+              },
+              {
+                "tool": "initcheck",
+                "hazard_type": "uninitialized_global_read",
+                "message": "Uninitialized __global__ memory read of size 4 bytes",
+                "kernel": "sanitizer_init_kernel",
+                "source": {
+                  "file": "generated.cu",
+                  "line": 49
+                },
+                "thread": {
+                  "x": 83,
+                  "y": 0,
+                  "z": 0
+                },
+                "block": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "access_type": "read",
+                "memory_space": "global",
+                "access_size_bytes": 4,
+                "raw_excerpt": "Uninitialized __global__ memory read of size 4 bytes\nat sanitizer_init_kernel+0xf0 in generated.cu:49\nby thread (83,0,0) in block (0,0,0)\nAddress 0x7fb392a0014c"
+              }
+            ],
+            "raw_output_tail": "========= COMPUTE-SANITIZER\n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (64,0,0) in block (0,0,0)\n=========     Address 0x7fb392a00100\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (65,0,0) in block (0,0,0)\n=========     Address 0x7fb392a00104\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (66,0,0) in block (0,0,0)\n=========     Address 0x7fb392a00108\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (67,0,0) in block (0,0,0)\n=========     Address 0x7fb392a0010c\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (68,0,0) in block (0,0,0)\n=========     Address 0x7fb392a00110\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (69,0,0) in block (0,0,0)\n=========     Address 0x7fb392a00114\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (70,0,0) in block (0,0,0)\n=========     Address 0x7fb392a00118\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (71,0,0) in block (0,0,0)\n=========     Address 0x7fb392a0011c\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (72,0,0) in block (0,0,0)\n=========     Address 0x7fb392a00120\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (73,0,0) in block (0,0,0)\n=========     Address 0x7fb392a00124\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (74,0,0) in block (0,0,0)\n=========     Address 0x7fb392a00128\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (75,0,0) in block (0,0,0)\n=========     Address 0x7fb392a0012c\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (76,0,0) in block (0,0,0)\n=========     Address 0x7fb392a00130\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (77,0,0) in block (0,0,0)\n=========     Address 0x7fb392a00134\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (78,0,0) in block (0,0,0)\n=========     Address 0x7fb392a00138\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (79,0,0) in block (0,0,0)\n=========     Address 0x7fb392a0013c\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (80,0,0) in block (0,0,0)\n=========     Address 0x7fb392a00140\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (81,0,0) in block (0,0,0)\n=========     Address 0x7fb392a00144\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (82,0,0) in block (0,0,0)\n=========     Address 0x7fb392a00148\n========= \n========= Uninitialized __global__ memory read of size 4 bytes\n=========     at sanitizer_init_kernel+0xf0 in generated.cu:49\n=========     by thread (83,0,0) in block (0,0,0)\n=========     Address 0x7fb392a0014c\n========= \n========= ERROR SUMMARY: 1000 errors\n========= ERROR SUMMARY: 980 errors were not printed. Use --print-limit option to adjust the number of printed errors\n",
+            "wall_time_s": 4.729936925694346
+          }
+        ],
+        "wall_time_s": 4.730898952111602
+      }
+    }
+  ]
+}
