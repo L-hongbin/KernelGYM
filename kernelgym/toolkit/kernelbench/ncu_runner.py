@@ -28,6 +28,10 @@ def run(payload_path: Path) -> None:
     import torch
 
     from kernelgym.backend.kernelbench.dispatcher import KernelBenchBackend
+    from kernelgym.toolkit.kernelbench.execution_policy import (
+        prepare_model_for_execution,
+        tf32_execution_context,
+    )
     from kernelgym.toolkit.kernelbench.exec_types import set_seed
     from kernelgym.toolkit.kernelbench.loading import load_original_model_and_inputs
 
@@ -37,38 +41,47 @@ def run(payload_path: Path) -> None:
     set_seed(42)
 
     context = {}
-    _, get_init_inputs, get_inputs = load_original_model_and_inputs(
+    Model, get_init_inputs, get_inputs = load_original_model_and_inputs(
         payload["reference_code"],
         context,
         payload.get("entry_point", "Model"),
     )
-    init_inputs = _move_to_device(get_init_inputs(), device, torch)
+    reference_init_inputs = get_init_inputs()
+    candidate_init_inputs = _move_to_device(reference_init_inputs, device, torch)
 
-    backend_name = payload.get("backend", "triton")
-    backend = KernelBenchBackend()
-    artifact = payload.get("artifact")
-    if not isinstance(artifact, dict) or not artifact.get("compiled"):
-        artifact = backend.compile(
-            payload["kernel_code"],
-            device=device,
-            backend=backend_name,
-            entry_point=f"{payload.get('entry_point', 'Model')}New",
-            enable_compile_artifact_cache=True,
-        )
-    if not artifact.get("compiled"):
-        raise RuntimeError(f"NCU runner could not compile candidate: {artifact.get('error', 'unknown error')}")
+    target = payload.get("target", "candidate")
+    if target not in {"candidate", "reference"}:
+        raise ValueError(f"Unsupported NCU target: {target}")
 
-    artifact["device"] = str(device)
-    artifact.setdefault("backend", backend_name)
-    artifact.setdefault("code", payload["kernel_code"])
-    artifact.setdefault("entry_point", f"{payload.get('entry_point', 'Model')}New")
-    handle = backend.load(artifact, device=device, context=context, build_dir=artifact.get("build_dir"))
-    session = backend.open_session(handle, device=device)
+    session = None
     try:
-        model = session.create_model(init_inputs, no_grad=True, synchronize=False)
+        if target == "reference":
+            model = prepare_model_for_execution(Model(*reference_init_inputs).to(device))
+        else:
+            backend_name = payload.get("backend", "triton")
+            backend = KernelBenchBackend()
+            artifact = payload.get("artifact")
+            if not isinstance(artifact, dict) or not artifact.get("compiled"):
+                artifact = backend.compile(
+                    payload["kernel_code"],
+                    device=device,
+                    backend=backend_name,
+                    entry_point=f"{payload.get('entry_point', 'Model')}New",
+                    enable_compile_artifact_cache=True,
+                )
+            if not artifact.get("compiled"):
+                raise RuntimeError(f"NCU runner could not compile candidate: {artifact.get('error', 'unknown error')}")
+
+            artifact["device"] = str(device)
+            artifact.setdefault("backend", backend_name)
+            artifact.setdefault("code", payload["kernel_code"])
+            artifact.setdefault("entry_point", f"{payload.get('entry_point', 'Model')}New")
+            handle = backend.load(artifact, device=device, context=context, build_dir=artifact.get("build_dir"))
+            session = backend.open_session(handle, device=device)
+            model = session.create_model(candidate_init_inputs, no_grad=True, synchronize=False)
         inputs = _move_to_device(get_inputs(), device, torch)
 
-        with torch.no_grad():
+        with tf32_execution_context(stage="ncu", enabled=True), torch.no_grad():
             for _ in range(max(0, int(payload.get("warmup", 2)))):
                 _invoke(model, inputs)
             torch.cuda.synchronize(device=device)
@@ -76,7 +89,8 @@ def run(payload_path: Path) -> None:
                 _invoke(model, inputs)
                 torch.cuda.synchronize(device=device)
     finally:
-        session.close()
+        if session is not None:
+            session.close()
 
 
 def main(argv: list[str] | None = None) -> int:

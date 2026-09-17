@@ -8,7 +8,7 @@ from typing import Any, Dict
 CASE_NAME = "gemm_rmsnorm_fp32"
 BACKEND = "tvm_ffi"
 REPEAT_COUNT = 3
-INPUT_SHAPES = {"lhs": [512, 512], "rhs": [512, 512]}
+INPUT_SHAPES = {"lhs": [4096, 16], "rhs": [16, 512]}
 
 
 REFERENCE_CODE = r"""
@@ -31,9 +31,9 @@ def get_init_inputs():
 
 def get_inputs():
     # Keep this fixed health-check case comfortably inside the fp32 tolerance
-    # even when the reference matmul uses TF32 while the custom kernel performs
-    # scalar fp32 accumulation. Values do not affect the measured kernel path.
-    return [torch.randn(512, 512) * 0.001, torch.randn(512, 512) * 0.001]
+    # while both the reference matmul and custom Tensor Core kernel use TF32.
+    # Values do not affect the measured kernel path.
+    return [torch.randn(4096, 16) * 0.001, torch.randn(16, 512) * 0.001]
 """
 
 
@@ -41,65 +41,80 @@ KERNEL_CODE = r"""
 ### CUDA_KERNELS
 ```cpp
 #include <cuda_runtime.h>
+#include <mma.h>
 
-__global__ void gemm_kernel(
-    const float* lhs, const float* rhs, float* output, int m, int n, int k) {
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    if (row >= m || col >= n) return;
+constexpr int WMMA_M = 16;
+constexpr int WMMA_N = 16;
+constexpr int WMMA_K = 8;
+constexpr int OUTPUT_COLS = 512;
+constexpr int WARPS_PER_BLOCK = OUTPUT_COLS / WMMA_N;
 
-    float sum = 0.0f;
-    for (int inner = 0; inner < k; ++inner) {
-        sum += lhs[row * k + inner] * rhs[inner * n + col];
+__device__ __forceinline__ float warp_sum(float value) {
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        value += __shfl_down_sync(0xffffffff, value, offset);
     }
-    output[row * n + col] = sum;
+    return value;
 }
 
-__global__ void rms_norm_kernel(
-    const float* input, float* output, int rows, int cols, float eps) {
-    int row = blockIdx.x;
-    if (row >= rows) return;
-
-    __shared__ float scratch[256];
-    float sum_sq = 0.0f;
-    for (int col = threadIdx.x; col < cols; col += blockDim.x) {
-        float value = input[row * cols + col];
-        sum_sq += value * value;
-    }
-    scratch[threadIdx.x] = sum_sq;
-    __syncthreads();
-
-    for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
-        if (threadIdx.x < stride) {
-            scratch[threadIdx.x] += scratch[threadIdx.x + stride];
-        }
-        __syncthreads();
-    }
-    if (threadIdx.x == 0) {
-        scratch[0] = rsqrtf(scratch[0] / static_cast<float>(cols) + eps);
-    }
-    __syncthreads();
-
-    float inv_rms = scratch[0];
-    for (int col = threadIdx.x; col < cols; col += blockDim.x) {
-        output[row * cols + col] = input[row * cols + col] * inv_rms;
-    }
-}
-
-extern "C" void gemm_launcher(
+__global__ void gemm_rmsnorm_kernel(
     const float* lhs, const float* rhs, float* output,
-    int m, int n, int k, void* stream_handle) {
-    auto stream = static_cast<cudaStream_t>(stream_handle);
-    dim3 block(16, 16);
-    dim3 grid((n + block.x - 1) / block.x, (m + block.y - 1) / block.y);
-    gemm_kernel<<<grid, block, 0, stream>>>(lhs, rhs, output, m, n, k);
+    int m, int n, int k, float eps) {
+    using namespace nvcuda;
+    __shared__ __align__(128) float block_output[WMMA_M][OUTPUT_COLS];
+    __shared__ float inv_rms[WMMA_M];
+
+    const int warp_id = threadIdx.x >> 5;
+    const int lane = threadIdx.x & 31;
+    const int row = blockIdx.x * WMMA_M;
+    const int col = warp_id * WMMA_N;
+    if (row + WMMA_M > m || n != OUTPUT_COLS || (k % WMMA_K) != 0) {
+        return;
+    }
+
+    wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K,
+                   wmma::precision::tf32, wmma::row_major> lhs_fragment;
+    wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K,
+                   wmma::precision::tf32, wmma::row_major> rhs_fragment;
+    wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> accumulator;
+    wmma::fill_fragment(accumulator, 0.0f);
+
+    for (int inner = 0; inner < k; inner += WMMA_K) {
+        wmma::load_matrix_sync(lhs_fragment, lhs + row * k + inner, k);
+        wmma::load_matrix_sync(rhs_fragment, rhs + inner * n + col, n);
+        wmma::mma_sync(accumulator, lhs_fragment, rhs_fragment, accumulator);
+    }
+    wmma::store_matrix_sync(&block_output[0][col], accumulator, OUTPUT_COLS, wmma::mem_row_major);
+    __syncthreads();
+
+    for (int local_row = warp_id; local_row < WMMA_M; local_row += WARPS_PER_BLOCK) {
+        float sum_sq = 0.0f;
+#pragma unroll
+        for (int output_col = lane; output_col < OUTPUT_COLS; output_col += 32) {
+            const float value = block_output[local_row][output_col];
+            sum_sq = fmaf(value, value, sum_sq);
+        }
+        sum_sq = warp_sum(sum_sq);
+        if (lane == 0) {
+            inv_rms[local_row] = rsqrtf(sum_sq / static_cast<float>(OUTPUT_COLS) + eps);
+        }
+    }
+    __syncthreads();
+
+    for (int index = threadIdx.x; index < WMMA_M * OUTPUT_COLS; index += blockDim.x) {
+        const int local_row = index / OUTPUT_COLS;
+        const int output_col = index % OUTPUT_COLS;
+        output[(row + local_row) * n + output_col] =
+            block_output[local_row][output_col] * inv_rms[local_row];
+    }
 }
 
-extern "C" void rms_norm_launcher(
-    const float* input, float* output, int rows, int cols,
-    float eps, void* stream_handle) {
+extern "C" void gemm_rmsnorm_launcher(
+    const float* lhs, const float* rhs, float* output,
+    int m, int n, int k, float eps, void* stream_handle) {
     auto stream = static_cast<cudaStream_t>(stream_handle);
-    rms_norm_kernel<<<rows, 256, 0, stream>>>(input, output, rows, cols, eps);
+    gemm_rmsnorm_kernel<<<m / WMMA_M, WARPS_PER_BLOCK * 32, 0, stream>>>(
+        lhs, rhs, output, m, n, k, eps);
 }
 ```
 
@@ -108,45 +123,27 @@ extern "C" void rms_norm_launcher(
 #include <tvm/ffi/tvm_ffi.h>
 #include <tvm/ffi/extra/c_env_api.h>
 
-extern "C" void gemm_launcher(
+extern "C" void gemm_rmsnorm_launcher(
     const float* lhs, const float* rhs, float* output,
-    int m, int n, int k, void* stream_handle);
-extern "C" void rms_norm_launcher(
-    const float* input, float* output, int rows, int cols,
-    float eps, void* stream_handle);
+    int m, int n, int k, float eps, void* stream_handle);
 
-void gemm_forward(
-    tvm::ffi::Tensor lhs, tvm::ffi::Tensor rhs, tvm::ffi::Tensor output) {
+void gemm_rmsnorm_forward(
+    tvm::ffi::Tensor lhs, tvm::ffi::Tensor rhs, tvm::ffi::Tensor output, double eps) {
     auto lhs_shape = lhs.shape();
     auto rhs_shape = rhs.shape();
     void* stream = TVMFFIEnvGetStream(lhs.device().device_type, lhs.device().device_id);
-    gemm_launcher(
+    gemm_rmsnorm_launcher(
         static_cast<const float*>(lhs.data_ptr()),
         static_cast<const float*>(rhs.data_ptr()),
         static_cast<float*>(output.data_ptr()),
         static_cast<int>(lhs_shape[0]),
         static_cast<int>(rhs_shape[1]),
         static_cast<int>(lhs_shape[1]),
-        stream);
-}
-
-void rms_norm_forward(
-    tvm::ffi::Tensor input, tvm::ffi::Tensor output, double eps) {
-    auto shape = input.shape();
-    int cols = static_cast<int>(shape[shape.size() - 1]);
-    int rows = static_cast<int>(input.numel() / cols);
-    void* stream = TVMFFIEnvGetStream(input.device().device_type, input.device().device_id);
-    rms_norm_launcher(
-        static_cast<const float*>(input.data_ptr()),
-        static_cast<float*>(output.data_ptr()),
-        rows,
-        cols,
         static_cast<float>(eps),
         stream);
 }
 
-TVM_FFI_DLL_EXPORT_TYPED_FUNC(gemm_forward, gemm_forward);
-TVM_FFI_DLL_EXPORT_TYPED_FUNC(rms_norm_forward, rms_norm_forward);
+TVM_FFI_DLL_EXPORT_TYPED_FUNC(gemm_rmsnorm_forward, gemm_rmsnorm_forward);
 ```
 
 ### MODEL_NEW
@@ -161,12 +158,10 @@ class ModelNew(torch.nn.Module):
         self.eps = eps
 
     def forward(self, lhs, rhs):
-        intermediate = torch.empty(
+        output = torch.empty(
             (lhs.shape[0], rhs.shape[1]), device=lhs.device, dtype=lhs.dtype
         )
-        output = torch.empty_like(intermediate)
-        tvm_ffi_extension.gemm_forward(lhs, rhs, intermediate)
-        tvm_ffi_extension.rms_norm_forward(intermediate, output, float(self.eps))
+        tvm_ffi_extension.gemm_rmsnorm_forward(lhs, rhs, output, float(self.eps))
         return output
 ```
 """
@@ -175,8 +170,8 @@ class ModelNew(torch.nn.Module):
 def build_payload(task_id: str, run_token: str) -> Dict[str, Any]:
     """Build one cold, uncached evaluation request for the fixed case."""
     kernel_code = KERNEL_CODE.replace(
-        "__global__ void gemm_kernel",
-        f"// speed-test-run: {run_token}\n__global__ void gemm_kernel",
+        "__global__ void gemm_rmsnorm_kernel",
+        f"// speed-test-run: {run_token}\n__global__ void gemm_rmsnorm_kernel",
         1,
     )
     return {
@@ -188,7 +183,7 @@ def build_payload(task_id: str, run_token: str) -> Dict[str, Any]:
         "backend": BACKEND,
         "precision": "fp32",
         "num_correct_trials": 5,
-        "num_perf_trials": 100,
+        "num_perf_trials": 300,
         "num_warmup": 3,
         "perf_trim_count": 0,
         "adaptive_perf_trials": False,
@@ -198,8 +193,9 @@ def build_payload(task_id: str, run_token: str) -> Dict[str, Any]:
         "force_refresh": True,
         "use_reference_cache": False,
         "enable_compile_artifact_cache": False,
-        "enable_ncu": False,
+        "enable_ncu": True,
         "enable_compute_sanitizer": False,
+        "return_detail_correctness": False,
         "enable_correctness_input_perturbations": False,
         "run_correctness": True,
         "run_performance": True,
@@ -214,6 +210,7 @@ STAGE_TIMING_FIELDS = {
     "kernel_load_s": "kg_kernel_backend_load_s",
     "kernel_correctness_s": "kg_kernel_correctness_s",
     "kernel_performance_s": "kg_kernel_performance_step_s",
+    "ncu_profile_s": "kg_kernel_ncu_profile_s",
     "worker_pool_s": "wg_pool_total_s",
 }
 

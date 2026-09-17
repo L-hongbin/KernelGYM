@@ -18,8 +18,11 @@ def test_fixed_case_passes_tvm_ffi_precheck():
     assert error_message == ""
     assert error_code is None
     assert precheck["passed"] is True
-    assert precheck["exported_functions"] == ["gemm_forward", "rms_norm_forward"]
-    assert precheck["detected_extension_calls"] == ["gemm_forward", "rms_norm_forward"]
+    assert precheck["exported_functions"] == ["gemm_rmsnorm_forward"]
+    assert precheck["detected_extension_calls"] == ["gemm_rmsnorm_forward"]
+    assert KERNEL_CODE.count("__global__ void") == 1
+    assert "wmma::mma_sync" in KERNEL_CODE
+    assert "gemm_rmsnorm_kernel" in KERNEL_CODE
 
 
 def test_speed_test_payload_forces_full_uncached_flow():
@@ -28,11 +31,12 @@ def test_speed_test_payload_forces_full_uncached_flow():
 
     assert first["backend"] == "tvm_ffi"
     assert first["num_correct_trials"] == 5
-    assert first["num_perf_trials"] == 100
+    assert first["num_perf_trials"] == 300
     assert first["num_warmup"] == 3
     assert first["force_refresh"] is True
     assert first["use_reference_cache"] is False
     assert first["enable_compile_artifact_cache"] is False
+    assert first["enable_ncu"] is True
     assert first["run_correctness"] is True
     assert first["run_performance"] is True
     assert first["kernel_code"] != second["kernel_code"]
@@ -73,6 +77,12 @@ def test_speed_test_runs_three_times_and_averages_passed_results(monkeypatch):
                 "kg_reference_total_s": float(run_index),
                 "kg_kernel_backend_compile_s": float(run_index) * 2,
                 "kg_kernel_correctness_s": 0.25,
+                "kg_kernel_ncu_profile_s": float(run_index) / 2,
+                "ncu": {
+                    "status": "ok",
+                    "profiled_kernel_count": 1,
+                    "kernels": [{"kernel_name": "gemm_rmsnorm_kernel"}],
+                },
             },
         }
         return kwargs["task_id"], result, TaskStatus.COMPLETED
@@ -97,6 +107,9 @@ def test_speed_test_runs_three_times_and_averages_passed_results(monkeypatch):
     assert response.average.stage_timings["kernel_compile_s"] == 3.0
     assert response.average.stage_timings["compile_worker_total_s"] == 3.25
     assert response.average.stage_timings["kernel_correctness_s"] == 0.25
+    assert response.average.stage_timings["ncu_profile_s"] == 1.0
+    assert response.runs[0].ncu["status"] == "ok"
+    assert response.runs[0].ncu["profiled_kernel_count"] == 1
     assert response.average.end_to_end_s >= 0
     assert response.total_end_to_end_s >= response.average.end_to_end_s
 

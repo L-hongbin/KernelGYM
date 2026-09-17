@@ -1,3 +1,4 @@
+import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -142,9 +143,50 @@ def test_run_ncu_profile_exports_and_parses_csv(monkeypatch, tmp_path: Path) -> 
     )
 
     assert result["status"] == "ok"
+    assert result["target"] == "candidate"
     assert result["tool_version"] == "NCU test"
     assert result["profiled_kernel_count"] == 1
     assert result["kernels"][0]["metrics"]["gpu__time_duration.sum"]["value"] == 12.5
+
+
+def test_run_ncu_profile_propagates_reference_target(monkeypatch, tmp_path: Path) -> None:
+    fake_ncu = tmp_path / "ncu"
+    fake_ncu.write_text("#!/bin/sh\n", encoding="utf-8")
+    fake_ncu.chmod(0o755)
+    monkeypatch.setattr(ncu_profiler, "_ncu_version", lambda _path: "NCU test")
+    observed_payload = {}
+
+    def fake_run(command, **_kwargs):
+        if "--import" in command:
+            csv_path = Path(command[command.index("--log-file") + 1])
+            csv_path.write_text(WIDE_SAMPLE_CSV, encoding="utf-8")
+        else:
+            payload_path = Path(command[-1])
+            observed_payload.update(json.loads(payload_path.read_text(encoding="utf-8")))
+            report_base = Path(command[command.index("--export") + 1])
+            report_base.with_suffix(".ncu-rep").write_bytes(b"report")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(ncu_profiler.subprocess, "run", fake_run)
+    result = ncu_profiler.run_ncu_profile(
+        original_model_src="class Model: pass",
+        custom_model_src="class ModelNew: pass",
+        artifact=None,
+        backend="cuda",
+        entry_point="Model",
+        device="cuda:0",
+        kernel_names=[],
+        ncu_path=str(fake_ncu),
+        metrics=["gpu__time_duration.sum"],
+        timeout_s=10,
+        max_kernels=8,
+        warmup=2,
+        profile_version="v1",
+        target="reference",
+    )
+
+    assert result["target"] == "reference"
+    assert observed_payload["target"] == "reference"
 
 
 def test_run_ncu_profile_timeout_is_fail_open_metadata(monkeypatch, tmp_path: Path) -> None:

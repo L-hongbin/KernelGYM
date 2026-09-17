@@ -329,13 +329,17 @@ def run_ncu_profile(
     max_kernels: int,
     warmup: int,
     profile_version: str,
+    target: str = "candidate",
 ) -> Dict[str, Any]:
     """Launch NCU around a dedicated runner. Failures are returned as metadata."""
 
     started = perf_counter()
+    if target not in {"candidate", "reference"}:
+        raise ValueError(f"Unsupported NCU target: {target}")
     resolved_ncu = _resolve_ncu_path(ncu_path)
     base_result: Dict[str, Any] = {
         "status": "unavailable" if resolved_ncu is None else "starting",
+        "target": target,
         "profile_version": profile_version,
         "tool_version": _ncu_version(resolved_ncu) if resolved_ncu else "unavailable",
         "requested_metrics": list(metrics),
@@ -363,6 +367,7 @@ def run_ncu_profile(
                 "entry_point": entry_point,
                 "device": "cuda:0",
                 "warmup": max(0, warmup),
+                "target": target,
             }
             payload_path.write_text(json.dumps(payload), encoding="utf-8")
             command = build_ncu_command(

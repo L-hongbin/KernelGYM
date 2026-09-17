@@ -395,6 +395,7 @@ class SpeedTestRunResponse(BaseModel):
     kernel_runtime_ms: Optional[float] = None
     speedup: Optional[float] = None
     stage_timings: Dict[str, float] = Field(default_factory=dict)
+    ncu: Optional[Dict[str, Any]] = None
     error_code: Optional[str] = None
     error_message: Optional[str] = None
 

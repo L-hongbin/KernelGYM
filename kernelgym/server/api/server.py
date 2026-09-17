@@ -605,8 +605,14 @@ async def benchmark_speed_test(task_mgr: TaskManager = Depends(get_task_manager)
             error_code = result.get("error_code")
             if hasattr(error_code, "value"):
                 error_code = error_code.value
+            result_metadata = result.get("metadata")
+            if not isinstance(result_metadata, dict):
+                result_metadata = {}
+            ncu_result = result_metadata.get("ncu")
+            if not isinstance(ncu_result, dict):
+                ncu_result = None
             compile_metadata = None
-            if (result.get("metadata") or {}).get("split_compile_and_execute") is True:
+            if result_metadata.get("split_compile_and_execute") is True:
                 try:
                     compile_id = (result.get("workflow_children") or {}).get("compile", f"{task_id}_compile")
                     compile_result = await task_mgr.get_task_result(compile_id)
@@ -627,7 +633,8 @@ async def benchmark_speed_test(task_mgr: TaskManager = Depends(get_task_manager)
                     reference_runtime_ms=optional_float(result.get("reference_runtime")),
                     kernel_runtime_ms=optional_float(result.get("kernel_runtime")),
                     speedup=optional_float(result.get("speedup")),
-                    stage_timings=extract_stage_timings(result.get("metadata"), compile_metadata),
+                    stage_timings=extract_stage_timings(result_metadata, compile_metadata),
+                    ncu=ncu_result,
                     error_code=str(error_code) if error_code is not None else None,
                     error_message=result.get("error_message"),
                 )
@@ -747,9 +754,7 @@ async def benchmark_speedup_noise_floor(
                 force_refresh=True,
             )
         except Exception as exc:
-            logger.exception(
-                "Noise-floor calibration failed case=%s block=%s", case.case_id, block_index
-            )
+            logger.exception("Noise-floor calibration failed case=%s block=%s", case.case_id, block_index)
             error_code = classify_error(str(exc), "system")
             result = {
                 "compiled": False,
@@ -806,7 +811,8 @@ async def benchmark_speedup_noise_floor(
     calibration_status = (
         "passed"
         if passed_blocks == expected_blocks and valid_kernels == len(cases) and not cleanup_errors
-        else "partial" if passed_blocks > 0
+        else "partial"
+        if passed_blocks > 0
         else "failed"
     )
     completed_at = datetime.now(timezone.utc).isoformat()
@@ -825,8 +831,7 @@ async def benchmark_speedup_noise_floor(
             **request.model_dump(),
             "kernel_count": len(cases),
             "expected_evaluator_requests": expected_blocks,
-            "calibration_blocks_per_kernel": request.blocks_per_kernel
-            - request.heldout_blocks_per_kernel,
+            "calibration_blocks_per_kernel": request.blocks_per_kernel - request.heldout_blocks_per_kernel,
             "effective_reference_perf_trials": reference_trials,
             "schedule_policy": "round-wise seeded shuffle",
         },
