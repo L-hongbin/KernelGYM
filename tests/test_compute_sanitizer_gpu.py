@@ -32,7 +32,8 @@ def test_tvm_ffi_runtime_sanitizer_cases() -> None:
     os.getenv("RUN_COMPUTE_SANITIZER_INTEGRATION") != "1",
     reason="set RUN_COMPUTE_SANITIZER_INTEGRATION=1 to run Compute Sanitizer GPU cases",
 )
-def test_tvm_ffi_sanitizer_runs_after_correctness_runtime_failure() -> None:
+@pytest.mark.parametrize("detail", [False, True])
+def test_tvm_ffi_sanitizer_runs_after_correctness_runtime_failure(detail) -> None:
     if not torch.cuda.is_available():
         pytest.skip("CUDA is unavailable")
 
@@ -53,7 +54,7 @@ def test_tvm_ffi_sanitizer_runs_after_correctness_runtime_failure() -> None:
         enable_profiling=False,
         enable_ncu=False,
         enable_compute_sanitizer=True,
-        return_detail_correctness=True,
+        return_detail_correctness=detail,
         enable_triton_detection=False,
         detect_decoy_kernel=False,
         backend_adapter=KernelBenchBackend(),
@@ -81,7 +82,8 @@ def test_tvm_ffi_sanitizer_runs_after_correctness_runtime_failure() -> None:
     os.getenv("RUN_COMPUTE_SANITIZER_INTEGRATION") != "1",
     reason="set RUN_COMPUTE_SANITIZER_INTEGRATION=1 to run Compute Sanitizer GPU cases",
 )
-def test_tvm_ffi_sanitizer_runs_after_output_mismatch_and_omits_clean_result(monkeypatch) -> None:
+@pytest.mark.parametrize("detail", [False, True])
+def test_tvm_ffi_sanitizer_runs_after_output_mismatch_and_omits_clean_result(monkeypatch, detail) -> None:
     if not torch.cuda.is_available():
         pytest.skip("CUDA is unavailable")
 
@@ -108,7 +110,7 @@ def test_tvm_ffi_sanitizer_runs_after_output_mismatch_and_omits_clean_result(mon
         enable_profiling=False,
         enable_ncu=False,
         enable_compute_sanitizer=True,
-        return_detail_correctness=True,
+        return_detail_correctness=detail,
         enable_triton_detection=False,
         detect_decoy_kernel=False,
         backend_adapter=KernelBenchBackend(),
@@ -129,6 +131,8 @@ def test_tvm_ffi_sanitizer_runs_after_output_mismatch_and_omits_clean_result(mon
     assert observed_sanitizer_result["diagnostic_policy_complete"] is True
     assert result.runtime_sanitizer == {}
     assert not any(key.startswith("runtime_sanitizer_") for key in result.metadata)
+    assert ("element_correctness_curve" in result.metadata) is detail
+    assert "correctness_diagnosis" not in result.metadata
 
 
 @pytest.mark.integration
@@ -136,7 +140,8 @@ def test_tvm_ffi_sanitizer_runs_after_output_mismatch_and_omits_clean_result(mon
     os.getenv("RUN_COMPUTE_SANITIZER_INTEGRATION") != "1",
     reason="set RUN_COMPUTE_SANITIZER_INTEGRATION=1 to run Compute Sanitizer GPU cases",
 )
-def test_tvm_ffi_sanitizer_reports_issue_after_output_mismatch() -> None:
+@pytest.mark.parametrize("detail", [False, True])
+def test_tvm_ffi_sanitizer_reports_issue_after_output_mismatch(detail) -> None:
     if not torch.cuda.is_available():
         pytest.skip("CUDA is unavailable")
 
@@ -170,7 +175,7 @@ __global__ void sanitizer_sync_kernel""",
         enable_profiling=False,
         enable_ncu=False,
         enable_compute_sanitizer=True,
-        return_detail_correctness=True,
+        return_detail_correctness=detail,
         enable_triton_detection=False,
         detect_decoy_kernel=False,
         backend_adapter=KernelBenchBackend(),
@@ -191,3 +196,5 @@ __global__ void sanitizer_sync_kernel""",
     assert result.runtime_sanitizer["measurement_complete"] is False
     assert result.runtime_sanitizer["diagnostic_policy_complete"] is True
     assert result.runtime_sanitizer["issue_count_by_check"]["racecheck"] > 0
+    assert ("element_correctness_curve" in result.metadata) is detail
+    assert "correctness_diagnosis" not in result.metadata

@@ -125,13 +125,13 @@ class EvaluationRequest(BaseModel):
         default=False,
         description=(
             "Run isolated NVIDIA Compute Sanitizer trials after a correctness runtime failure or output mismatch. "
-            "Requires return_detail_correctness=true and is disabled by default."
+            "Independent of return_detail_correctness and disabled by default."
         ),
     )
     return_detail_correctness: bool = Field(
         default=False,
         description=(
-            "Return detailed correctness mismatch diagnostics. Also gates Compute Sanitizer execution. "
+            "Return detailed correctness mismatch diagnostics independently of Compute Sanitizer. "
             "False preserves the legacy correctness metadata and comparison path."
         ),
     )

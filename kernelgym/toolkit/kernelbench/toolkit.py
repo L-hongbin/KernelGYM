@@ -164,7 +164,7 @@ class KernelBenchToolkit(Toolkit):
             if enable_compute_sanitizer is None:
                 enable_compute_sanitizer = settings.enable_compute_sanitizer
             return_detail_correctness = bool(task.return_detail_correctness)
-            enable_compute_sanitizer = bool(return_detail_correctness and enable_compute_sanitizer)
+            enable_compute_sanitizer = bool(enable_compute_sanitizer)
             enable_correctness_input_perturbations = task.enable_correctness_input_perturbations
             if enable_correctness_input_perturbations is None:
                 enable_correctness_input_perturbations = settings.enable_correctness_input_perturbations
@@ -403,7 +403,7 @@ class KernelBenchToolkit(Toolkit):
             if enable_compute_sanitizer is None:
                 enable_compute_sanitizer = settings.enable_compute_sanitizer
             return_detail_correctness = bool(task.return_detail_correctness)
-            enable_compute_sanitizer = bool(return_detail_correctness and enable_compute_sanitizer)
+            enable_compute_sanitizer = bool(enable_compute_sanitizer)
             enable_correctness_input_perturbations = task.enable_correctness_input_perturbations
             if enable_correctness_input_perturbations is None:
                 enable_correctness_input_perturbations = settings.enable_correctness_input_perturbations

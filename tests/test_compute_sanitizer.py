@@ -1071,8 +1071,8 @@ def test_api_defaults_and_workflow_propagate_sanitizer() -> None:
         enable_compute_sanitizer=True,
         compute_sanitizer_profile_version="v1",
     )
-    assert payload["enable_compute_sanitizer"] is False
-    assert "_compute_sanitizer_profile_version" not in payload
+    assert payload["enable_compute_sanitizer"] is True
+    assert payload["_compute_sanitizer_profile_version"] == "v1"
 
     detailed_payload = apply_runtime_defaults(
         {
@@ -1121,10 +1121,10 @@ def test_api_defaults_and_workflow_propagate_sanitizer() -> None:
             task_id="sanitizer-enabled-options",
             reference_code="class Model: pass",
             kernel_code="class ModelNew: pass",
-            return_detail_correctness=True,
+            return_detail_correctness=False,
             enable_compute_sanitizer=True,
         ),
         compile_only=False,
     )
-    assert enabled_options["return_detail_correctness"] is True
+    assert enabled_options["return_detail_correctness"] is False
     assert enabled_options["enable_compute_sanitizer"] is True

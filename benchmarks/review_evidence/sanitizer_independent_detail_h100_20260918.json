@@ -1,0 +1,37 @@
+{
+  "date": "2026-09-18",
+  "hardware": "NVIDIA H100 PCIe",
+  "scope": "Local evaluator and request/workflow tests; not a service redeployment",
+  "default_enable_compute_sanitizer": false,
+  "unit_and_correctness_tests": {
+    "command": ".venv/bin/python -m pytest tests/test_compute_sanitizer.py tests/kernelbench/correctness -q --disable-warnings -o addopts=''",
+    "passed": 169
+  },
+  "gpu_assertion_evidence": {
+    "source": "tests/test_compute_sanitizer_gpu.py",
+    "environment": "RUN_COMPUTE_SANITIZER_INTEGRATION=1",
+    "detail_modes_tested": [false, true],
+    "runtime_error": {
+      "test": "test_tvm_ffi_sanitizer_runs_after_correctness_runtime_failure",
+      "status": "issues_found",
+      "executed_checks": ["memcheck"],
+      "replayed_seed_matches": true,
+      "isolation": "Each detail mode ran in a separate pytest process because the candidate poisons its CUDA context"
+    },
+    "clean_mismatch": {
+      "test": "test_tvm_ffi_sanitizer_runs_after_output_mismatch_and_omits_clean_result",
+      "internal_status": "clean",
+      "executed_checks": ["racecheck", "initcheck", "memcheck", "synccheck"],
+      "returned_runtime_sanitizer": {},
+      "sanitizer_metadata_omitted": true
+    },
+    "race_mismatch": {
+      "test": "test_tvm_ffi_sanitizer_reports_issue_after_output_mismatch",
+      "status": "issues_found",
+      "executed_checks": ["racecheck"],
+      "stop_reason": "first_issue",
+      "replayed_seed_matches": true
+    }
+  },
+  "service_restarted": false
+}

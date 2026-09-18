@@ -196,9 +196,13 @@ def test_numerical_mismatch_defaults_to_legacy_metadata(monkeypatch) -> None:
         "row_correctness",
         "tile_correctness",
         "output_space_localization",
-        "correctness_failed_trial_seed",
     ):
         assert field not in result.metadata
+    # Replay seed is internal even when detailed diagnostics are disabled.
+    from kernelgym.schema.result import _prepare_public_metadata
+
+    assert isinstance(result.metadata["correctness_failed_trial_seed"], int)
+    assert "correctness_failed_trial_seed" not in _prepare_public_metadata(result.metadata)
 
 
 @pytest.mark.gpu

@@ -183,7 +183,7 @@ class Settings(BaseSettings):
         env="ENABLE_COMPUTE_SANITIZER",
         description=(
             "Server default for isolated Compute Sanitizer trials after a correctness runtime failure or output "
-            "mismatch; each request must also set return_detail_correctness=true."
+            "mismatch; independent of return_detail_correctness."
         ),
     )
     compute_sanitizer_path: str = Field(

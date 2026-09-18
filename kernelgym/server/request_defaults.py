@@ -26,11 +26,8 @@ def apply_runtime_defaults(
             payload["_ncu_profile_version"] = ncu_profile_version
         if payload.get("enable_compute_sanitizer") is None and enable_compute_sanitizer is not None:
             payload["enable_compute_sanitizer"] = bool(enable_compute_sanitizer)
-        if not payload.get("return_detail_correctness", False):
-            payload["enable_compute_sanitizer"] = False
         if (
-            payload.get("return_detail_correctness")
-            and payload.get("enable_compute_sanitizer")
+            payload.get("enable_compute_sanitizer")
             and compute_sanitizer_profile_version
         ):
             payload["_compute_sanitizer_profile_version"] = compute_sanitizer_profile_version

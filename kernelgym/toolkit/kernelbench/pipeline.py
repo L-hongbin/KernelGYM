@@ -1324,10 +1324,8 @@ def eval_kernel_against_ref(
             else None
         )
 
-        if not return_detail_correctness:
-            result: Dict[str, Any] = {}
-        elif not enable_compute_sanitizer:
-            result = skipped_compute_sanitizer_result("disabled")
+        if not enable_compute_sanitizer:
+            return {}
         elif sanitizer_skip_reason:
             result = skipped_compute_sanitizer_result(sanitizer_skip_reason)
         elif trigger is not None:
@@ -1414,13 +1412,12 @@ def eval_kernel_against_ref(
             )
             result = skipped_compute_sanitizer_result(skip_reason)
 
-        if return_detail_correctness:
-            result = _finalize_compute_sanitizer_feedback(
-                metadata,
-                result,
-                trigger=trigger,
-                selection_mode=selection_mode,
-            )
+        result = _finalize_compute_sanitizer_feedback(
+            metadata,
+            result,
+            trigger=trigger,
+            selection_mode=selection_mode,
+        )
         return result
 
     def _finish_candidate_runtime_failure(

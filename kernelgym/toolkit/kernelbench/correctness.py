@@ -1327,9 +1327,8 @@ def run_and_check_correctness(
 
                 if not _structures_match(output, output_new):
                     metadata["correctness_output_mismatch"] = True
-                    if return_detail_correctness:
-                        # Internal-only replay input for mismatch-triggered sanitizer diagnostics.
-                        metadata["correctness_failed_trial_seed"] = int(trial_seed)
+                    # Internal-only replay input, independent of detailed diagnostics.
+                    metadata["correctness_failed_trial_seed"] = int(trial_seed)
                     expected_shape = _describe_structure(output)
                     got_shape = _describe_structure(output_new)
                     compare_trial_durations.append(0.0)
@@ -1380,13 +1379,12 @@ def run_and_check_correctness(
 
                 if not outputs_close:
                     metadata["correctness_output_mismatch"] = True
+                    metadata["correctness_failed_trial_seed"] = int(trial_seed)
                     metadata.setdefault("max_difference", []).append(f"{max_diff:.6f}")
                     metadata.setdefault("avg_difference", []).append(f"{avg_diff:.6f}")
                     if return_detail_correctness:
                         element_correctness_curve = _format_element_correctness_curve(curve_counts, total_elements)
                         element_correctness_text = element_correctness_curve["1x"]
-                        # Internal-only replay input for mismatch-triggered sanitizer diagnostics.
-                        metadata["correctness_failed_trial_seed"] = int(trial_seed)
                         metadata.setdefault("element_correctness_curve", []).append(element_correctness_curve)
                         metadata.setdefault("nan_count", []).append(nan_count)
                         metadata.setdefault("inf_count", []).append(inf_count)
