@@ -221,5 +221,10 @@ def maybe_record_correctness_diagnosis(
         return None
     diagnosis = diagnose_correctness_failure(metadata)
     if diagnosis is not None:
+        text = diagnosis.pop("text")
+        issue = str(metadata.get("correctness_issue") or "Output mismatch").rstrip()
+        suffix = f"Diagnosis: {text}"
+        if not issue.endswith(suffix):
+            metadata["correctness_issue"] = f"{issue.rstrip('.')}. {suffix}"
         metadata["correctness_diagnosis"] = diagnosis
     return diagnosis

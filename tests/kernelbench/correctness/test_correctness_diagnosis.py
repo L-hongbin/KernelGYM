@@ -182,13 +182,19 @@ def test_detailed_gate_and_sanitizer_dispatch_suppress_diagnosis() -> None:
 
 def test_diagnosis_is_appended_to_correctness_error_message() -> None:
     metadata = _numerical_metadata(
-        correctness_diagnosis={
-            "category": "large_magnitude_or_indexing_error",
-            "confidence": 0.8,
-            "text": "Inspect indexing and masking.",
-            "evidence": ["flat tolerance curve"],
-        }
+        nan_count=[2], inf_count=[1],
     )
+    diagnosis = maybe_record_correctness_diagnosis(
+        metadata, return_detail_correctness=True, sanitizer_dispatched=False,
+    )
+    assert diagnosis is not None
+    assert "text" not in diagnosis
+    assert "2 NaN and 1 Inf" in metadata["correctness_issue"]
+    issue = metadata["correctness_issue"]
+    maybe_record_correctness_diagnosis(
+        metadata, return_detail_correctness=True, sanitizer_dispatched=False,
+    )
+    assert metadata["correctness_issue"] == issue
     result = KernelEvaluationResult.from_kernel_exec_result(
         "child",
         "parent",
@@ -197,10 +203,9 @@ def test_diagnosis_is_appended_to_correctness_error_message() -> None:
 
     assert result.error_code is not None
     assert result.error_code.value == "CORRECTNESS_ERROR"
-    assert result.error_message == (
-        "Kernel produced incorrect results: Numerical output mismatch. "
-        "Diagnosis: Inspect indexing and masking."
-    )
+    assert result.error_message == f"Kernel produced incorrect results: {issue}"
+    assert result.error_message.count("Diagnosis:") == 1
+    assert "text" not in result.metadata["correctness_diagnosis"]
 
 
 def test_sanitizer_issue_uses_sanitizer_message_instead_of_diagnosis() -> None:
