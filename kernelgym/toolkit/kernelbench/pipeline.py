@@ -195,6 +195,8 @@ def _record_model_load_error(metadata: Dict[str, Any], exc: Exception) -> Kernel
 
 def _sanitize_compile_artifact(artifact: Dict[str, Any]) -> Dict[str, Any]:
     hidden = {
+        "compiled",
+        "error",
         "work_dir",
         "so_path",
         "code",

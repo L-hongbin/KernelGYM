@@ -15,6 +15,7 @@ TVM_FFI_API_MISUSE = "tvm_ffi_api_misuse"
 UNDEFINED_IDENTIFIER = "undefined_identifier"
 MISSING_HEADER = "missing_header"
 FUNCTION_ARGUMENT_MISMATCH = "function_argument_mismatch"
+INSTRUCTION_ARGUMENT_MISMATCH = "instruction_argument_mismatch"
 INVALID_TYPE_CONVERSION = "invalid_type_conversion"
 INVALID_DECLARATION = "invalid_declaration"
 SYNTAX_ERROR = "syntax_error"
@@ -96,6 +97,9 @@ _FUNCTION_ARGUMENT_MISMATCH_PATTERNS = (
     r"\bno instance of overloaded function\b.*\bmatches the argument list\b",
     r"\bfunction does not take \d+ arguments\b",
 )
+_INSTRUCTION_ARGUMENT_MISMATCH_PATTERNS = (
+    r"\barguments? mismatch for instruction\b",
+)
 _INVALID_TYPE_CONVERSION_PATTERNS = (
     r"\binvalid conversion from\s+['\"][^'\"]+['\"]\s+to\s+['\"][^'\"]+['\"]",
     r"\bcannot convert\s+['\"][^'\"]+['\"]\s+to\s+['\"][^'\"]+['\"]",
@@ -128,7 +132,9 @@ _INCOMPLETE_TYPE_PATTERNS = (
     r"\b(?:variable|field)\s+has incomplete type\b",
     r"\bhas incomplete type and cannot be defined\b",
 )
-_COMPILER_ERROR_LINE_RE = re.compile(r"\b(?:(?:fatal|catastrophic)\s+)?error(?:\s+c\d+)?:")
+_COMPILER_ERROR_LINE_RE = re.compile(
+    r"\b(?:(?:fatal|catastrophic)\s+)?error(?:\s+c\d+)?[ \t]*:", re.IGNORECASE
+)
 _COMPILER_SOURCE_GUTTER_RE = re.compile(r"^\s*\d+\s*\|")
 _COMPILER_CARET_LINE_RE = re.compile(r"^\s*(?:(?:\d+\s*)?\|\s*)?[\^~]+\s*$")
 _COMPILE_ERROR_DETAIL_PATTERNS = {
@@ -140,6 +146,7 @@ _COMPILE_ERROR_DETAIL_PATTERNS = {
     UNDEFINED_IDENTIFIER: _UNDEFINED_IDENTIFIER_PATTERNS,
     MISSING_HEADER: _MISSING_HEADER_PATTERNS,
     FUNCTION_ARGUMENT_MISMATCH: _FUNCTION_ARGUMENT_MISMATCH_PATTERNS,
+    INSTRUCTION_ARGUMENT_MISMATCH: _INSTRUCTION_ARGUMENT_MISMATCH_PATTERNS,
     INVALID_TYPE_CONVERSION: _INVALID_TYPE_CONVERSION_PATTERNS,
     INVALID_DECLARATION: _INVALID_DECLARATION_PATTERNS,
     SYNTAX_ERROR: _SYNTAX_ERROR_PATTERNS,
@@ -253,6 +260,9 @@ def classify_compile_error_detail(
     if _has_diagnostic_pattern(error_text, _FUNCTION_ARGUMENT_MISMATCH_PATTERNS):
         return FUNCTION_ARGUMENT_MISMATCH
 
+    if _has_diagnostic_pattern(error_text, _INSTRUCTION_ARGUMENT_MISMATCH_PATTERNS):
+        return INSTRUCTION_ARGUMENT_MISMATCH
+
     if _has_diagnostic_pattern(error_text, _INVALID_TYPE_CONVERSION_PATTERNS):
         return INVALID_TYPE_CONVERSION
 
@@ -311,8 +321,8 @@ def classify_compile_error_metadata(
     error_message: str,
     *,
     backend: Optional[str] = None,
-) -> dict[str, dict[str, list[str]]]:
-    """Group unique compiler diagnostics by stable error category."""
+) -> dict[str, object]:
+    """Return at most eight unique excerpts per category, with full counts."""
     error_text = str(error_message or "")
     original_lines = error_text.splitlines()
     primary_detail = classify_compile_error_detail(error_text, backend=backend)
@@ -334,11 +344,22 @@ def classify_compile_error_metadata(
         if dedupe_key in detail_seen:
             continue
         detail_seen.add(dedupe_key)
-        grouped.setdefault(detail, []).append(excerpt)
+        excerpts = grouped.setdefault(detail, [])
+        if len(excerpts) < 8:
+            excerpts.append(excerpt)
 
     if not grouped:
-        grouped[primary_detail] = []
-    return {"compilation_error_detail": grouped}
+        return {}
+    return {
+        "compilation_error_detail": {
+            detail: {
+                "count": len(seen[detail]),
+                "truncated": len(excerpts) < len(seen[detail]),
+                "errors": excerpts,
+            }
+            for detail, excerpts in grouped.items()
+        },
+    }
 
 
 def _is_true(value: object) -> bool:

@@ -1,0 +1,1159 @@
+{
+  "endpoint": "http://127.0.0.1:20111/evaluate",
+  "runs": [
+    {
+      "case": "correct",
+      "payload": {
+        "task_id": "compile-feedback-correct-31a84d8ad1ee4bfcaa49d65401c9bc10",
+        "reference_code": "\nimport torch\nimport torch.nn as nn\n\n\nclass Model(nn.Module):\n    \"\"\"Reference: element-wise add of two 1-D tensors.\"\"\"\n\n    def __init__(self):\n        super().__init__()\n\n    def forward(self, a, b):\n        return a + b\n\n\ndef get_inputs():\n    return [torch.randn(4096, device=\"cuda\"), torch.randn(4096, device=\"cuda\")]\n\n\ndef get_init_inputs():\n    return []\n",
+        "kernel_code": "\n### CUDA_KERNELS\n```cpp\n#include <cuda_runtime.h>\n\n__global__ void add_kernel(const float* __restrict__ a,\n                           const float* __restrict__ b,\n                           float* __restrict__ out,\n                           int n) {\n    int idx = blockIdx.x * blockDim.x + threadIdx.x;\n    if (idx < n) {\n        out[idx] = a[idx] + b[idx];\n    }\n}\n\nextern \"C\" void add_launcher(const float* a, const float* b, float* out,\n                             int n, void* stream_handle) {\n    cudaStream_t stream = static_cast<cudaStream_t>(stream_handle);\n    constexpr int block = 256;\n    int grid = (n + block - 1) / block;\n    add_kernel<<<grid, block, 0, stream>>>(a, b, out, n);\n}\n```\n\n### APPLY_BINDINGS\n```cpp\n#include <tvm/ffi/tvm_ffi.h>\n#include <tvm/ffi/extra/c_env_api.h>\n\nextern \"C\" void add_launcher(const float* a, const float* b, float* out,\n                             int n, void* stream_handle);\n\nvoid add(tvm::ffi::Tensor a, tvm::ffi::Tensor b, tvm::ffi::Tensor out) {\n    TVM_FFI_ICHECK(a.device().device_type == kDLCUDA) << \"a must be CUDA\";\n    TVM_FFI_ICHECK(b.device().device_type == kDLCUDA) << \"b must be CUDA\";\n    TVM_FFI_ICHECK(out.device().device_type == kDLCUDA) << \"out must be CUDA\";\n\n    DLDataType f32_dtype{kDLFloat, 32, 1};\n    TVM_FFI_ICHECK(a.dtype() == f32_dtype) << \"a must be float32\";\n    TVM_FFI_ICHECK(b.dtype() == f32_dtype) << \"b must be float32\";\n    TVM_FFI_ICHECK(out.dtype() == f32_dtype) << \"out must be float32\";\n\n    TVM_FFI_ICHECK(a.IsContiguous()) << \"a must be contiguous\";\n    TVM_FFI_ICHECK(b.IsContiguous()) << \"b must be contiguous\";\n    TVM_FFI_ICHECK(out.IsContiguous()) << \"out must be contiguous\";\n\n    TVM_FFI_ICHECK(a.numel() == b.numel() && a.numel() == out.numel())\n        << \"shape mismatch\";\n\n    void* stream_handle =\n        TVMFFIEnvGetStream(a.device().device_type, a.device().device_id);\n\n    add_launcher(static_cast<const float*>(a.data_ptr()),\n                 static_cast<const float*>(b.data_ptr()),\n                 static_cast<float*>(out.data_ptr()),\n                 static_cast<int>(a.numel()),\n                 stream_handle);\n}\n\nTVM_FFI_DLL_EXPORT_TYPED_FUNC(add, add);\n```\n\n### MODEL_NEW\n```python\nimport torch\nimport torch.nn as nn\nimport tvm_ffi_extension\n\n\nclass ModelNew(nn.Module):\n    \"\"\"TVM-FFI-backed element-wise add.\"\"\"\n\n    def __init__(self):\n        super().__init__()\n\n    def forward(self, a, b):\n        out = torch.empty_like(a)\n        tvm_ffi_extension.add(a, b, out)\n        return out\n```\n",
+        "backend": "tvm_ffi",
+        "num_correct_trials": 1,
+        "num_perf_trials": 1,
+        "timeout": 180,
+        "force_refresh": true,
+        "run_performance": false,
+        "enable_profiling": false,
+        "enable_ncu": false,
+        "enable_compute_sanitizer": false,
+        "enable_correctness_input_perturbations": false,
+        "return_detail_correctness": false,
+        "use_reference_cache": false,
+        "enable_compile_artifact_cache": true,
+        "split_compile_and_execute": true,
+        "detect_decoy_kernel": false,
+        "enable_triton_detection": false,
+        "run_triton_detection": false
+      },
+      "response": {
+        "task_id": "compile-feedback-correct-31a84d8ad1ee4bfcaa49d65401c9bc10",
+        "status": "completed",
+        "compiled": true,
+        "correctness": true,
+        "decoy_kernel": false,
+        "reference_runtime": 0.0508,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "memory": {
+          "comparison": {
+            "measurement_status": "complete",
+            "kernel_minus_reference": "0.00 B",
+            "kernel_to_reference_ratio": 1
+          },
+          "kernel": {
+            "absolute_peak_allocated": "48.50 KB",
+            "task_peak_allocated_delta": "48.00 KB",
+            "forward_peak_allocated_delta": "16.00 KB"
+          },
+          "reference": {
+            "absolute_peak_allocated": "48.50 KB",
+            "task_peak_allocated_delta": "48.00 KB",
+            "forward_peak_allocated_delta": "16.00 KB"
+          }
+        },
+        "metadata": {
+          "correctness_current_substage": "compare",
+          "reference_execution_epoch_ns": 1.7897283179558e+18,
+          "kg_reference_perf_total_s": 0.016185966087505,
+          "kg_reference_prepare_init_inputs_s": 0.0012213061563671,
+          "reference_execution_device_id": 0,
+          "kg_reference_perf_max_ms": 0.0508,
+          "correctness_requested_trials": 1,
+          "correctness_compare_trial_s": [
+            0.039815691998228
+          ],
+          "precompiled_artifact_used": true,
+          "kg_reference_perf_num_warmup": 3,
+          "aten_detection_enabled": false,
+          "correctness_current_trial": 0,
+          "wg_run_toolkit_s": 0.69561982154846,
+          "kg_kernel_backend_load_s": 0.038553087040782,
+          "kg_kernel_total_s": 0.37170587317087,
+          "correctness_input_perturbations_enabled": false,
+          "correctness_inplace_compare_enabled": true,
+          "wg_pool_idle_wait_s": 0.00025272369384766,
+          "ncu": {
+            "profiled_kernel_count": 0,
+            "status": "disabled",
+            "kernels": {},
+            "profile_version": "v1",
+            "wall_time_s": 0
+          },
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "correctness_candidate_forward_completed_trials": [
+            0
+          ],
+          "kg_reference_perf_measure_cuda_event_s": 5.0751999020576e-05,
+          "kg_stage_is_active": false,
+          "kg_reference_total_s": 0.27083083707839,
+          "kg_reference_perf_num_trials": 1,
+          "correctness_reference_cache_poison_enabled": true,
+          "kernel_execution_device_id": 0,
+          "wg_pool_execute_s": 0.54291868209839,
+          "correctness_effective_trials": 1,
+          "correctness_input_transfer_trial_s": [
+            9.29010566324e-05
+          ],
+          "reference_execution_pid": 3561273,
+          "correctness_reference_skipped_perturbations": {},
+          "kg_stage_current_elapsed_s": 0.00029094098135829,
+          "kg_reference_perf_measure_wall_s": 0.00020016706548631,
+          "reference_task_id": "compile-feedback-correct-31a84d8ad1ee4bfcaa49d65401c9bc10_ref_981ef7ae08af48f08b62f3b1fc458611",
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "split_compile_and_execute": true,
+          "correctness_trials": "(1 / 1)",
+          "kernel_execution_epoch_ns": 1.7897283170492e+18,
+          "correctness_reference_skipped_perturbation_count": 0,
+          "kg_stage_current_prefix": "kg_kernel",
+          "correctness_inputs_generated_on_gpu": true,
+          "kg_reference_perf_mean_ms": 0.0508,
+          "kg_kernel_compile_and_load_s": 0.038905421970412,
+          "kernel_execution_device": "cuda:0",
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_trial_s": [
+            0.059794754022732
+          ],
+          "kg_stage_current_started_monotonic_ns": 1529176509660200.0,
+          "kernel_execution_pid": 3561207,
+          "num_correct_trials": 1,
+          "compile_artifact_cache_hit": true,
+          "kg_kernel_ncu_profile_s": 0.00029094098135829,
+          "kg_kernel_triton_detect_s": 0.00057784910313785,
+          "kg_reference_load_original_src_s": 0.0011882989201695,
+          "kg_kernel_backend_session_open_s": 6.7939981818199e-06,
+          "kg_reference_backend_compile_s": 0,
+          "kg_reference_perf_std_ms": 0,
+          "kg_kernel_correctness_s": 0.071398445870727,
+          "correctness_reference_trial_s": [
+            0.012953284895048
+          ],
+          "hardware": "NVIDIA H100 PCIe",
+          "kernel_task_id": "compile-feedback-correct-31a84d8ad1ee4bfcaa49d65401c9bc10_kernel_981ef7ae08af48f08b62f3b1fc458611",
+          "kg_kernel_build_reference_model_s": 0.00059608998708427,
+          "grad_mode": "no_grad",
+          "correctness_input_generation_trial_s": [
+            0.0026973008643836
+          ],
+          "correctness_custom_trial_s": [
+            0.00043267593719065
+          ],
+          "build_backend": "tvm_ffi.cpp.build",
+          "correctness_reference_alias_clone_trial_s": [
+            0
+          ],
+          "device": "cuda:0",
+          "correctness_trials_run": 1,
+          "wg_pool_return_s": 0,
+          "wg_pool_retry_count": 0,
+          "kg_kernel_load_original_src_s": 0.0012283010873944,
+          "compile_artifact_cache_enabled": true,
+          "correctness_candidate_forward_completed": true,
+          "num_perf_trials": 1,
+          "kg_reference_performance_step_s": 0.017172514926642,
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "correctness_tf32_enabled": true,
+          "correctness_output_mismatch": false,
+          "correctness_forward_seed_reset_enabled": true,
+          "kg_kernel_build_custom_model_s": 0.060657198075205,
+          "correctness_reference_alias_clone_trials": {},
+          "kernel_execution_hostname": "ai-11-229",
+          "correctness_early_stop_enabled": true,
+          "wg_pool_total_s": 0.68718194961548,
+          "correctness_budget_min_pass_trials": 1,
+          "kg_reference_perf_min_ms": 0.0508,
+          "kg_stage_current_started_at_unix_s": 1789728317.0481,
+          "wg_pool_restart_s": 0.14256024360657,
+          "kg_reference_build_model_s": 0.0006200298666954,
+          "kg_kernel_backend_compile_s": 0,
+          "kg_stage_last_completed": "kernel.ncu_profile",
+          "kg_stage_total_started_monotonic_ns": 1529176138503600.0,
+          "gpu_name": "NVIDIA H100 PCIe",
+          "kg_kernel_prepare_init_inputs_s": 0.0011690361425281,
+          "backend": "tvm_ffi",
+          "fp32_math_mode": "tf32",
+          "correctness_atol": 0.001,
+          "reference_execution_device": "cuda:0",
+          "compile_artifact": {
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle",
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/7172251e984e9c2c6932edef538733e2034d57c8694c97daad80a0ee67be1273",
+            "precheck": {
+              "error_message": "",
+              "cuda_source_count": 2,
+              "exported_functions": [
+                "add"
+              ],
+              "static_check": {
+                "warnings": {},
+                "precision": "fp32",
+                "passed": true,
+                "errors": {}
+              },
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "error_code": null,
+              "binding_mode": "tvm_ffi",
+              "detected_extension_calls": [
+                "add"
+              ],
+              "passed": true,
+              "header_files": {},
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "device": "cuda:0",
+            "compile_cache_hit": true,
+            "artifact_hostname": "ai-11-229",
+            "artifact_node_id": "v1",
+            "compile_artifact_cache_enabled": true,
+            "compile_artifact_cache_hit": true,
+            "entry_point": "ModelNew",
+            "profiling_hints": {
+              "detected_extension_calls": [
+                "add"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ],
+              "exported_functions": [
+                "add"
+              ],
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "add_kernel"
+              ]
+            },
+            "build_backend": "tvm_ffi.cpp.build",
+            "backend": "tvm_ffi",
+            "module_name": "kernelgym_tvm_ffi_7172251e984e9c2c"
+          },
+          "tm_enter_monotonic_ns": 1529176664294400.0,
+          "correctness_rtol": 0.001,
+          "reference_execution_hostname": "ai-11-229",
+          "kg_reference_perf_warmup_s": 0.015761980088428,
+          "model_mode": "eval",
+          "kg_stage_completed_s": {
+            "kernel.build_reference_model": 0.00059608998708427,
+            "kernel.compile_and_load": 0.038905421970412,
+            "kernel.prepare_init_inputs": 0.0011690361425281,
+            "kernel.build_custom_model": 0.060657198075205,
+            "kernel.memory": 0.1249970421195,
+            "kernel.load_original_src": 0.0012283010873944,
+            "kernel.triton_detect": 0.00057784910313785,
+            "kernel.ncu_profile": 0.00029094098135829,
+            "kernel.correctness": 0.071398445870727
+          },
+          "kg_stage_total_started_at_unix_s": 1789728316.6769,
+          "precision": "fp32",
+          "device_info": {
+            "warp_size": 32,
+            "shared_memory": {
+              "per_block_optin": "227 KiB",
+              "per_block_default": "48 KiB",
+              "per_sm": "228 KiB"
+            },
+            "compute_capability": "9.0",
+            "thread_limits": {
+              "max_warps_per_sm": 64,
+              "max_threads_per_block": 1024,
+              "max_grid_dimensions": [
+                2147483647,
+                65535,
+                65535
+              ],
+              "max_blocks_per_sm": 32,
+              "max_block_dimensions": [
+                1024,
+                1024,
+                64
+              ],
+              "max_threads_per_sm": 2048
+            },
+            "sm_count": 114,
+            "device_memory": "79.18 GiB",
+            "theoretical_memory_bandwidth": "2.039 TB/s",
+            "cuda_arch": "sm_90",
+            "register_limits": {
+              "per_sm": 65536,
+              "per_block": 65536
+            },
+            "l2_cache": "50 MiB",
+            "software": {
+              "nvcc_version": "12.9",
+              "driver_version": "590.48.01",
+              "cuda_version": "12.9"
+            },
+            "gpu_name": "NVIDIA H100 PCIe"
+          },
+          "kg_stage_current": "kernel.ncu_profile"
+        },
+        "error_message": null,
+        "error_code": null,
+        "submitted_at": null,
+        "completed_at": "2026-09-18T10:45:18.526700",
+        "processing_time": null
+      },
+      "wall_s": 2.8241837499663234
+    },
+    {
+      "case": "many_errors",
+      "payload": {
+        "task_id": "compile-feedback-many_errors-0236a03e8c9d4fe5afb9edf6639838ab",
+        "reference_code": "\nimport torch\nimport torch.nn as nn\n\n\nclass Model(nn.Module):\n    \"\"\"Reference: element-wise add of two 1-D tensors.\"\"\"\n\n    def __init__(self):\n        super().__init__()\n\n    def forward(self, a, b):\n        return a + b\n\n\ndef get_inputs():\n    return [torch.randn(4096, device=\"cuda\"), torch.randn(4096, device=\"cuda\")]\n\n\ndef get_init_inputs():\n    return []\n",
+        "kernel_code": "\n### CUDA_KERNELS\n```cpp\n#include <cuda_runtime.h>\n\n__global__ void add_kernel(const float* __restrict__ a,\n                           const float* __restrict__ b,\n                           float* __restrict__ out,\n                           int n) {\n    int idx = blockIdx.x * blockDim.x + threadIdx.x;\n    if (idx < n) {\n        out[idx] += missing_value_0;\nout[idx] += missing_value_1;\nout[idx] += missing_value_2;\nout[idx] += missing_value_3;\nout[idx] += missing_value_4;\nout[idx] += missing_value_5;\nout[idx] += missing_value_6;\nout[idx] += missing_value_7;\nout[idx] += missing_value_8;\nout[idx] += missing_value_9;\nout[idx] += missing_value_10;\nout[idx] += missing_value_11;\n    }\n}\n\nextern \"C\" void add_launcher(const float* a, const float* b, float* out,\n                             int n, void* stream_handle) {\n    cudaStream_t stream = static_cast<cudaStream_t>(stream_handle);\n    constexpr int block = 256;\n    int grid = (n + block - 1) / block;\n    add_kernel<<<grid, block, 0, stream>>>(a, b, out, n);\n}\n```\n\n### APPLY_BINDINGS\n```cpp\n#include <tvm/ffi/tvm_ffi.h>\n#include <tvm/ffi/extra/c_env_api.h>\n\nextern \"C\" void add_launcher(const float* a, const float* b, float* out,\n                             int n, void* stream_handle);\n\nvoid add(tvm::ffi::Tensor a, tvm::ffi::Tensor b, tvm::ffi::Tensor out) {\n    TVM_FFI_ICHECK(a.device().device_type == kDLCUDA) << \"a must be CUDA\";\n    TVM_FFI_ICHECK(b.device().device_type == kDLCUDA) << \"b must be CUDA\";\n    TVM_FFI_ICHECK(out.device().device_type == kDLCUDA) << \"out must be CUDA\";\n\n    DLDataType f32_dtype{kDLFloat, 32, 1};\n    TVM_FFI_ICHECK(a.dtype() == f32_dtype) << \"a must be float32\";\n    TVM_FFI_ICHECK(b.dtype() == f32_dtype) << \"b must be float32\";\n    TVM_FFI_ICHECK(out.dtype() == f32_dtype) << \"out must be float32\";\n\n    TVM_FFI_ICHECK(a.IsContiguous()) << \"a must be contiguous\";\n    TVM_FFI_ICHECK(b.IsContiguous()) << \"b must be contiguous\";\n    TVM_FFI_ICHECK(out.IsContiguous()) << \"out must be contiguous\";\n\n    TVM_FFI_ICHECK(a.numel() == b.numel() && a.numel() == out.numel())\n        << \"shape mismatch\";\n\n    void* stream_handle =\n        TVMFFIEnvGetStream(a.device().device_type, a.device().device_id);\n\n    add_launcher(static_cast<const float*>(a.data_ptr()),\n                 static_cast<const float*>(b.data_ptr()),\n                 static_cast<float*>(out.data_ptr()),\n                 static_cast<int>(a.numel()),\n                 stream_handle);\n}\n\nTVM_FFI_DLL_EXPORT_TYPED_FUNC(add, add);\n```\n\n### MODEL_NEW\n```python\nimport torch\nimport torch.nn as nn\nimport tvm_ffi_extension\n\n\nclass ModelNew(nn.Module):\n    \"\"\"TVM-FFI-backed element-wise add.\"\"\"\n\n    def __init__(self):\n        super().__init__()\n\n    def forward(self, a, b):\n        out = torch.empty_like(a)\n        tvm_ffi_extension.add(a, b, out)\n        return out\n```\n",
+        "backend": "tvm_ffi",
+        "num_correct_trials": 1,
+        "num_perf_trials": 1,
+        "timeout": 180,
+        "force_refresh": true,
+        "run_performance": false,
+        "enable_profiling": false,
+        "enable_ncu": false,
+        "enable_compute_sanitizer": false,
+        "enable_correctness_input_perturbations": false,
+        "return_detail_correctness": false,
+        "use_reference_cache": false,
+        "enable_compile_artifact_cache": true,
+        "split_compile_and_execute": true,
+        "detect_decoy_kernel": false,
+        "enable_triton_detection": false,
+        "run_triton_detection": false
+      },
+      "response": {
+        "task_id": "compile-feedback-many_errors-0236a03e8c9d4fe5afb9edf6639838ab",
+        "status": "failed",
+        "compiled": false,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "memory": null,
+        "metadata": {
+          "kg_stage_current_started_monotonic_ns": 1529178214475000.0,
+          "compile_artifact_cache_hit": false,
+          "split_compile_and_execute": true,
+          "task_stage": "compile",
+          "cpu_worker_id": "worker_cpu_20",
+          "kg_stage_last_completed": "kernel.compile_only",
+          "compilation_error_name": "compile_error",
+          "compile_only": true,
+          "hardware": "compile-only",
+          "kernel_task_id": "compile-feedback-many_errors-0236a03e8c9d4fe5afb9edf6639838ab_compile_3215ec70fa4e4fa78807138d3c51fb2d",
+          "grad_mode": "no_grad",
+          "build_backend": "tvm_ffi.cpp.build",
+          "device": "cuda:0",
+          "compilation_error": "ninja exited with status 255\nstdout:\n[1/3] /usr/local/cuda/bin/nvcc  --generate-dependencies-with-compile --dependency-output cuda_0.o.d -Xcompiler -fPIC -std=c++17 -O2 -gencode=arch=compute_90,code=sm_90 -O3 --use_fast_math -lineinfo --resource-usage --threads 4 -Itvm_ffi/include -Itvm_ffi/include -c kernels/generated.cu -o cuda_0.o\nFAILED: [code=255] cuda_0.o \n/usr/local/cuda/bin/nvcc  --generate-dependencies-with-compile --dependency-output cuda_0.o.d -Xcompiler -fPIC -std=c++17 -O2 -gencode=arch=compute_90,code=sm_90 -O3 --use_fast_math -lineinfo --resource-usage --threads 4 -Itvm_ffi/include -Itvm_ffi/include -c kernels/generated.cu -o cuda_0.o\nnvcc warning : incompatible redefinition for option 'optimize', the last value of this option was used\nkernels/generated.cu(9): error: identifier \"missing_value_0\" is undefined\n          out[idx] += missing_value_0;\n                      ^\n\nkernels/generated.cu(10): error: identifier \"missing_value_1\" is undefined\n  out[idx] += missing_value_1;\n              ^\n\nkernels/generated.cu(11): error: identifier \"missing_value_2\" is undefined\n  out[idx] += missing_value_2;\n              ^\n\nkernels/generated.cu(12): error: identifier \"missing_value_3\" is undefined\n  out[idx] += missing_value_3;\n              ^\n\nkernels/generated.cu(13): error: identifier \"missing_value_4\" is undefined\n  out[idx] += missing_value_4;\n              ^\n\nkernels/generated.cu(14): error: identifier \"missing_value_5\" is undefined\n  out[idx] += missing_value_5;\n              ^\n\nkernels/generated.cu(15): error: identifier \"missing_value_6\" is undefined\n  out[idx] += missing_value_6;\n              ^\n\nkernels/generated.cu(16): error: identifier \"missing_value_7\" is undefined\n  out[idx] += missing_value_7;\n              ^\n\nkernels/generated.cu(17): error: identifier \"missing_value_8\" is undefined\n  out[idx] += missing_value_8;\n              ^\n\nkernels/generated.cu(18): error: identifier \"missing_value_9\" is undefined\n  out[idx] += missing_value_9;\n              ^\n\nkernels/generated.cu(19): error: identifier \"missing_value_10\" is undefined\n  out[idx] += missing_value_10;\n              ^\n\nkernels/generated.cu(20): error: identifier \"missing_value_11\" is undefined\n  out[idx] += missing_value_11;\n              ^\n\n12 errors detected in the compilation of \"kernels/generated.cu\".\n[2/3] c++ -MMD -MF cpp_0.o.d -std=c++17 -fPIC -O2 -O3 -Itvm_ffi/include -Itvm_ffi/include -c kernels/generated_binding.cpp -o cpp_0.o\nninja: build stopped: subcommand failed.\n",
+          "compilation_error_detail": {
+            "undefined_identifier": {
+              "count": 12,
+              "truncated": true,
+              "errors": [
+                "kernels/generated.cu(9): error: identifier \"missing_value_0\" is undefined\n          out[idx] += missing_value_0;",
+                "kernels/generated.cu(10): error: identifier \"missing_value_1\" is undefined\n  out[idx] += missing_value_1;",
+                "kernels/generated.cu(11): error: identifier \"missing_value_2\" is undefined\n  out[idx] += missing_value_2;",
+                "kernels/generated.cu(12): error: identifier \"missing_value_3\" is undefined\n  out[idx] += missing_value_3;",
+                "kernels/generated.cu(13): error: identifier \"missing_value_4\" is undefined\n  out[idx] += missing_value_4;",
+                "kernels/generated.cu(14): error: identifier \"missing_value_5\" is undefined\n  out[idx] += missing_value_5;",
+                "kernels/generated.cu(15): error: identifier \"missing_value_6\" is undefined\n  out[idx] += missing_value_6;",
+                "kernels/generated.cu(16): error: identifier \"missing_value_7\" is undefined\n  out[idx] += missing_value_7;"
+              ]
+            }
+          },
+          "compile_node_id": "v1",
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "kg_stage_is_active": false,
+          "kg_stage_current_started_at_unix_s": 1789728318.7529,
+          "kg_kernel_backend_compile_s": 1.8044260700699,
+          "cpu_worker_run_s": 1.9018235206604,
+          "kg_stage_total_started_at_unix_s": 1789728318.7529,
+          "kg_stage_current_elapsed_s": 1.8044260700699,
+          "tm_enter_monotonic_ns": 1529180035251000.0,
+          "required_resource": "cpu",
+          "compile_artifact": {
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_hit": false,
+            "device": "cuda:0",
+            "compile_cache_hit": false,
+            "profiling_hints": {
+              "detected_extension_calls": [
+                "add"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ],
+              "exported_functions": [
+                "add"
+              ],
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "add_kernel"
+              ]
+            },
+            "precheck": {
+              "error_message": "",
+              "cuda_source_count": 2,
+              "exported_functions": [
+                "add"
+              ],
+              "static_check": {
+                "warnings": {},
+                "precision": "fp32",
+                "passed": true,
+                "errors": {}
+              },
+              "passed": true,
+              "error_code": null,
+              "binding_mode": "tvm_ffi",
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "header_files": {},
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "detected_extension_calls": [
+                "add"
+              ],
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "entry_point": "ModelNew",
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/cd0b1b9f2d8554c6fe4d6492e75468e5d7bfce2cce8a80c310db0cc7c7e4d373",
+            "compile_artifact_cache_enabled": true,
+            "backend": "tvm_ffi",
+            "module_name": null
+          },
+          "compile_hostname": "ai-11-229",
+          "fp32_math_mode": "tf32",
+          "kg_stage_current_prefix": "kg_kernel",
+          "model_mode": "eval",
+          "kg_stage_total_started_monotonic_ns": 1529178214470100.0,
+          "kg_stage_completed_s": {
+            "kernel.compile_only": 1.8044260700699
+          },
+          "compile_artifact_cache_enabled": true,
+          "precision": "fp32",
+          "device_info": {
+            "warp_size": 32,
+            "shared_memory": {
+              "per_block_optin": "227 KiB",
+              "per_block_default": "48 KiB",
+              "per_sm": "228 KiB"
+            },
+            "compute_capability": "9.0",
+            "thread_limits": {
+              "max_warps_per_sm": 64,
+              "max_threads_per_block": 1024,
+              "max_grid_dimensions": [
+                2147483647,
+                65535,
+                65535
+              ],
+              "max_blocks_per_sm": 32,
+              "max_block_dimensions": [
+                1024,
+                1024,
+                64
+              ],
+              "max_threads_per_sm": 2048
+            },
+            "sm_count": 114,
+            "device_memory": "79.18 GiB",
+            "theoretical_memory_bandwidth": "2.039 TB/s",
+            "cuda_arch": "sm_90",
+            "register_limits": {
+              "per_sm": 65536,
+              "per_block": 65536
+            },
+            "l2_cache": "50 MiB",
+            "software": {
+              "nvcc_version": "12.9",
+              "driver_version": "590.48.01",
+              "cuda_version": "12.9"
+            },
+            "gpu_name": "NVIDIA H100 PCIe"
+          },
+          "kg_stage_current": "kernel.compile_only"
+        },
+        "error_message": "Kernel compilation failed: 12 unique diagnostics (8 shown); undefined_identifier=12. First diagnostic: kernels/generated.cu(9): error: identifier \"missing_value_0\" is undefined",
+        "error_code": "COMPILATION_ERROR",
+        "submitted_at": null,
+        "completed_at": "2026-09-18T10:45:20.735324",
+        "processing_time": null
+      },
+      "wall_s": 2.1433221141342074
+    },
+    {
+      "case": "ptxas_mma",
+      "payload": {
+        "task_id": "compile-feedback-ptxas_mma-4c889864b66743e7921fe6dae384ecb5",
+        "reference_code": "\nimport torch\nimport torch.nn as nn\n\n\nclass Model(nn.Module):\n    \"\"\"Reference: element-wise add of two 1-D tensors.\"\"\"\n\n    def __init__(self):\n        super().__init__()\n\n    def forward(self, a, b):\n        return a + b\n\n\ndef get_inputs():\n    return [torch.randn(4096, device=\"cuda\"), torch.randn(4096, device=\"cuda\")]\n\n\ndef get_init_inputs():\n    return []\n",
+        "kernel_code": "\n### CUDA_KERNELS\n```cpp\n#include <cuda_runtime.h>\n\n__global__ void add_kernel(const float* __restrict__ a,\n                           const float* __restrict__ b,\n                           float* __restrict__ out,\n                           int n) {\n    int idx = blockIdx.x * blockDim.x + threadIdx.x;\n    if (idx < n) {\n        \n            float value = 0.0f;\n            asm volatile(\"mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 \"\n                         \"{%0,%0,%0,%0}, {%0,%0,%0,%0}, {%0,%0}, {%0,%0,%0,%0};\"\n                         : \"+f\"(value));\n            out[idx] = value;\n        \n    }\n}\n\nextern \"C\" void add_launcher(const float* a, const float* b, float* out,\n                             int n, void* stream_handle) {\n    cudaStream_t stream = static_cast<cudaStream_t>(stream_handle);\n    constexpr int block = 256;\n    int grid = (n + block - 1) / block;\n    add_kernel<<<grid, block, 0, stream>>>(a, b, out, n);\n}\n```\n\n### APPLY_BINDINGS\n```cpp\n#include <tvm/ffi/tvm_ffi.h>\n#include <tvm/ffi/extra/c_env_api.h>\n\nextern \"C\" void add_launcher(const float* a, const float* b, float* out,\n                             int n, void* stream_handle);\n\nvoid add(tvm::ffi::Tensor a, tvm::ffi::Tensor b, tvm::ffi::Tensor out) {\n    TVM_FFI_ICHECK(a.device().device_type == kDLCUDA) << \"a must be CUDA\";\n    TVM_FFI_ICHECK(b.device().device_type == kDLCUDA) << \"b must be CUDA\";\n    TVM_FFI_ICHECK(out.device().device_type == kDLCUDA) << \"out must be CUDA\";\n\n    DLDataType f32_dtype{kDLFloat, 32, 1};\n    TVM_FFI_ICHECK(a.dtype() == f32_dtype) << \"a must be float32\";\n    TVM_FFI_ICHECK(b.dtype() == f32_dtype) << \"b must be float32\";\n    TVM_FFI_ICHECK(out.dtype() == f32_dtype) << \"out must be float32\";\n\n    TVM_FFI_ICHECK(a.IsContiguous()) << \"a must be contiguous\";\n    TVM_FFI_ICHECK(b.IsContiguous()) << \"b must be contiguous\";\n    TVM_FFI_ICHECK(out.IsContiguous()) << \"out must be contiguous\";\n\n    TVM_FFI_ICHECK(a.numel() == b.numel() && a.numel() == out.numel())\n        << \"shape mismatch\";\n\n    void* stream_handle =\n        TVMFFIEnvGetStream(a.device().device_type, a.device().device_id);\n\n    add_launcher(static_cast<const float*>(a.data_ptr()),\n                 static_cast<const float*>(b.data_ptr()),\n                 static_cast<float*>(out.data_ptr()),\n                 static_cast<int>(a.numel()),\n                 stream_handle);\n}\n\nTVM_FFI_DLL_EXPORT_TYPED_FUNC(add, add);\n```\n\n### MODEL_NEW\n```python\nimport torch\nimport torch.nn as nn\nimport tvm_ffi_extension\n\n\nclass ModelNew(nn.Module):\n    \"\"\"TVM-FFI-backed element-wise add.\"\"\"\n\n    def __init__(self):\n        super().__init__()\n\n    def forward(self, a, b):\n        out = torch.empty_like(a)\n        tvm_ffi_extension.add(a, b, out)\n        return out\n```\n",
+        "backend": "tvm_ffi",
+        "num_correct_trials": 1,
+        "num_perf_trials": 1,
+        "timeout": 180,
+        "force_refresh": true,
+        "run_performance": false,
+        "enable_profiling": false,
+        "enable_ncu": false,
+        "enable_compute_sanitizer": false,
+        "enable_correctness_input_perturbations": false,
+        "return_detail_correctness": false,
+        "use_reference_cache": false,
+        "enable_compile_artifact_cache": true,
+        "split_compile_and_execute": true,
+        "detect_decoy_kernel": false,
+        "enable_triton_detection": false,
+        "run_triton_detection": false
+      },
+      "response": {
+        "task_id": "compile-feedback-ptxas_mma-4c889864b66743e7921fe6dae384ecb5",
+        "status": "failed",
+        "compiled": false,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "memory": null,
+        "metadata": {
+          "kg_stage_current_started_monotonic_ns": 1529180362320000.0,
+          "compile_artifact_cache_hit": false,
+          "split_compile_and_execute": true,
+          "task_stage": "compile",
+          "cpu_worker_id": "worker_cpu_23",
+          "kg_stage_last_completed": "kernel.compile_only",
+          "compilation_error_name": "compile_error",
+          "compile_only": true,
+          "hardware": "compile-only",
+          "kernel_task_id": "compile-feedback-ptxas_mma-4c889864b66743e7921fe6dae384ecb5_compile_0ba91a943d0e437792c8c02526bd314e",
+          "grad_mode": "no_grad",
+          "build_backend": "tvm_ffi.cpp.build",
+          "device": "cuda:0",
+          "compilation_error": "ninja exited with status 255\nstdout:\n[1/3] /usr/local/cuda/bin/nvcc  --generate-dependencies-with-compile --dependency-output cuda_0.o.d -Xcompiler -fPIC -std=c++17 -O2 -gencode=arch=compute_90,code=sm_90 -O3 --use_fast_math -lineinfo --resource-usage --threads 4 -Itvm_ffi/include -Itvm_ffi/include -c kernels/generated.cu -o cuda_0.o\nFAILED: [code=255] cuda_0.o \n/usr/local/cuda/bin/nvcc  --generate-dependencies-with-compile --dependency-output cuda_0.o.d -Xcompiler -fPIC -std=c++17 -O2 -gencode=arch=compute_90,code=sm_90 -O3 --use_fast_math -lineinfo --resource-usage --threads 4 -Itvm_ffi/include -Itvm_ffi/include -c kernels/generated.cu -o cuda_0.o\nnvcc warning : incompatible redefinition for option 'optimize', the last value of this option was used\nptxas /tmp/tmpxft_0036590a_00000000-6_generated.ptx, line 45; error   : Arguments mismatch for instruction 'mma'\nptxas fatal   : Ptx assembly aborted due to errors\n[2/3] c++ -MMD -MF cpp_0.o.d -std=c++17 -fPIC -O2 -O3 -Itvm_ffi/include -Itvm_ffi/include -c kernels/generated_binding.cpp -o cpp_0.o\nninja: build stopped: subcommand failed.\n",
+          "compilation_error_detail": {
+            "instruction_argument_mismatch": {
+              "count": 1,
+              "truncated": false,
+              "errors": [
+                "ptxas /tmp/tmpxft_0036590a_00000000-6_generated.ptx, line 45; error   : Arguments mismatch for instruction 'mma'"
+              ]
+            }
+          },
+          "compile_node_id": "v1",
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "kg_stage_is_active": false,
+          "kg_stage_current_started_at_unix_s": 1789728320.9007,
+          "kg_kernel_backend_compile_s": 2.0681837950833,
+          "cpu_worker_run_s": 2.1690180301666,
+          "kg_stage_total_started_at_unix_s": 1789728320.9007,
+          "kg_stage_current_elapsed_s": 2.0681837950833,
+          "tm_enter_monotonic_ns": 1529182444617400.0,
+          "required_resource": "cpu",
+          "compile_artifact": {
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_hit": false,
+            "device": "cuda:0",
+            "compile_cache_hit": false,
+            "profiling_hints": {
+              "detected_extension_calls": [
+                "add"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ],
+              "exported_functions": [
+                "add"
+              ],
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "add_kernel"
+              ]
+            },
+            "precheck": {
+              "error_message": "",
+              "cuda_source_count": 2,
+              "exported_functions": [
+                "add"
+              ],
+              "static_check": {
+                "warnings": {},
+                "precision": "fp32",
+                "passed": true,
+                "errors": {}
+              },
+              "passed": true,
+              "error_code": null,
+              "binding_mode": "tvm_ffi",
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "header_files": {},
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "detected_extension_calls": [
+                "add"
+              ],
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "entry_point": "ModelNew",
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/471068a600269d63e62acb04a6944da5810ac50fa3a959af9e7545f6c1cf57dd",
+            "compile_artifact_cache_enabled": true,
+            "backend": "tvm_ffi",
+            "module_name": null
+          },
+          "compile_hostname": "ai-11-229",
+          "fp32_math_mode": "tf32",
+          "kg_stage_current_prefix": "kg_kernel",
+          "model_mode": "eval",
+          "kg_stage_total_started_monotonic_ns": 1529180362314900.0,
+          "kg_stage_completed_s": {
+            "kernel.compile_only": 2.0681837950833
+          },
+          "compile_artifact_cache_enabled": true,
+          "precision": "fp32",
+          "device_info": {
+            "warp_size": 32,
+            "shared_memory": {
+              "per_block_optin": "227 KiB",
+              "per_block_default": "48 KiB",
+              "per_sm": "228 KiB"
+            },
+            "compute_capability": "9.0",
+            "thread_limits": {
+              "max_warps_per_sm": 64,
+              "max_threads_per_block": 1024,
+              "max_grid_dimensions": [
+                2147483647,
+                65535,
+                65535
+              ],
+              "max_blocks_per_sm": 32,
+              "max_block_dimensions": [
+                1024,
+                1024,
+                64
+              ],
+              "max_threads_per_sm": 2048
+            },
+            "sm_count": 114,
+            "device_memory": "79.18 GiB",
+            "theoretical_memory_bandwidth": "2.039 TB/s",
+            "cuda_arch": "sm_90",
+            "register_limits": {
+              "per_sm": 65536,
+              "per_block": 65536
+            },
+            "l2_cache": "50 MiB",
+            "software": {
+              "nvcc_version": "12.9",
+              "driver_version": "590.48.01",
+              "cuda_version": "12.9"
+            },
+            "gpu_name": "NVIDIA H100 PCIe"
+          },
+          "kg_stage_current": "kernel.compile_only"
+        },
+        "error_message": "Kernel compilation failed: 1 unique diagnostics (1 shown); instruction_argument_mismatch=1. First diagnostic: ptxas /tmp/tmpxft_0036590a_00000000-6_generated.ptx, line 45; error   : Arguments mismatch for instruction 'mma'",
+        "error_code": "COMPILATION_ERROR",
+        "submitted_at": null,
+        "completed_at": "2026-09-18T10:45:23.393754",
+        "processing_time": null
+      },
+      "wall_s": 2.769657524069771
+    },
+    {
+      "case": "load_error",
+      "payload": {
+        "task_id": "compile-feedback-load_error-a0c60cccd5d24b24abf00a82d7fa9354",
+        "reference_code": "\nimport torch\nimport torch.nn as nn\n\n\nclass Model(nn.Module):\n    \"\"\"Reference: element-wise add of two 1-D tensors.\"\"\"\n\n    def __init__(self):\n        super().__init__()\n\n    def forward(self, a, b):\n        return a + b\n\n\ndef get_inputs():\n    return [torch.randn(4096, device=\"cuda\"), torch.randn(4096, device=\"cuda\")]\n\n\ndef get_init_inputs():\n    return []\n",
+        "kernel_code": "\n### CUDA_KERNELS\n```cpp\n#include <cuda_runtime.h>\n\n__global__ void add_kernel(const float* __restrict__ a,\n                           const float* __restrict__ b,\n                           float* __restrict__ out,\n                           int n) {\n    int idx = blockIdx.x * blockDim.x + threadIdx.x;\n    if (idx < n) {\n        out[idx] = a[idx] + b[idx];\n    }\n}\n\nextern \"C\" void add_launcher(const float* a, const float* b, float* out,\n                             int n, void* stream_handle) {\n    cudaStream_t stream = static_cast<cudaStream_t>(stream_handle);\n    constexpr int block = 256;\n    int grid = (n + block - 1) / block;\n    add_kernel<<<grid, block, 0, stream>>>(a, b, out, n);\n}\n```\n\n### APPLY_BINDINGS\n```cpp\n#include <tvm/ffi/tvm_ffi.h>\n#include <tvm/ffi/extra/c_env_api.h>\n\nextern \"C\" void add_launcher(const float* a, const float* b, float* out,\n                             int n, void* stream_handle);\n\nvoid add(tvm::ffi::Tensor a, tvm::ffi::Tensor b, tvm::ffi::Tensor out) {\n    TVM_FFI_ICHECK(a.device().device_type == kDLCUDA) << \"a must be CUDA\";\n    TVM_FFI_ICHECK(b.device().device_type == kDLCUDA) << \"b must be CUDA\";\n    TVM_FFI_ICHECK(out.device().device_type == kDLCUDA) << \"out must be CUDA\";\n\n    DLDataType f32_dtype{kDLFloat, 32, 1};\n    TVM_FFI_ICHECK(a.dtype() == f32_dtype) << \"a must be float32\";\n    TVM_FFI_ICHECK(b.dtype() == f32_dtype) << \"b must be float32\";\n    TVM_FFI_ICHECK(out.dtype() == f32_dtype) << \"out must be float32\";\n\n    TVM_FFI_ICHECK(a.IsContiguous()) << \"a must be contiguous\";\n    TVM_FFI_ICHECK(b.IsContiguous()) << \"b must be contiguous\";\n    TVM_FFI_ICHECK(out.IsContiguous()) << \"out must be contiguous\";\n\n    TVM_FFI_ICHECK(a.numel() == b.numel() && a.numel() == out.numel())\n        << \"shape mismatch\";\n\n    void* stream_handle =\n        TVMFFIEnvGetStream(a.device().device_type, a.device().device_id);\n\n    add_launcher(static_cast<const float*>(a.data_ptr()),\n                 static_cast<const float*>(b.data_ptr()),\n                 static_cast<float*>(out.data_ptr()),\n                 static_cast<int>(a.numel()),\n                 stream_handle);\n}\n\nTVM_FFI_DLL_EXPORT_TYPED_FUNC(add, add);\n```\n\n### MODEL_NEW\n```python\nimport torch\nimport torch.nn as nn\nimport tvm_ffi_extension\nraise RuntimeError('intentional model load failure')\n\n\nclass ModelNew(nn.Module):\n    \"\"\"TVM-FFI-backed element-wise add.\"\"\"\n\n    def __init__(self):\n        super().__init__()\n\n    def forward(self, a, b):\n        out = torch.empty_like(a)\n        tvm_ffi_extension.add(a, b, out)\n        return out\n```\n",
+        "backend": "tvm_ffi",
+        "num_correct_trials": 1,
+        "num_perf_trials": 1,
+        "timeout": 180,
+        "force_refresh": true,
+        "run_performance": false,
+        "enable_profiling": false,
+        "enable_ncu": false,
+        "enable_compute_sanitizer": false,
+        "enable_correctness_input_perturbations": false,
+        "return_detail_correctness": false,
+        "use_reference_cache": false,
+        "enable_compile_artifact_cache": true,
+        "split_compile_and_execute": true,
+        "detect_decoy_kernel": false,
+        "enable_triton_detection": false,
+        "run_triton_detection": false
+      },
+      "response": {
+        "task_id": "compile-feedback-load_error-a0c60cccd5d24b24abf00a82d7fa9354",
+        "status": "failed",
+        "compiled": false,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "memory": null,
+        "metadata": {
+          "kg_stage_current_started_monotonic_ns": 1529186338885300.0,
+          "compile_artifact_cache_hit": false,
+          "split_compile_and_execute": true,
+          "num_correct_trials": 1,
+          "kg_stage_last_completed": "kernel.compile_and_load",
+          "compilation_error_name": "builtins.RuntimeError",
+          "kg_stage_total_started_monotonic_ns": 1529186334877500.0,
+          "hardware": "NVIDIA H100 PCIe",
+          "kernel_task_id": "compile-feedback-load_error-a0c60cccd5d24b24abf00a82d7fa9354_kernel_47b66c4e3ea346808e846a77932623b3",
+          "precompiled_artifact_used": true,
+          "grad_mode": "no_grad",
+          "build_backend": "tvm_ffi.cpp.build",
+          "kg_kernel_prepare_init_inputs_s": 0.0011708529200405,
+          "wg_pool_retry_count": 0,
+          "kg_kernel_load_original_src_s": 0.0012045030016452,
+          "wg_run_toolkit_s": 0.31838345527649,
+          "num_perf_trials": 1,
+          "wg_pool_idle_wait_s": 0.00023627281188965,
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "kernel_execution_pid": 3561554,
+          "tm_enter_monotonic_ns": 1529186529763700.0,
+          "kg_kernel_compile_and_load_s": 0.039734992897138,
+          "kg_stage_is_active": false,
+          "wg_pool_total_s": 0.30910611152649,
+          "kernel_execution_epoch_ns": 1.7897283269219e+18,
+          "wg_pool_return_s": 0,
+          "kg_stage_current_started_at_unix_s": 1789728326.8773,
+          "wg_pool_restart_s": 0.13395977020264,
+          "kernel_execution_device_id": 0,
+          "kg_kernel_backend_compile_s": 0,
+          "wg_pool_execute_s": 0.17330861091614,
+          "kernel_execution_device": "cuda:0",
+          "kg_stage_total_started_at_unix_s": 1789728326.8733,
+          "kernel_execution_hostname": "ai-11-229",
+          "kg_stage_current_elapsed_s": 0.039734992897138,
+          "model_mode": "eval",
+          "gpu_name": "NVIDIA H100 PCIe",
+          "backend": "tvm_ffi",
+          "compile_artifact": {
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle",
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_hit": false,
+            "device": "cuda:0",
+            "compile_cache_hit": false,
+            "artifact_hostname": "ai-11-229",
+            "artifact_node_id": "v1",
+            "profiling_hints": {
+              "detected_extension_calls": [
+                "add"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ],
+              "exported_functions": [
+                "add"
+              ],
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "add_kernel"
+              ]
+            },
+            "precheck": {
+              "error_message": "",
+              "cuda_source_count": 2,
+              "exported_functions": [
+                "add"
+              ],
+              "static_check": {
+                "warnings": {},
+                "precision": "fp32",
+                "passed": true,
+                "errors": {}
+              },
+              "passed": true,
+              "error_code": null,
+              "binding_mode": "tvm_ffi",
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "header_files": {},
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "detected_extension_calls": [
+                "add"
+              ],
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "entry_point": "ModelNew",
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/f611332bf231ada54dfa46d49f9da29bb6e35b450fdb7513c8625fad3e21021d",
+            "compile_artifact_cache_enabled": true,
+            "backend": "tvm_ffi",
+            "module_name": "kernelgym_tvm_ffi_f611332bf231ada5"
+          },
+          "fp32_math_mode": "tf32",
+          "compilation_error": "Traceback (most recent call last):\n  File \"kernelgym/toolkit/kernelbench/pipeline.py\", line 1251, in eval_kernel_against_ref\n    backend_handle = backend_adapter.load(\n                     ^^^^^^^^^^^^^^^^^^^^^\n  File \"kernelgym/backend/kernelbench/dispatcher.py\", line 60, in load\n    handle = backend.load(artifact, **kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"kernelgym/backend/kernelbench/tvm_ffi_backend.py\", line 605, in load\n    spec.loader.exec_module(model_module)\n  File \"<frozen importlib._bootstrap_external>\", line 995, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"model_new.py\", line 4, in <module>\n    raise RuntimeError('intentional model load failure')\nRuntimeError: intentional model load failure\n",
+          "kg_kernel_build_reference_model_s": 0.00062829395756125,
+          "kg_stage_current_prefix": "kg_kernel",
+          "compile_artifact_cache_enabled": true,
+          "kg_stage_completed_s": {
+            "kernel.build_reference_model": 0.00062829395756125,
+            "kernel.load_original_src": 0.0012045030016452,
+            "kernel.compile_and_load": 0.039734992897138,
+            "kernel.prepare_init_inputs": 0.0011708529200405
+          },
+          "device": "cuda:0",
+          "precision": "fp32",
+          "device_info": {
+            "warp_size": 32,
+            "shared_memory": {
+              "per_block_optin": "227 KiB",
+              "per_block_default": "48 KiB",
+              "per_sm": "228 KiB"
+            },
+            "compute_capability": "9.0",
+            "thread_limits": {
+              "max_warps_per_sm": 64,
+              "max_threads_per_block": 1024,
+              "max_grid_dimensions": [
+                2147483647,
+                65535,
+                65535
+              ],
+              "max_blocks_per_sm": 32,
+              "max_block_dimensions": [
+                1024,
+                1024,
+                64
+              ],
+              "max_threads_per_sm": 2048
+            },
+            "sm_count": 114,
+            "device_memory": "79.18 GiB",
+            "theoretical_memory_bandwidth": "2.039 TB/s",
+            "cuda_arch": "sm_90",
+            "register_limits": {
+              "per_sm": 65536,
+              "per_block": 65536
+            },
+            "l2_cache": "50 MiB",
+            "software": {
+              "nvcc_version": "12.9",
+              "driver_version": "590.48.01",
+              "cuda_version": "12.9"
+            },
+            "gpu_name": "NVIDIA H100 PCIe"
+          },
+          "kg_stage_current": "kernel.compile_and_load"
+        },
+        "error_message": "Kernel compilation failed: Traceback (most recent call last):\n  File \"kernelgym/toolkit/kernelbench/pipeline.py\", line 1251, in eval_kernel_against_ref\n    backend_handle = backend_adapter.load(\n                     ^^^^^^^^^^^^^^^^^^^^^\n  File \"kernelgym/backend/kernelbench/dispatcher.py\", line 60, in load\n    handle = backend.load(artifact, **kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"kernelgym/backend/kernelbench/tvm_ffi_backend.py\", line 605, in load\n    spec.loader.exec_module(model_module)\n  File \"<frozen importlib._bootstrap_external>\", line 995, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"model_new.py\", line 4, in <module>\n    raise RuntimeError('intentional model load failure')\nRuntimeError: intentional model load failure\n",
+        "error_code": "COMPILATION_ERROR",
+        "submitted_at": null,
+        "completed_at": "2026-09-18T10:45:27.211695",
+        "processing_time": null
+      },
+      "wall_s": 3.8492176451254636
+    },
+    {
+      "case": "mismatch",
+      "payload": {
+        "task_id": "compile-feedback-mismatch-89d9c07ef4fd4190951f9619b9730917",
+        "reference_code": "\nimport torch\nimport torch.nn as nn\n\n\nclass Model(nn.Module):\n    \"\"\"Reference: element-wise add of two 1-D tensors.\"\"\"\n\n    def __init__(self):\n        super().__init__()\n\n    def forward(self, a, b):\n        return a + b\n\n\ndef get_inputs():\n    return [torch.randn(4096, device=\"cuda\"), torch.randn(4096, device=\"cuda\")]\n\n\ndef get_init_inputs():\n    return []\n",
+        "kernel_code": "\n### CUDA_KERNELS\n```cpp\n#include <cuda_runtime.h>\n\n__global__ void add_kernel(const float* __restrict__ a,\n                           const float* __restrict__ b,\n                           float* __restrict__ out,\n                           int n) {\n    int idx = blockIdx.x * blockDim.x + threadIdx.x;\n    if (idx < n) {\n        out[idx] = a[idx] + b[idx] + 1.0f;\n    }\n}\n\nextern \"C\" void add_launcher(const float* a, const float* b, float* out,\n                             int n, void* stream_handle) {\n    cudaStream_t stream = static_cast<cudaStream_t>(stream_handle);\n    constexpr int block = 256;\n    int grid = (n + block - 1) / block;\n    add_kernel<<<grid, block, 0, stream>>>(a, b, out, n);\n}\n```\n\n### APPLY_BINDINGS\n```cpp\n#include <tvm/ffi/tvm_ffi.h>\n#include <tvm/ffi/extra/c_env_api.h>\n\nextern \"C\" void add_launcher(const float* a, const float* b, float* out,\n                             int n, void* stream_handle);\n\nvoid add(tvm::ffi::Tensor a, tvm::ffi::Tensor b, tvm::ffi::Tensor out) {\n    TVM_FFI_ICHECK(a.device().device_type == kDLCUDA) << \"a must be CUDA\";\n    TVM_FFI_ICHECK(b.device().device_type == kDLCUDA) << \"b must be CUDA\";\n    TVM_FFI_ICHECK(out.device().device_type == kDLCUDA) << \"out must be CUDA\";\n\n    DLDataType f32_dtype{kDLFloat, 32, 1};\n    TVM_FFI_ICHECK(a.dtype() == f32_dtype) << \"a must be float32\";\n    TVM_FFI_ICHECK(b.dtype() == f32_dtype) << \"b must be float32\";\n    TVM_FFI_ICHECK(out.dtype() == f32_dtype) << \"out must be float32\";\n\n    TVM_FFI_ICHECK(a.IsContiguous()) << \"a must be contiguous\";\n    TVM_FFI_ICHECK(b.IsContiguous()) << \"b must be contiguous\";\n    TVM_FFI_ICHECK(out.IsContiguous()) << \"out must be contiguous\";\n\n    TVM_FFI_ICHECK(a.numel() == b.numel() && a.numel() == out.numel())\n        << \"shape mismatch\";\n\n    void* stream_handle =\n        TVMFFIEnvGetStream(a.device().device_type, a.device().device_id);\n\n    add_launcher(static_cast<const float*>(a.data_ptr()),\n                 static_cast<const float*>(b.data_ptr()),\n                 static_cast<float*>(out.data_ptr()),\n                 static_cast<int>(a.numel()),\n                 stream_handle);\n}\n\nTVM_FFI_DLL_EXPORT_TYPED_FUNC(add, add);\n```\n\n### MODEL_NEW\n```python\nimport torch\nimport torch.nn as nn\nimport tvm_ffi_extension\n\n\nclass ModelNew(nn.Module):\n    \"\"\"TVM-FFI-backed element-wise add.\"\"\"\n\n    def __init__(self):\n        super().__init__()\n\n    def forward(self, a, b):\n        out = torch.empty_like(a)\n        tvm_ffi_extension.add(a, b, out)\n        return out\n```\n",
+        "backend": "tvm_ffi",
+        "num_correct_trials": 1,
+        "num_perf_trials": 1,
+        "timeout": 180,
+        "force_refresh": true,
+        "run_performance": false,
+        "enable_profiling": false,
+        "enable_ncu": false,
+        "enable_compute_sanitizer": false,
+        "enable_correctness_input_perturbations": false,
+        "return_detail_correctness": false,
+        "use_reference_cache": false,
+        "enable_compile_artifact_cache": true,
+        "split_compile_and_execute": true,
+        "detect_decoy_kernel": false,
+        "enable_triton_detection": false,
+        "run_triton_detection": false
+      },
+      "response": {
+        "task_id": "compile-feedback-mismatch-89d9c07ef4fd4190951f9619b9730917",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "memory": null,
+        "metadata": {
+          "correctness_current_substage": "compare",
+          "split_compile_and_execute": true,
+          "correctness_input_generation_trial_s": [
+            0.0043405538890511
+          ],
+          "fp32_math_mode": "tf32",
+          "kg_stage_total_started_monotonic_ns": 1529189673524100.0,
+          "correctness_requested_trials": 1,
+          "correctness_compare_trial_s": [
+            0.042420577025041
+          ],
+          "precompiled_artifact_used": true,
+          "correctness_trials_run": 1,
+          "correctness_failed_trial": 0,
+          "aten_detection_enabled": false,
+          "correctness_current_trial": 0,
+          "wg_run_toolkit_s": 0.5991063117981,
+          "kg_kernel_backend_load_s": 0.039779512910172,
+          "correctness_issue_name": "numerical_mismatch",
+          "correctness_input_perturbations_enabled": false,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "incorrect_backend_usage_probe": {
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED",
+            "backend": "tvm_ffi",
+            "attempted": false
+          },
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "correctness_candidate_forward_completed_trials": [
+            0
+          ],
+          "kg_kernel_compile_and_load_s": 0.040141322882846,
+          "kg_stage_is_active": false,
+          "tm_enter_monotonic_ns": 1529190137728500.0,
+          "correctness_reference_cache_poison_enabled": true,
+          "kernel_execution_device_id": 0,
+          "wg_pool_execute_s": 0.42979764938354,
+          "correctness_effective_trials": 1,
+          "compile_artifact_cache_enabled": true,
+          "correctness_reference_skipped_perturbations": {},
+          "kg_stage_current_elapsed_s": 0.00060414988547564,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "correctness_early_stopped": true,
+          "correctness_trials": "(0 / 1)",
+          "correctness_reference_skipped_perturbation_count": 0,
+          "model_mode": "eval",
+          "correctness_inputs_generated_on_gpu": true,
+          "kernel_execution_device": "cuda:0",
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_trial_s": [
+            0.067841266049072
+          ],
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "compile_artifact_cache_hit": false,
+          "correctness_output_mismatch": true,
+          "kg_kernel_backend_session_open_s": 6.8310182541609e-06,
+          "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, atol=0.001, rtol=0.001",
+          "hardware": "NVIDIA H100 PCIe",
+          "kernel_task_id": "compile-feedback-mismatch-89d9c07ef4fd4190951f9619b9730917_kernel_171d83084d1b49e08297e9889ba9c7c3",
+          "kg_kernel_build_reference_model_s": 0.00061097298748791,
+          "grad_mode": "no_grad",
+          "kg_kernel_incorrect_backend_usage_probe_s": 0.00060414988547564,
+          "build_backend": "tvm_ffi.cpp.build",
+          "correctness_reference_alias_clone_trial_s": [
+            0
+          ],
+          "kg_kernel_prepare_init_inputs_s": 0.001172951888293,
+          "wg_pool_retry_count": 0,
+          "kg_kernel_load_original_src_s": 0.0012599357869476,
+          "wg_pool_total_s": 0.58554816246033,
+          "correctness_candidate_forward_completed": true,
+          "num_perf_trials": 1,
+          "wg_pool_return_s": 0,
+          "wg_pool_restart_s": 0.15411972999573,
+          "wg_pool_idle_wait_s": 0.00018167495727539,
+          "kernel_execution_epoch_ns": 1.789728330505e+18,
+          "max_difference": [
+            "1.000000"
+          ],
+          "kernel_execution_hostname": "ai-11-229",
+          "kg_kernel_build_custom_model_s": 0.06269893492572,
+          "kernel_execution_pid": 3561636,
+          "avg_difference": [
+            "1.000000"
+          ],
+          "correctness_early_stop_enabled": true,
+          "num_correct_trials": 1,
+          "correctness_budget_min_pass_trials": 1,
+          "backend": "tvm_ffi",
+          "kg_stage_current_started_at_unix_s": 1789728330.5024,
+          "correctness_reference_alias_clone_trials": {},
+          "gpu_name": "NVIDIA H100 PCIe",
+          "kg_kernel_backend_compile_s": 0,
+          "kg_kernel_total_s": 0.29137406894006,
+          "kg_kernel_correctness_s": 0.10875220200978,
+          "kg_stage_total_started_at_unix_s": 1789728330.2119,
+          "correctness_input_transfer_trial_s": [
+            0.00014782603830099
+          ],
+          "correctness_custom_trial_s": [
+            0.00044338009320199
+          ],
+          "correctness_reference_trial_s": [
+            0.015615951037034
+          ],
+          "correctness_atol": 0.001,
+          "kg_stage_current_started_monotonic_ns": 1529189964022500.0,
+          "compile_artifact": {
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle",
+            "build_backend": "tvm_ffi.cpp.build",
+            "compile_artifact_cache_hit": false,
+            "device": "cuda:0",
+            "compile_cache_hit": false,
+            "artifact_hostname": "ai-11-229",
+            "artifact_node_id": "v1",
+            "profiling_hints": {
+              "detected_extension_calls": [
+                "add"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ],
+              "exported_functions": [
+                "add"
+              ],
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "add_kernel"
+              ]
+            },
+            "precheck": {
+              "error_message": "",
+              "cuda_source_count": 2,
+              "exported_functions": [
+                "add"
+              ],
+              "static_check": {
+                "warnings": {},
+                "precision": "fp32",
+                "passed": true,
+                "errors": {}
+              },
+              "passed": true,
+              "error_code": null,
+              "binding_mode": "tvm_ffi",
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "header_files": {},
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "detected_extension_calls": [
+                "add"
+              ],
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "entry_point": "ModelNew",
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/36ec8a9c43a58b649207b42e6d9b595051fe704c84709a1b3d6dd3f7e986ab47",
+            "compile_artifact_cache_enabled": true,
+            "backend": "tvm_ffi",
+            "module_name": "kernelgym_tvm_ffi_36ec8a9c43a58b64"
+          },
+          "kg_stage_current_prefix": "kg_kernel",
+          "correctness_rtol": 0.001,
+          "device": "cuda:0",
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "correctness_tf32_enabled": true,
+          "kg_stage_completed_s": {
+            "kernel.build_reference_model": 0.00061097298748791,
+            "kernel.load_original_src": 0.0012599357869476,
+            "kernel.compile_and_load": 0.040141322882846,
+            "kernel.prepare_init_inputs": 0.001172951888293,
+            "kernel.build_custom_model": 0.06269893492572,
+            "kernel.incorrect_backend_usage_probe": 0.00060414988547564,
+            "kernel.correctness": 0.10875220200978
+          },
+          "correctness_forward_seed_reset_enabled": true,
+          "precision": "fp32",
+          "device_info": {
+            "warp_size": 32,
+            "shared_memory": {
+              "per_block_optin": "227 KiB",
+              "per_block_default": "48 KiB",
+              "per_sm": "228 KiB"
+            },
+            "compute_capability": "9.0",
+            "thread_limits": {
+              "max_warps_per_sm": 64,
+              "max_threads_per_block": 1024,
+              "max_grid_dimensions": [
+                2147483647,
+                65535,
+                65535
+              ],
+              "max_blocks_per_sm": 32,
+              "max_block_dimensions": [
+                1024,
+                1024,
+                64
+              ],
+              "max_threads_per_sm": 2048
+            },
+            "sm_count": 114,
+            "device_memory": "79.18 GiB",
+            "theoretical_memory_bandwidth": "2.039 TB/s",
+            "cuda_arch": "sm_90",
+            "register_limits": {
+              "per_sm": 65536,
+              "per_block": 65536
+            },
+            "l2_cache": "50 MiB",
+            "software": {
+              "nvcc_version": "12.9",
+              "driver_version": "590.48.01",
+              "cuda_version": "12.9"
+            },
+            "gpu_name": "NVIDIA H100 PCIe"
+          },
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe"
+        },
+        "error_message": "Kernel produced incorrect results: Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, atol=0.001, rtol=0.001",
+        "error_code": "CORRECTNESS_ERROR",
+        "submitted_at": null,
+        "completed_at": "2026-09-18T10:45:31.073518",
+        "processing_time": null
+      },
+      "wall_s": 3.8205375261604786
+    }
+  ],
+  "all_checks_passed": true
+}

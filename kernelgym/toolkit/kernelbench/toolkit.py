@@ -458,6 +458,11 @@ class KernelBenchToolkit(Toolkit):
             if compile_only:
                 metadata = dict(result.metadata or {})
                 metadata["compile_only"] = True
+                if not result.compiled:
+                    result.metadata = metadata
+                    return KernelEvaluationResult.from_kernel_exec_result(
+                        task.task_id, task.base_task_id, result, verbose_errors=verbose_errors,
+                    )
                 return KernelEvaluationResult(
                     task_id=task.task_id,
                     base_task_id=task.base_task_id,

@@ -1,0 +1,22 @@
+{
+  "scope": "Synthetic compiler-log fixture, not a compiler invocation",
+  "input": "generated_binding.cpp:0: error: identifier \"value_0\" is undefined\ngenerated_binding.cpp:1: error: identifier \"value_1\" is undefined\ngenerated_binding.cpp:2: error: identifier \"value_2\" is undefined\ngenerated_binding.cpp:3: error: identifier \"value_3\" is undefined\ngenerated_binding.cpp:4: error: identifier \"value_4\" is undefined\ngenerated_binding.cpp:5: error: identifier \"value_5\" is undefined\ngenerated_binding.cpp:6: error: identifier \"value_6\" is undefined\ngenerated_binding.cpp:7: error: identifier \"value_7\" is undefined\ngenerated_binding.cpp:8: error: identifier \"value_8\" is undefined\ngenerated_binding.cpp:9: error: identifier \"value_9\" is undefined\ngenerated_binding.cpp:0: error: identifier \"value_0\" is undefined\ngenerated_binding.cpp:1: error: identifier \"value_1\" is undefined",
+  "metadata": {
+    "compilation_error_detail": {
+      "undefined_identifier": {
+        "count": 10,
+        "truncated": true,
+        "errors": [
+          "generated_binding.cpp:0: error: identifier \"value_0\" is undefined",
+          "generated_binding.cpp:1: error: identifier \"value_1\" is undefined",
+          "generated_binding.cpp:2: error: identifier \"value_2\" is undefined",
+          "generated_binding.cpp:3: error: identifier \"value_3\" is undefined",
+          "generated_binding.cpp:4: error: identifier \"value_4\" is undefined",
+          "generated_binding.cpp:5: error: identifier \"value_5\" is undefined",
+          "generated_binding.cpp:6: error: identifier \"value_6\" is undefined",
+          "generated_binding.cpp:7: error: identifier \"value_7\" is undefined"
+        ]
+      }
+    }
+  }
+}

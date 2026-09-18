@@ -10,6 +10,7 @@ if repo_root_path not in sys.path:
 
 from kernelgym.utils.error_classifier import (
     FUNCTION_ARGUMENT_MISMATCH,
+    INSTRUCTION_ARGUMENT_MISMATCH,
     INCOMPLETE_TYPE,
     INVALID_DECLARATION,
     INVALID_TYPE_CONVERSION,
@@ -25,6 +26,32 @@ from kernelgym.utils.error_classifier import (
 )
 
 NUM_GPUS = 0
+
+
+@pytest.mark.parametrize("marker", ["error:", "error :", "error   :", "error\t:", "Error   :"])
+def test_ptxas_instruction_argument_mismatch_is_extracted(marker: str) -> None:
+    line = f"ptxas /tmp/tmpxft_0036d2c4_00000000-6_kernel.ptx, line 454; {marker} Arguments mismatch for instruction 'mma'"
+    assert classify_compile_error_detail(line) == INSTRUCTION_ARGUMENT_MISMATCH
+    assert extract_compile_error_excerpt(line) == line
+    assert classify_compile_error_metadata(line + "\n" + line) == {
+        "compilation_error_detail": {
+            INSTRUCTION_ARGUMENT_MISMATCH: {"count": 1, "truncated": False, "errors": [line]},
+        },
+    }
+
+
+def test_ptxas_unclassified_spaced_error_is_preserved() -> None:
+    line = "ptxas kernel.ptx, line 12; error   : Unexpected assembly problem"
+    assert classify_compile_error_metadata(line) == {
+        "compilation_error_detail": {
+            OTHER_COMPILE_ERROR: {"count": 1, "truncated": False, "errors": [line]},
+        },
+    }
+
+
+def test_ptxas_warning_and_source_text_do_not_become_errors() -> None:
+    text = "ptxas warning : warning only\n  7 | const char* s = \"error   : source literal\";"
+    assert classify_compile_error_metadata(text) == {}
 
 
 @pytest.mark.parametrize(
@@ -255,8 +282,11 @@ def test_compile_error_metadata_includes_matched_diagnostic_line(
     expected_detail: str,
     expected_excerpt: str,
 ) -> None:
-    assert classify_compile_error_metadata(error_message, backend=backend) == {
-        "compilation_error_detail": {expected_detail: [expected_excerpt]},
+    metadata = classify_compile_error_metadata(error_message, backend=backend)
+    assert metadata == {
+        "compilation_error_detail": {
+            expected_detail: {"count": 1, "truncated": False, "errors": [expected_excerpt]},
+        },
     }
 
 
@@ -300,11 +330,19 @@ def test_compile_error_excerpt_includes_source_and_omits_caret(
     assert extract_compile_error_excerpt(error_message, backend="cuda_agent") == expected_excerpt
 
 
+@pytest.mark.parametrize("error_message", ["", "   ", "Build completed successfully", "ninja: build stopped: subcommand failed."])
+def test_compile_error_detail_is_omitted_without_diagnostics(error_message: str) -> None:
+    assert classify_compile_error_metadata(error_message, backend="tvm_ffi") == {}
+
+
 def test_unclassified_compile_error_is_grouped_as_other() -> None:
     error_message = "generated.cu:20:3: error: expected ';' before '}' token"
 
-    assert classify_compile_error_metadata(error_message, backend="cuda_agent") == {
-        "compilation_error_detail": {OTHER_COMPILE_ERROR: [error_message]}
+    metadata = classify_compile_error_metadata(error_message, backend="cuda_agent")
+    assert metadata == {
+        "compilation_error_detail": {
+            OTHER_COMPILE_ERROR: {"count": 1, "truncated": False, "errors": [error_message]},
+        },
     }
 
 
@@ -321,11 +359,25 @@ def test_compile_error_metadata_groups_multiple_unique_diagnostics_by_type() -> 
         )
     )
 
-    assert classify_compile_error_metadata(error_message, backend="tvm_ffi") == {
+    metadata = classify_compile_error_metadata(error_message, backend="tvm_ffi")
+    assert metadata == {
         "compilation_error_detail": {
-            SYNTAX_ERROR: [syntax_excerpt],
-            INCOMPLETE_TYPE: [incomplete_excerpt],
+            SYNTAX_ERROR: {"count": 1, "truncated": False, "errors": [syntax_excerpt]},
+            INCOMPLETE_TYPE: {"count": 1, "truncated": False, "errors": [incomplete_excerpt]},
         }
+    }
+
+
+@pytest.mark.parametrize("count", [8, 9, 25])
+def test_compile_error_detail_limits_each_category_and_counts_all(count: int) -> None:
+    undefined = [f'generated.cu:{i}: error: identifier "value_{i}" is undefined' for i in range(count)]
+    incomplete = [f'generated.cu:{i + 100}: error: incomplete type "Type_{i}" is not allowed' for i in range(count)]
+    metadata = classify_compile_error_metadata("\n".join(undefined + incomplete + undefined))
+    assert metadata == {
+        "compilation_error_detail": {
+            UNDEFINED_IDENTIFIER: {"count": count, "truncated": count > 8, "errors": undefined[:8]},
+            INCOMPLETE_TYPE: {"count": count, "truncated": count > 8, "errors": incomplete[:8]},
+        },
     }
 
 

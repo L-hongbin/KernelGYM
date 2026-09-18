@@ -1,6 +1,6 @@
 # KernelGYM Reward-Only Index
 
-This file indexes stable repository docs and evidence locations.
+This file indexes stable repository docs and evidence locations. Compiler feedback evidence: `benchmarks/review_evidence/compile_error_detail_limit_20260918.json` (synthetic classifier fixture), `benchmarks/review_evidence/compile_feedback_deployed_20260918.json` (real HTTP requests/responses), reproduced by `benchmarks/validate_compile_feedback.py`.
 
 ## Core Docs
 

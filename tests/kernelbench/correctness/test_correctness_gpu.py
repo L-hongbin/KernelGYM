@@ -196,6 +196,7 @@ def test_numerical_mismatch_defaults_to_legacy_metadata(monkeypatch) -> None:
         "row_correctness",
         "tile_correctness",
         "output_space_localization",
+        "correctness_failed_input_perturbation",
     ):
         assert field not in result.metadata
     # Replay seed is internal even when detailed diagnostics are disabled.

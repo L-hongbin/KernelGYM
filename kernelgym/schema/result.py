@@ -34,6 +34,38 @@ def _prepare_public_metadata(value: Any) -> Dict[str, Any]:
     return metadata
 
 
+def _compile_error_summary(details: Any) -> Optional[str]:
+    """Summarize parsed diagnostics without changing the original compiler log."""
+    if not isinstance(details, dict):
+        return None
+    categories = []
+    total = shown = 0
+    first = None
+    for category, group in details.items():
+        # Accept historical cached category lists as well as the bounded schema.
+        errors = group.get("errors") if isinstance(group, dict) else group
+        if not isinstance(errors, list):
+            continue
+        errors = [error for error in errors if isinstance(error, str) and error.strip()]
+        if not errors:
+            continue
+        count = group.get("count", len(errors)) if isinstance(group, dict) else len(errors)
+        count = max(count, len(errors)) if type(count) is int else len(errors)
+        total += count
+        shown += len(errors)
+        categories.append(f"{category}={count}")
+        if first is None:
+            first = errors[0].strip().splitlines()[0]
+    if first is None:
+        return None
+    if len(first) > 300:
+        first = first[:300] + "..."
+    return (
+        f"{total} unique diagnostics ({shown} shown); {', '.join(categories)}. "
+        f"First diagnostic: {first}"
+    )
+
+
 def _format_memory_bytes(value: Any) -> Any:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return value
@@ -390,12 +422,16 @@ class KernelEvaluationResult:
                     break
 
         if not result.compiled:
+            summary = _compile_error_summary(metadata.get("compilation_error_detail"))
             detail = (
                 metadata.get("compilation_error")
                 or metadata.get("error")
                 or metadata.get("validation_error")
             )
-            if detail:
+            if summary:
+                summary = simplify_error_message(summary, work_dir=error_work_dir, enabled=simplify_error)
+                error_message = f"Kernel compilation failed: {summary}"
+            elif detail:
                 error_message = f"Kernel compilation failed: {detail}"
             else:
                 error_message = "Kernel compilation failed"

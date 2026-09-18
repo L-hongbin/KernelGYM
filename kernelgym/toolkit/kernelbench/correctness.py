@@ -1165,7 +1165,8 @@ def run_and_check_correctness(
         metadata["correctness_failed_trial"] = trial
         # Internal-only replay input; result serialization strips this field.
         metadata["correctness_failed_trial_seed"] = int(trial_seed)
-        metadata["correctness_failed_input_perturbation"] = perturbation
+        if enable_input_perturbations:
+            metadata["correctness_failed_input_perturbation"] = perturbation
         metadata["correctness_runtime_error_stage"] = metadata.get("correctness_current_substage")
         _record_trial_metadata()
         return _result(correctness=False)
@@ -1343,7 +1344,8 @@ def run_and_check_correctness(
                     )
                     metadata["correctness_issue_name"] = "output_structure_mismatch"
                     metadata["correctness_failed_trial"] = trial
-                    metadata["correctness_failed_input_perturbation"] = perturbation
+                    if enable_input_perturbations:
+                        metadata["correctness_failed_input_perturbation"] = perturbation
                     _record_trial_metadata()
                     if verbose:
                         logger.warning(
@@ -1407,7 +1409,8 @@ def run_and_check_correctness(
                         )
                     metadata["correctness_issue_name"] = "numerical_mismatch"
                     metadata["correctness_failed_trial"] = trial
-                    metadata["correctness_failed_input_perturbation"] = perturbation
+                    if enable_input_perturbations:
+                        metadata["correctness_failed_input_perturbation"] = perturbation
                     if verbose:
                         logger.warning("[FAIL] trial %s: Output mismatch", trial)
                     if stop_on_first_failure:
