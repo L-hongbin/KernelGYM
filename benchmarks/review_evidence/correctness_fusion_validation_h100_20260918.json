@@ -1,0 +1,23 @@
+{
+  "date": "2026-09-18",
+  "hardware": "NVIDIA H100 PCIe",
+  "test_suite": "tests/kernelbench/correctness",
+  "tests_passed": 142,
+  "fused_differential_tests": 105,
+  "coverage": ["float16", "bfloat16", "float32", "float64", "scalar through rank 5", "tail tiles", "nonfinite values", "tolerance boundaries", "zero tolerances", "non-default stream", "fallback", "ordinary-mode isolation"],
+  "accuracy": {
+    "boolean_counts_curve_localization": "match the original comparator",
+    "top3": "same score semantics; tied scores use ascending flat coordinates instead of unspecified torch.topk ordering",
+    "mean_error": "floating-point reduction order can change rounding; differential tests use relative tolerance 2e-13 and absolute tolerance 1e-14"
+  },
+  "sanitizer": {
+    "command_template": "compute-sanitizer --tool TOOL --error-exitcode 99 .venv/bin/python -m benchmarks.benchmark_correctness_fusion --child after --shape 2,33,65",
+    "memcheck": {"exit_code": 0, "summary": "ERROR SUMMARY: 0 errors"},
+    "racecheck": {"exit_code": 0, "additional_args": ["--racecheck-report", "analysis"], "summary": "RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)"},
+    "synccheck": {"exit_code": 0, "summary": "ERROR SUMMARY: 0 errors"}
+  },
+  "a800": {"sm80_compile_success": true, "compile_seconds": 6.280697677982971, "runtime_tested": false},
+  "timing_evidence": ["correctness_fusion_h100_20260918.json", "correctness_fusion_pipeline_h100_20260918.json", "correctness_fusion_http_h100_20260918.json"],
+  "service_restarted": false,
+  "notes": "HTTP requests used the existing single-use worker replacement policy to load current source. Native build artifacts were cached; correctness measurements were rerun. Timing results are case-specific, not universal speedups."
+}

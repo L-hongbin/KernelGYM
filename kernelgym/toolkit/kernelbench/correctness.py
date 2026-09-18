@@ -486,6 +486,25 @@ def _compare_tensors_inplace_with_diagnostics(
     rtol: float = 1e-4,
     output_path: str = "output",
 ) -> tuple[bool, float, float, dict[int, int], int, int, int, dict[str, Any]]:
+    if output.is_cuda and _env_flag('KERNELGYM_FUSED_CORRECTNESS', default=True):
+        from .correctness_fused import compare
+
+        result = compare(output, output_new, atol=atol, rtol=rtol, output_path=output_path)
+        if result is not None:
+            return result
+    return _compare_tensors_inplace_with_diagnostics_torch(
+        output, output_new, atol=atol, rtol=rtol, output_path=output_path,
+    )
+
+
+def _compare_tensors_inplace_with_diagnostics_torch(
+    output: torch.Tensor,
+    output_new: torch.Tensor,
+    *,
+    atol: float = 1e-4,
+    rtol: float = 1e-4,
+    output_path: str = 'output',
+) -> tuple[bool, float, float, dict[int, int], int, int, int, dict[str, Any]]:
     """Destructively compare tensors and collect bounded mismatch diagnostics."""
     if output.numel() == 0:
         return (

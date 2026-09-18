@@ -1,0 +1,250 @@
+{
+  "captured_at_utc": "2026-09-18T03:23:44Z",
+  "endpoint": "http://127.0.0.1:20111/evaluate",
+  "device": "NVIDIA H100 PCIe",
+  "case": {
+    "backend": "tvm_ffi",
+    "shape": [4, 512, 512],
+    "dtype": "float32",
+    "reference": "x + 1.0",
+    "candidate": "copy(x)",
+    "expected": "100% numerical mismatch"
+  },
+  "controls": {
+    "warmup_pairs": 2,
+    "measurement_pairs": 10,
+    "order": "alternating legacy/detail and detail/legacy",
+    "result_cache": "force_refresh",
+    "compile_artifact_cache": true,
+    "reference_cache": false,
+    "performance": false,
+    "profiling": false,
+    "decoy_detection": false,
+    "ncu": false,
+    "sanitizer": false,
+    "num_correct_trials": 1
+  },
+  "validation": {
+    "all_24_http_200": true,
+    "all_24_compiled": true,
+    "all_24_expected_correctness_error": true,
+    "all_20_measurement_compile_cache_hits": true,
+    "legacy_detail_fields_absent": true,
+    "detail_fields_observed": [
+      "element_correctness_curve",
+      "nan_count",
+      "inf_count",
+      "mismatch_localization"
+    ]
+  },
+  "summary_seconds": {
+    "legacy": {
+      "http_wall": {"mean": 1.478493609, "median": 1.49527433, "stdev": 0.25265892, "min": 1.087800682, "max": 1.723129099},
+      "kernel_correctness": {"mean": 0.063141124, "median": 0.060151257, "stdev": 0.006437642, "min": 0.059278091, "max": 0.076270521},
+      "compare": {"mean": 0.035368076, "median": 0.033774986, "stdev": 0.003382032, "min": 0.033510432, "max": 0.042293683},
+      "reference_trial": {"mean": 0.012099426, "median": 0.011477975},
+      "custom_trial": {"mean": 0.000360544, "median": 0.000341283}
+    },
+    "detail": {
+      "http_wall": {"mean": 1.712077586, "median": 1.714975432, "stdev": 0.009977168, "min": 1.68711326, "max": 1.72203115},
+      "kernel_correctness": {"mean": 0.220274009, "median": 0.212413193, "stdev": 0.01895878, "min": 0.206169397, "max": 0.256267005},
+      "compare": {"mean": 0.19252762, "median": 0.186537771, "stdev": 0.015990188, "min": 0.180103178, "max": 0.222687223},
+      "reference_trial": {"mean": 0.012025019, "median": 0.011579226},
+      "custom_trial": {"mean": 0.000377965, "median": 0.000350799}
+    },
+    "mean_detail_overhead": {
+      "http_wall_delta": 0.233583977,
+      "http_wall_ratio": 1.157987817,
+      "kernel_correctness_delta": 0.157132885,
+      "kernel_correctness_ratio": 3.488598166,
+      "compare_delta": 0.157159544,
+      "compare_ratio": 5.443542381
+    }
+  },
+  "fresh_process_optimization_validation_ms": {
+    "scope": "direct comparison path in independent CUDA processes; not yet a deployed HTTP measurement",
+    "cold_baseline": {
+      "runs": 5,
+      "legacy_mean": 44.2054,
+      "detail_mean": 262.445
+    },
+    "worker_init_prewarm": {
+      "shape": [2, 33, 65],
+      "purpose": "exercise legacy and full detailed rank-3 mismatch paths before worker READY",
+      "runs": 5,
+      "warmup_mean": 574.113412,
+      "post_warmup_legacy_mean": 0.438605,
+      "post_warmup_detail_mean": 3.644242
+    },
+    "effect": {
+      "legacy_compare_reduction_percent": 99.01,
+      "detail_compare_reduction_percent": 98.61,
+      "request_visible_tradeoff": "CUDA lazy-loading cost moves to background warm-worker initialization"
+    }
+  },
+  "deployed_worker_init_prewarm_rejected": {
+    "captured_at_utc": "2026-09-18T03:45:00Z",
+    "deployment": "single-node v1, WORKER_POOL_SIZE=2, MAX_TASKS_PER_WORKER=1",
+    "measurement_pairs": 10,
+    "benchmark_control_warning": "detect_decoy_kernel was omitted and therefore defaulted to true; HTTP, correctness, and custom-forward timings in this section are not comparable with the original decoy-disabled baseline. Compare timings remain useful for the prewarm mechanism itself.",
+    "validation": {
+      "all_http_200": true,
+      "all_compiled": true,
+      "all_expected_correctness_error": true,
+      "all_measurement_compile_cache_hits": true,
+      "legacy_detail_fields_absent": true,
+      "detail_fields_complete": true
+    },
+    "legacy": {
+      "http_wall_mean_s": 2.805457775,
+      "kernel_correctness_mean_s": 1.134604521,
+      "compare_mean_ms": 0.843044,
+      "custom_forward_mean_s": 1.123921868
+    },
+    "detail": {
+      "http_wall_mean_s": 2.795074751,
+      "kernel_correctness_mean_s": 1.143121163,
+      "compare_mean_ms": 4.848388,
+      "custom_forward_mean_s": 1.128479417
+    },
+    "detail_minus_legacy": {
+      "http_wall_mean_s": -0.010383024,
+      "kernel_correctness_mean_s": 0.008516642,
+      "compare_mean_ms": 4.005343
+    },
+    "worker_init_observation": {
+      "replacement_ready_after_containment_s": [2.23, 2.24],
+      "pre_deploy_recent_range_s": [1.31, 1.87]
+    },
+    "decision": "removed after deployed A/B",
+    "reason": "The prewarm reduced request-visible comparison latency, but every single-use worker pays its initialization cost even though detailed correctness is disabled by default. A later no-prewarm deployment showed that the post-restart candidate first-launch slowdown persisted independently, so it must not be attributed to this prewarm."
+  },
+  "deployed_after_prewarm_removal": {
+    "captured_at_utc": "2026-09-18T03:51:20Z",
+    "measurement_pairs": 10,
+    "benchmark_control_warning": "detect_decoy_kernel was omitted and therefore defaulted to true; the approximately 1.14-second first candidate trial was CPU ATen-profiler initialization, not a CUDA first-launch regression.",
+    "validation": {
+      "all_http_200": true,
+      "all_compiled": true,
+      "all_expected_correctness_error": true,
+      "all_measurement_compile_cache_hits": true,
+      "legacy_detail_fields_absent": true,
+      "detail_fields_complete": true
+    },
+    "legacy": {
+      "http_wall_mean_s": 2.809315552,
+      "kernel_correctness_mean_s": 1.217767604,
+      "compare_mean_ms": 42.91891,
+      "custom_forward_mean_s": 1.141971549
+    },
+    "detail": {
+      "http_wall_mean_s": 3.115717628,
+      "kernel_correctness_mean_s": 1.420613029,
+      "compare_mean_ms": 233.374447,
+      "custom_forward_mean_s": 1.153613426
+    },
+    "detail_minus_legacy": {
+      "http_wall_mean_s": 0.306402076,
+      "http_wall_ratio": 1.109066451,
+      "kernel_correctness_mean_s": 0.202845425,
+      "compare_mean_ms": 190.455536
+    },
+    "comparison_with_prewarm_deployment": {
+      "legacy_http_delta_s": 0.003857777,
+      "detail_http_delta_s": 0.320642877,
+      "detail_compare_delta_ms": 228.526059,
+      "interpretation": "Prewarming improved explicit detailed requests in this deployment epoch but spends initialization work on every replacement worker, including the default non-detail path."
+    },
+    "disproven_initial_diagnosis": {
+      "observation": "Candidate timing remained about 1.15 seconds after prewarm removal, including probes separated by three-second idle gaps.",
+      "actual_cause": "The reconstructed requests left detect_decoy_kernel unset, so the toolkit defaulted it to true and initialized the CPU ATen profiler inside the first candidate-forward timing window. Explicitly disabling decoy and Triton detection restored candidate forward to 0.42-0.50 ms."
+    }
+  },
+  "corrected_legacy_control_validation": {
+    "captured_at_utc": "2026-09-18T04:12:00Z",
+    "controls": {
+      "return_detail_correctness": false,
+      "detect_decoy_kernel": false,
+      "enable_triton_detection": false,
+      "run_triton_detection": false,
+      "enable_profiling": false,
+      "compile_artifact_cache": true,
+      "result_cache": "force_refresh"
+    },
+    "cache_hit_runs": 9,
+    "http_wall_s": {
+      "mean": 1.721735949,
+      "min": 1.710173244,
+      "max": 1.732846389
+    },
+    "kernel_correctness_mean_ms": 73.355848,
+    "candidate_forward_mean_ms": 0.465597,
+    "compare_mean_ms": 40.592394,
+    "worker_pool_mean_s": 0.576862203,
+    "comparison_to_original_legacy": {
+      "candidate_forward_delta_ms": 0.105053,
+      "compare_delta_ms": 5.224318,
+      "kernel_correctness_delta_ms": 10.214724,
+      "http_wall_delta_s": 0.24324234,
+      "interpretation": "The default correctness code path did not suffer the apparent 1.14-second regression. The remaining HTTP shift is outside candidate execution and is smaller than the original baseline's 0.253-second wall-time standard deviation."
+    },
+    "three_trial_confirmation": {
+      "default_decoy_detection_candidate_s": [1.141850795, 0.005806172, 0.005399275],
+      "explicit_decoy_off_candidate_first_trial_ms": [0.421401, 0.50376],
+      "root_cause": "CPU ATen-profiler initialization caused by detect_decoy_kernel=true"
+    }
+  },
+  "corrected_postdeploy_paired_validation": {
+    "measurement_pairs": 10,
+    "controls": {
+      "detect_decoy_kernel": false,
+      "enable_triton_detection": false,
+      "run_triton_detection": false,
+      "enable_profiling": false,
+      "compile_artifact_cache": true,
+      "result_cache": "force_refresh"
+    },
+    "validation": {
+      "all_compile_cache_hits": true,
+      "all_aten_detection_off": true,
+      "all_detail_fields_correct": true
+    },
+    "legacy": {
+      "http_wall_mean_s": 1.717124071,
+      "kernel_correctness_mean_ms": 72.838611,
+      "compare_mean_ms": 40.160251,
+      "candidate_forward_mean_ms": 0.45713,
+      "worker_pool_mean_s": 0.572414613
+    },
+    "detail": {
+      "http_wall_mean_s": 1.721648681,
+      "kernel_correctness_mean_ms": 248.919233,
+      "compare_mean_ms": 215.928292,
+      "candidate_forward_mean_ms": 0.460744,
+      "worker_pool_mean_s": 0.771195483
+    },
+    "detail_minus_legacy": {
+      "http_wall_mean_ms": 4.52461,
+      "http_wall_ratio": 1.002635,
+      "kernel_correctness_mean_ms": 176.080622,
+      "kernel_correctness_ratio": 3.417408,
+      "compare_mean_ms": 175.768041,
+      "compare_ratio": 5.376667,
+      "candidate_forward_mean_ms": 0.003615,
+      "worker_pool_mean_ms": 198.78087
+    },
+    "interpretation": "Detailed mismatch diagnostics add about 176 ms inside correctness for this one-million-element all-mismatch case. HTTP stages overlap with worker replenishment, so the paired HTTP mean hides most of the internal worker cost and must not be used as its substitute."
+  },
+  "paired_measurements": [
+    {"block": 0, "legacy_first": true, "http_wall_delta_s": 0.02178753, "correctness_delta_s": 0.15239492, "compare_delta_s": 0.152828092, "compare_ratio": 5.474316775},
+    {"block": 1, "legacy_first": false, "http_wall_delta_s": 0.004524071, "correctness_delta_s": 0.129898876, "compare_delta_s": 0.137809495, "compare_ratio": 4.258394291},
+    {"block": 2, "legacy_first": true, "http_wall_delta_s": 0.423635786, "correctness_delta_s": 0.153258311, "compare_delta_s": 0.152453217, "compare_ratio": 5.532241433},
+    {"block": 3, "legacy_first": false, "http_wall_delta_s": 0.00298363, "correctness_delta_s": 0.151235945, "compare_delta_s": 0.151291999, "compare_ratio": 5.490641669},
+    {"block": 4, "legacy_first": true, "http_wall_delta_s": 0.012091566, "correctness_delta_s": 0.194719813, "compare_delta_s": 0.188089361, "compare_ratio": 6.555001117},
+    {"block": 5, "legacy_first": false, "http_wall_delta_s": 0.425107094, "correctness_delta_s": 0.150520386, "compare_delta_s": 0.150026819, "compare_ratio": 5.472510816},
+    {"block": 6, "legacy_first": true, "http_wall_delta_s": 0.618044718, "correctness_delta_s": 0.151290792, "compare_delta_s": 0.154371251, "compare_ratio": 5.606662536},
+    {"block": 7, "legacy_first": false, "http_wall_delta_s": 0.422970651, "correctness_delta_s": 0.157790455, "compare_delta_s": 0.156461678, "compare_ratio": 5.649613335},
+    {"block": 8, "legacy_first": true, "http_wall_delta_s": 0.415354305, "correctness_delta_s": 0.196444569, "compare_delta_s": 0.188561778, "compare_ratio": 6.525547824},
+    {"block": 9, "legacy_first": false, "http_wall_delta_s": -0.010659579, "correctness_delta_s": 0.133774786, "compare_delta_s": 0.139701753, "compare_ratio": 4.389805612}
+  ]
+}

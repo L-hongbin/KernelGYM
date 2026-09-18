@@ -50,6 +50,9 @@ kernelgym-service = "kernelgym.cli.service:main"
 [tool.setuptools.packages.find]
 include = ["kernelgym*"]
 
+[tool.setuptools.package-data]
+"kernelgym.toolkit.kernelbench" = ["correctness_fused.cu"]
+
 [tool.ruff]
 line-length = 119
 target-version = "py312"

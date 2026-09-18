@@ -1,0 +1,4102 @@
+{
+  "scope": "HTTP current implementation, legacy versus fused detail, two warmup pairs excluded",
+  "payload": {
+    "reference_code": "\nimport torch\nimport torch.nn as nn\n\n\nclass Model(nn.Module):\n    \"\"\"Reference: element-wise add of two 1-D tensors.\"\"\"\n\n    def __init__(self):\n        super().__init__()\n\n    def forward(self, a, b):\n        return a + b + 1.0\n\n\ndef get_inputs():\n    return [torch.randn((4, 512, 512), device=\"cuda\"), torch.randn((4, 512, 512), device=\"cuda\")]\n\n\ndef get_init_inputs():\n    return []\n",
+    "kernel_code": "\n### CUDA_KERNELS\n```cpp\n#include <cuda_runtime.h>\n\n__global__ void add_kernel(const float* __restrict__ a,\n                           const float* __restrict__ b,\n                           float* __restrict__ out,\n                           int n) {\n    int idx = blockIdx.x * blockDim.x + threadIdx.x;\n    if (idx < n) {\n        out[idx] = a[idx] + b[idx];\n    }\n}\n\nextern \"C\" void add_launcher(const float* a, const float* b, float* out,\n                             int n, void* stream_handle) {\n    cudaStream_t stream = static_cast<cudaStream_t>(stream_handle);\n    constexpr int block = 256;\n    int grid = (n + block - 1) / block;\n    add_kernel<<<grid, block, 0, stream>>>(a, b, out, n);\n}\n```\n\n### APPLY_BINDINGS\n```cpp\n#include <tvm/ffi/tvm_ffi.h>\n#include <tvm/ffi/extra/c_env_api.h>\n\nextern \"C\" void add_launcher(const float* a, const float* b, float* out,\n                             int n, void* stream_handle);\n\nvoid add(tvm::ffi::Tensor a, tvm::ffi::Tensor b, tvm::ffi::Tensor out) {\n    TVM_FFI_ICHECK(a.device().device_type == kDLCUDA) << \"a must be CUDA\";\n    TVM_FFI_ICHECK(b.device().device_type == kDLCUDA) << \"b must be CUDA\";\n    TVM_FFI_ICHECK(out.device().device_type == kDLCUDA) << \"out must be CUDA\";\n\n    DLDataType f32_dtype{kDLFloat, 32, 1};\n    TVM_FFI_ICHECK(a.dtype() == f32_dtype) << \"a must be float32\";\n    TVM_FFI_ICHECK(b.dtype() == f32_dtype) << \"b must be float32\";\n    TVM_FFI_ICHECK(out.dtype() == f32_dtype) << \"out must be float32\";\n\n    TVM_FFI_ICHECK(a.IsContiguous()) << \"a must be contiguous\";\n    TVM_FFI_ICHECK(b.IsContiguous()) << \"b must be contiguous\";\n    TVM_FFI_ICHECK(out.IsContiguous()) << \"out must be contiguous\";\n\n    TVM_FFI_ICHECK(a.numel() == b.numel() && a.numel() == out.numel())\n        << \"shape mismatch\";\n\n    void* stream_handle =\n        TVMFFIEnvGetStream(a.device().device_type, a.device().device_id);\n\n    add_launcher(static_cast<const float*>(a.data_ptr()),\n                 static_cast<const float*>(b.data_ptr()),\n                 static_cast<float*>(out.data_ptr()),\n                 static_cast<int>(a.numel()),\n                 stream_handle);\n}\n\nTVM_FFI_DLL_EXPORT_TYPED_FUNC(add, add);\n```\n\n### MODEL_NEW\n```python\nimport torch\nimport torch.nn as nn\nimport tvm_ffi_extension\n\n\nclass ModelNew(nn.Module):\n    \"\"\"TVM-FFI-backed element-wise add.\"\"\"\n\n    def __init__(self):\n        super().__init__()\n\n    def forward(self, a, b):\n        out = torch.empty_like(a)\n        tvm_ffi_extension.add(a, b, out)\n        return out\n```\n",
+    "backend": "tvm_ffi",
+    "num_correct_trials": 1,
+    "num_perf_trials": 1,
+    "timeout": 180,
+    "force_refresh": true,
+    "run_performance": false,
+    "enable_profiling": false,
+    "enable_ncu": false,
+    "enable_compute_sanitizer": false,
+    "enable_correctness_input_perturbations": false,
+    "use_reference_cache": false,
+    "enable_compile_artifact_cache": true,
+    "split_compile_and_execute": true,
+    "detect_decoy_kernel": false,
+    "enable_triton_detection": false,
+    "run_triton_detection": false
+  },
+  "summary_seconds": {
+    "legacy": {
+      "http_mean_s": 1.7124180362094195,
+      "correctness_mean_s": 0.0739201824646442,
+      "compare_mean_s": 0.040760034602135196
+    },
+    "detail": {
+      "http_mean_s": 1.72563219438307,
+      "correctness_mean_s": 0.0392716917209326,
+      "compare_mean_s": 0.00618323786184192
+    }
+  },
+  "runs": [
+    {
+      "block": 0,
+      "detail": false,
+      "wall_s": 1.7139841390307993,
+      "response": {
+        "task_id": "fusion-http-8ea693823a464dd4adb1980b0de4e567",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "memory": null,
+        "metadata": {
+          "correctness_current_substage": "compare",
+          "correctness_failed_input_perturbation": "original",
+          "correctness_input_generation_trial_s": [
+            0.0033160650637001
+          ],
+          "fp32_math_mode": "tf32",
+          "kg_stage_total_started_monotonic_ns": 1512278468536900.0,
+          "correctness_requested_trials": 1,
+          "correctness_compare_trial_s": [
+            0.040367380017415
+          ],
+          "precompiled_artifact_used": true,
+          "correctness_trials_run": 1,
+          "correctness_failed_trial": 0,
+          "aten_detection_enabled": false,
+          "correctness_current_trial": 0,
+          "wg_run_toolkit_s": 0.59820175170898,
+          "kg_kernel_backend_load_s": 0.040537086082622,
+          "correctness_issue_name": "numerical_mismatch",
+          "correctness_input_perturbations_enabled": false,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "incorrect_backend_usage_probe": {
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED",
+            "backend": "tvm_ffi",
+            "attempted": false
+          },
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "correctness_candidate_forward_completed_trials": [
+            0
+          ],
+          "kg_kernel_compile_and_load_s": 0.040934117976576,
+          "kg_stage_is_active": false,
+          "tm_enter_monotonic_ns": 1512278884744900.0,
+          "correctness_reference_cache_poison_enabled": true,
+          "kernel_execution_device_id": 0,
+          "wg_pool_execute_s": 0.44416093826294,
+          "correctness_effective_trials": 1,
+          "compile_artifact_cache_enabled": true,
+          "correctness_reference_skipped_perturbations": {},
+          "kg_stage_current_elapsed_s": 0.00065443897619843,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "correctness_early_stopped": true,
+          "correctness_trials": "(0 / 1)",
+          "correctness_reference_skipped_perturbation_count": 0,
+          "model_mode": "eval",
+          "correctness_inputs_generated_on_gpu": true,
+          "kernel_execution_device": "cuda:0",
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_trial_s": [
+            0.062454150989652
+          ],
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "compile_artifact_cache_hit": true,
+          "correctness_output_mismatch": true,
+          "kg_kernel_backend_session_open_s": 5.8251898735762e-06,
+          "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, atol=0.001, rtol=0.001",
+          "hardware": "NVIDIA H100 PCIe",
+          "kernel_task_id": "fusion-http-8ea693823a464dd4adb1980b0de4e567_kernel_b75156f140454cb59ba56e51144a2968",
+          "kg_kernel_build_reference_model_s": 0.00072041898965836,
+          "grad_mode": "no_grad",
+          "kg_kernel_incorrect_backend_usage_probe_s": 0.00065443897619843,
+          "build_backend": "tvm_ffi.cpp.build",
+          "correctness_reference_alias_clone_trial_s": [
+            0
+          ],
+          "kg_kernel_prepare_init_inputs_s": 0.001348125981167,
+          "split_compile_and_execute": true,
+          "wg_pool_retry_count": 0,
+          "kg_kernel_load_original_src_s": 0.0012996590230614,
+          "wg_pool_total_s": 0.58590626716614,
+          "correctness_candidate_forward_completed": true,
+          "num_perf_trials": 1,
+          "wg_pool_return_s": 0,
+          "wg_pool_restart_s": 0.14059638977051,
+          "wg_pool_idle_wait_s": 0.00014090538024902,
+          "kernel_execution_epoch_ns": 1.7897114192678e+18,
+          "max_difference": [
+            "1.000000"
+          ],
+          "kernel_execution_hostname": "ai-11-229",
+          "kg_kernel_build_custom_model_s": 0.064037407049909,
+          "kernel_execution_pid": 3498380,
+          "avg_difference": [
+            "1.000000"
+          ],
+          "correctness_early_stop_enabled": true,
+          "num_correct_trials": 1,
+          "correctness_budget_min_pass_trials": 1,
+          "backend": "tvm_ffi",
+          "kg_stage_current_started_at_unix_s": 1789711419.2646,
+          "correctness_reference_alias_clone_trials": {},
+          "gpu_name": "NVIDIA H100 PCIe",
+          "kg_kernel_backend_compile_s": 0,
+          "kg_kernel_total_s": 0.2586523219943,
+          "kg_kernel_correctness_s": 0.073962517082691,
+          "kg_stage_total_started_at_unix_s": 1789711419.007,
+          "correctness_input_transfer_trial_s": [
+            8.8163884356618e-05
+          ],
+          "correctness_custom_trial_s": [
+            0.00052367988973856
+          ],
+          "correctness_reference_trial_s": [
+            0.014147375943139
+          ],
+          "correctness_atol": 0.001,
+          "kg_stage_current_started_monotonic_ns": 1512278726217400.0,
+          "compile_artifact": {
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle",
+            "build_backend": "tvm_ffi.cpp.build",
+            "precheck": {
+              "error_message": "",
+              "cuda_source_count": 2,
+              "exported_functions": [
+                "add"
+              ],
+              "static_check": {
+                "warnings": {},
+                "precision": "fp32",
+                "passed": true,
+                "errors": {}
+              },
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "error_code": null,
+              "binding_mode": "tvm_ffi",
+              "detected_extension_calls": [
+                "add"
+              ],
+              "passed": true,
+              "header_files": {},
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "device": "cuda:0",
+            "compile_cache_hit": true,
+            "artifact_hostname": "ai-11-229",
+            "artifact_node_id": "v1",
+            "compile_artifact_cache_enabled": true,
+            "compile_artifact_cache_hit": true,
+            "compiled": true,
+            "entry_point": "ModelNew",
+            "profiling_hints": {
+              "detected_extension_calls": [
+                "add"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ],
+              "exported_functions": [
+                "add"
+              ],
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "add_kernel"
+              ]
+            },
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/7172251e984e9c2c6932edef538733e2034d57c8694c97daad80a0ee67be1273",
+            "backend": "tvm_ffi",
+            "module_name": "kernelgym_tvm_ffi_7172251e984e9c2c"
+          },
+          "kg_stage_current_prefix": "kg_kernel",
+          "correctness_rtol": 0.001,
+          "device": "cuda:0",
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "correctness_tf32_enabled": true,
+          "kg_stage_completed_s": {
+            "kernel.build_reference_model": 0.00072041898965836,
+            "kernel.load_original_src": 0.0012996590230614,
+            "kernel.compile_and_load": 0.040934117976576,
+            "kernel.prepare_init_inputs": 0.001348125981167,
+            "kernel.build_custom_model": 0.064037407049909,
+            "kernel.incorrect_backend_usage_probe": 0.00065443897619843,
+            "kernel.correctness": 0.073962517082691
+          },
+          "correctness_forward_seed_reset_enabled": true,
+          "precision": "fp32",
+          "device_info": {
+            "warp_size": 32,
+            "shared_memory": {
+              "per_block_optin": "227 KiB",
+              "per_block_default": "48 KiB",
+              "per_sm": "228 KiB"
+            },
+            "compute_capability": "9.0",
+            "thread_limits": {
+              "max_warps_per_sm": 64,
+              "max_threads_per_block": 1024,
+              "max_grid_dimensions": [
+                2147483647,
+                65535,
+                65535
+              ],
+              "max_blocks_per_sm": 32,
+              "max_block_dimensions": [
+                1024,
+                1024,
+                64
+              ],
+              "max_threads_per_sm": 2048
+            },
+            "sm_count": 114,
+            "device_memory": "79.18 GiB",
+            "theoretical_memory_bandwidth": "2.039 TB/s",
+            "cuda_arch": "sm_90",
+            "register_limits": {
+              "per_sm": 65536,
+              "per_block": 65536
+            },
+            "l2_cache": "50 MiB",
+            "software": {
+              "nvcc_version": "12.9",
+              "driver_version": "590.48.01",
+              "cuda_version": "12.9"
+            },
+            "gpu_name": "NVIDIA H100 PCIe"
+          },
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe"
+        },
+        "error_message": "Kernel produced incorrect results: Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, atol=0.001, rtol=0.001",
+        "error_code": "CORRECTNESS_ERROR",
+        "submitted_at": null,
+        "completed_at": "2026-09-18T06:03:39.795633",
+        "processing_time": null
+      }
+    },
+    {
+      "block": 0,
+      "detail": true,
+      "wall_s": 1.7220745959784836,
+      "response": {
+        "task_id": "fusion-http-1e145369fdde40f58730d391294ddf87",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "memory": null,
+        "metadata": {
+          "correctness_current_substage": "compare",
+          "correctness_failed_input_perturbation": "original",
+          "correctness_input_generation_trial_s": [
+            0.003174080979079
+          ],
+          "fp32_math_mode": "tf32",
+          "kg_stage_total_started_monotonic_ns": 1512280192517200.0,
+          "correctness_requested_trials": 1,
+          "correctness_compare_trial_s": [
+            0.005881107179448
+          ],
+          "precompiled_artifact_used": true,
+          "correctness_trials_run": 1,
+          "correctness_failed_trial": 0,
+          "aten_detection_enabled": false,
+          "correctness_current_trial": 0,
+          "wg_run_toolkit_s": 0.52537894248962,
+          "kg_kernel_backend_load_s": 0.038437640992925,
+          "correctness_issue_name": "numerical_mismatch",
+          "correctness_input_perturbations_enabled": false,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "incorrect_backend_usage_probe": {
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED",
+            "backend": "tvm_ffi",
+            "attempted": false
+          },
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "correctness_candidate_forward_completed_trials": [
+            0
+          ],
+          "kg_kernel_compile_and_load_s": 0.038801458897069,
+          "kg_stage_is_active": false,
+          "mismatch_localization": [
+            {
+              "output_space": {
+                "batch_total": 4,
+                "row_correctness": 0,
+                "tile_correctness": 0,
+                "tile_correct": 0,
+                "batch_correctness": 0,
+                "tile_shape": [
+                  32,
+                  32
+                ],
+                "tile_total": 1024,
+                "batch_correct": 0,
+                "tensors": [
+                  {
+                    "batch": {
+                      "total": 4,
+                      "mismatches": [
+                        {
+                          "batch": 0
+                        },
+                        {
+                          "batch": 1
+                        },
+                        {
+                          "batch": 2
+                        },
+                        {
+                          "batch": 3
+                        }
+                      ],
+                      "mismatch_count": 4,
+                      "correctness": 0,
+                      "correct": 0,
+                      "mismatches_truncated": false
+                    },
+                    "tile": {
+                      "total": 1024,
+                      "mismatches": [
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            0,
+                            32
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            32,
+                            64
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            64,
+                            96
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            96,
+                            128
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            128,
+                            160
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            160,
+                            192
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            192,
+                            224
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            224,
+                            256
+                          ]
+                        }
+                      ],
+                      "mismatch_count": 1024,
+                      "correctness": 0,
+                      "correct": 0,
+                      "mismatches_truncated": true
+                    },
+                    "row": {
+                      "total": 2048,
+                      "mismatches": [
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 0
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 1
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 2
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 3
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 4
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 5
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 6
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 7
+                        }
+                      ],
+                      "mismatch_count": 2048,
+                      "correctness": 0,
+                      "correct": 0,
+                      "mismatches_truncated": true
+                    },
+                    "mismatch_bounds": {
+                      "M": [
+                        0,
+                        511
+                      ],
+                      "N": [
+                        0,
+                        511
+                      ],
+                      "B": [
+                        0,
+                        3
+                      ]
+                    },
+                    "shape": [
+                      4,
+                      512,
+                      512
+                    ],
+                    "output_path": "output"
+                  }
+                ],
+                "row_total": 2048,
+                "row_correct": 0
+              },
+              "element": {
+                "first": {
+                  "coordinate": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "output_path": "output"
+                },
+                "last": {
+                  "coordinate": [
+                    3,
+                    511,
+                    511
+                  ],
+                  "output_path": "output"
+                },
+                "top_3": [
+                  {
+                    "coordinate": [
+                      2,
+                      493,
+                      31
+                    ],
+                    "output_path": "output"
+                  },
+                  {
+                    "coordinate": [
+                      3,
+                      264,
+                      253
+                    ],
+                    "output_path": "output"
+                  },
+                  {
+                    "coordinate": [
+                      2,
+                      21,
+                      372
+                    ],
+                    "output_path": "output"
+                  }
+                ]
+              }
+            }
+          ],
+          "correctness_reference_cache_poison_enabled": true,
+          "kernel_execution_device_id": 0,
+          "wg_pool_execute_s": 0.37850475311279,
+          "correctness_effective_trials": 1,
+          "compile_artifact_cache_enabled": true,
+          "correctness_reference_skipped_perturbations": {},
+          "kg_stage_current_elapsed_s": 0.00066711707040668,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "correctness_early_stopped": true,
+          "correctness_trials": "(0 / 1)",
+          "correctness_reference_skipped_perturbation_count": 0,
+          "model_mode": "eval",
+          "correctness_inputs_generated_on_gpu": true,
+          "kernel_execution_device": "cuda:0",
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_trial_s": [
+            0.02663938398473
+          ],
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "nan_count": [
+            0
+          ],
+          "compile_artifact_cache_hit": true,
+          "correctness_output_mismatch": true,
+          "kg_kernel_backend_session_open_s": 6.4880587160587e-06,
+          "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, element_correctness=0.00%, element_correctness_curve={1x:0.00%,2x:0.00%,4x:0.00%,8x:0.00%,16x:0.00%}, atol=0.001, rtol=0.001",
+          "tm_enter_monotonic_ns": 1512280545028800.0,
+          "split_compile_and_execute": true,
+          "hardware": "NVIDIA H100 PCIe",
+          "kernel_task_id": "fusion-http-1e145369fdde40f58730d391294ddf87_kernel_c01b256781bd4a678a09b56ce9d5d357",
+          "kg_kernel_build_reference_model_s": 0.00062922202050686,
+          "grad_mode": "no_grad",
+          "kg_kernel_incorrect_backend_usage_probe_s": 0.00066711707040668,
+          "wg_pool_restart_s": 0.13518309593201,
+          "build_backend": "tvm_ffi.cpp.build",
+          "correctness_reference_alias_clone_trial_s": [
+            0
+          ],
+          "device": "cuda:0",
+          "wg_pool_total_s": 0.51511836051941,
+          "wg_pool_return_s": 0,
+          "wg_pool_retry_count": 0,
+          "kg_kernel_load_original_src_s": 0.0013192018959671,
+          "wg_pool_idle_wait_s": 0.00021767616271973,
+          "correctness_candidate_forward_completed": true,
+          "num_perf_trials": 1,
+          "kernel_execution_epoch_ns": 1.7897114209346e+18,
+          "kernel_execution_hostname": "ai-11-229",
+          "kernel_execution_pid": 3498449,
+          "kg_stage_current_prefix": "kg_kernel",
+          "max_difference": [
+            "1.000000"
+          ],
+          "num_correct_trials": 1,
+          "kg_kernel_build_custom_model_s": 0.060422859154642,
+          "backend": "tvm_ffi",
+          "avg_difference": [
+            "1.000000"
+          ],
+          "gpu_name": "NVIDIA H100 PCIe",
+          "kg_kernel_total_s": 0.20145691698417,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_diagnosis": {
+            "text": "Element correctness remains 0.00% through 16x tolerance; this is unlikely to be a small precision error, so inspect indexing, permutation, masking, or core logic.",
+            "confidence": 0.8,
+            "evidence": [
+              "tolerance curve is flat from 1x through 16x"
+            ],
+            "category": "large_magnitude_or_indexing_error"
+          },
+          "kg_stage_current_started_at_unix_s": 1789711420.9315,
+          "correctness_reference_alias_clone_trials": {},
+          "kg_kernel_correctness_s": 0.038526627002284,
+          "kg_kernel_backend_compile_s": 0,
+          "correctness_input_transfer_trial_s": [
+            9.4176037237048e-05
+          ],
+          "correctness_custom_trial_s": [
+            0.00043115788139403
+          ],
+          "kg_stage_total_started_at_unix_s": 1789711420.7309,
+          "correctness_reference_trial_s": [
+            0.013288267888129
+          ],
+          "kg_stage_current_started_monotonic_ns": 1512280393034800.0,
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "correctness_atol": 0.001,
+          "inf_count": [
+            0
+          ],
+          "compile_artifact": {
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle",
+            "build_backend": "tvm_ffi.cpp.build",
+            "precheck": {
+              "error_message": "",
+              "cuda_source_count": 2,
+              "exported_functions": [
+                "add"
+              ],
+              "static_check": {
+                "warnings": {},
+                "precision": "fp32",
+                "passed": true,
+                "errors": {}
+              },
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "error_code": null,
+              "binding_mode": "tvm_ffi",
+              "detected_extension_calls": [
+                "add"
+              ],
+              "passed": true,
+              "header_files": {},
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "device": "cuda:0",
+            "compile_cache_hit": true,
+            "artifact_hostname": "ai-11-229",
+            "artifact_node_id": "v1",
+            "compile_artifact_cache_enabled": true,
+            "compile_artifact_cache_hit": true,
+            "compiled": true,
+            "entry_point": "ModelNew",
+            "profiling_hints": {
+              "detected_extension_calls": [
+                "add"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ],
+              "exported_functions": [
+                "add"
+              ],
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "add_kernel"
+              ]
+            },
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/7172251e984e9c2c6932edef538733e2034d57c8694c97daad80a0ee67be1273",
+            "backend": "tvm_ffi",
+            "module_name": "kernelgym_tvm_ffi_7172251e984e9c2c"
+          },
+          "element_correctness_curve": [
+            {
+              "4x": "0.00%",
+              "16x": "0.00%",
+              "2x": "0.00%",
+              "8x": "0.00%",
+              "1x": "0.00%"
+            }
+          ],
+          "correctness_rtol": 0.001,
+          "correctness_tf32_enabled": true,
+          "kg_kernel_prepare_init_inputs_s": 0.001185298897326,
+          "correctness_forward_seed_reset_enabled": true,
+          "kg_stage_completed_s": {
+            "kernel.build_reference_model": 0.00062922202050686,
+            "kernel.load_original_src": 0.0013192018959671,
+            "kernel.compile_and_load": 0.038801458897069,
+            "kernel.prepare_init_inputs": 0.001185298897326,
+            "kernel.build_custom_model": 0.060422859154642,
+            "kernel.incorrect_backend_usage_probe": 0.00066711707040668,
+            "kernel.correctness": 0.038526627002284
+          },
+          "correctness_early_stop_enabled": true,
+          "precision": "fp32",
+          "device_info": {
+            "warp_size": 32,
+            "shared_memory": {
+              "per_block_optin": "227 KiB",
+              "per_block_default": "48 KiB",
+              "per_sm": "228 KiB"
+            },
+            "compute_capability": "9.0",
+            "thread_limits": {
+              "max_warps_per_sm": 64,
+              "max_threads_per_block": 1024,
+              "max_grid_dimensions": [
+                2147483647,
+                65535,
+                65535
+              ],
+              "max_blocks_per_sm": 32,
+              "max_block_dimensions": [
+                1024,
+                1024,
+                64
+              ],
+              "max_threads_per_sm": 2048
+            },
+            "sm_count": 114,
+            "device_memory": "79.18 GiB",
+            "theoretical_memory_bandwidth": "2.039 TB/s",
+            "cuda_arch": "sm_90",
+            "register_limits": {
+              "per_sm": 65536,
+              "per_block": 65536
+            },
+            "l2_cache": "50 MiB",
+            "software": {
+              "nvcc_version": "12.9",
+              "driver_version": "590.48.01",
+              "cuda_version": "12.9"
+            },
+            "gpu_name": "NVIDIA H100 PCIe"
+          },
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe"
+        },
+        "error_message": "Kernel produced incorrect results: Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, element_correctness=0.00%, element_correctness_curve={1x:0.00%,2x:0.00%,4x:0.00%,8x:0.00%,16x:0.00%}, atol=0.001, rtol=0.001. Diagnosis: Element correctness remains 0.00% through 16x tolerance; this is unlikely to be a small precision error, so inspect indexing, permutation, masking, or core logic.",
+        "error_code": "CORRECTNESS_ERROR",
+        "submitted_at": null,
+        "completed_at": "2026-09-18T06:03:41.517175",
+        "processing_time": null
+      }
+    },
+    {
+      "block": 1,
+      "detail": true,
+      "wall_s": 1.736767804948613,
+      "response": {
+        "task_id": "fusion-http-509f6918d01f43bcba2abc9b7d0b1239",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "memory": null,
+        "metadata": {
+          "correctness_current_substage": "compare",
+          "correctness_failed_input_perturbation": "original",
+          "correctness_input_generation_trial_s": [
+            0.0033166510984302
+          ],
+          "fp32_math_mode": "tf32",
+          "kg_stage_total_started_monotonic_ns": 1512281987085700.0,
+          "correctness_requested_trials": 1,
+          "correctness_compare_trial_s": [
+            0.0063436049968004
+          ],
+          "precompiled_artifact_used": true,
+          "correctness_trials_run": 1,
+          "correctness_failed_trial": 0,
+          "aten_detection_enabled": false,
+          "correctness_current_trial": 0,
+          "wg_run_toolkit_s": 0.55063915252686,
+          "kg_kernel_backend_load_s": 0.03950858511962,
+          "correctness_issue_name": "numerical_mismatch",
+          "correctness_input_perturbations_enabled": false,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "incorrect_backend_usage_probe": {
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED",
+            "backend": "tvm_ffi",
+            "attempted": false
+          },
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "correctness_candidate_forward_completed_trials": [
+            0
+          ],
+          "kg_kernel_compile_and_load_s": 0.039876392809674,
+          "kg_stage_is_active": false,
+          "mismatch_localization": [
+            {
+              "output_space": {
+                "batch_total": 4,
+                "row_correctness": 0,
+                "tile_correctness": 0,
+                "tile_correct": 0,
+                "batch_correctness": 0,
+                "tile_shape": [
+                  32,
+                  32
+                ],
+                "tile_total": 1024,
+                "batch_correct": 0,
+                "tensors": [
+                  {
+                    "batch": {
+                      "total": 4,
+                      "mismatches": [
+                        {
+                          "batch": 0
+                        },
+                        {
+                          "batch": 1
+                        },
+                        {
+                          "batch": 2
+                        },
+                        {
+                          "batch": 3
+                        }
+                      ],
+                      "mismatch_count": 4,
+                      "correctness": 0,
+                      "correct": 0,
+                      "mismatches_truncated": false
+                    },
+                    "tile": {
+                      "total": 1024,
+                      "mismatches": [
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            0,
+                            32
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            32,
+                            64
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            64,
+                            96
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            96,
+                            128
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            128,
+                            160
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            160,
+                            192
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            192,
+                            224
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            224,
+                            256
+                          ]
+                        }
+                      ],
+                      "mismatch_count": 1024,
+                      "correctness": 0,
+                      "correct": 0,
+                      "mismatches_truncated": true
+                    },
+                    "row": {
+                      "total": 2048,
+                      "mismatches": [
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 0
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 1
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 2
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 3
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 4
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 5
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 6
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 7
+                        }
+                      ],
+                      "mismatch_count": 2048,
+                      "correctness": 0,
+                      "correct": 0,
+                      "mismatches_truncated": true
+                    },
+                    "mismatch_bounds": {
+                      "M": [
+                        0,
+                        511
+                      ],
+                      "N": [
+                        0,
+                        511
+                      ],
+                      "B": [
+                        0,
+                        3
+                      ]
+                    },
+                    "shape": [
+                      4,
+                      512,
+                      512
+                    ],
+                    "output_path": "output"
+                  }
+                ],
+                "row_total": 2048,
+                "row_correct": 0
+              },
+              "element": {
+                "first": {
+                  "coordinate": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "output_path": "output"
+                },
+                "last": {
+                  "coordinate": [
+                    3,
+                    511,
+                    511
+                  ],
+                  "output_path": "output"
+                },
+                "top_3": [
+                  {
+                    "coordinate": [
+                      2,
+                      493,
+                      31
+                    ],
+                    "output_path": "output"
+                  },
+                  {
+                    "coordinate": [
+                      3,
+                      264,
+                      253
+                    ],
+                    "output_path": "output"
+                  },
+                  {
+                    "coordinate": [
+                      2,
+                      21,
+                      372
+                    ],
+                    "output_path": "output"
+                  }
+                ]
+              }
+            }
+          ],
+          "correctness_reference_cache_poison_enabled": true,
+          "kernel_execution_device_id": 0,
+          "wg_pool_execute_s": 0.40199851989746,
+          "correctness_effective_trials": 1,
+          "compile_artifact_cache_enabled": true,
+          "correctness_reference_skipped_perturbations": {},
+          "kg_stage_current_elapsed_s": 0.00062164198607206,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "correctness_early_stopped": true,
+          "correctness_trials": "(0 / 1)",
+          "correctness_reference_skipped_perturbation_count": 0,
+          "model_mode": "eval",
+          "correctness_inputs_generated_on_gpu": true,
+          "kernel_execution_device": "cuda:0",
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_trial_s": [
+            0.028479479951784
+          ],
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "nan_count": [
+            0
+          ],
+          "compile_artifact_cache_hit": true,
+          "correctness_output_mismatch": true,
+          "kg_kernel_backend_session_open_s": 7.0000533014536e-06,
+          "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, element_correctness=0.00%, element_correctness_curve={1x:0.00%,2x:0.00%,4x:0.00%,8x:0.00%,16x:0.00%}, atol=0.001, rtol=0.001",
+          "tm_enter_monotonic_ns": 1512282355347300.0,
+          "split_compile_and_execute": true,
+          "hardware": "NVIDIA H100 PCIe",
+          "kernel_task_id": "fusion-http-509f6918d01f43bcba2abc9b7d0b1239_kernel_ca90dbca1039405e9d90768947dbf1b9",
+          "kg_kernel_build_reference_model_s": 0.00063905492424965,
+          "grad_mode": "no_grad",
+          "kg_kernel_incorrect_backend_usage_probe_s": 0.00062164198607206,
+          "wg_pool_restart_s": 0.13988995552063,
+          "build_backend": "tvm_ffi.cpp.build",
+          "correctness_reference_alias_clone_trial_s": [
+            0
+          ],
+          "device": "cuda:0",
+          "wg_pool_total_s": 0.54323768615723,
+          "wg_pool_return_s": 0,
+          "wg_pool_retry_count": 0,
+          "kg_kernel_load_original_src_s": 0.0013175311032683,
+          "wg_pool_idle_wait_s": 0.00020265579223633,
+          "correctness_candidate_forward_completed": true,
+          "num_perf_trials": 1,
+          "kernel_execution_epoch_ns": 1.7897114227426e+18,
+          "kernel_execution_hostname": "ai-11-229",
+          "kernel_execution_pid": 3498542,
+          "kg_stage_current_prefix": "kg_kernel",
+          "max_difference": [
+            "1.000000"
+          ],
+          "num_correct_trials": 1,
+          "kg_kernel_build_custom_model_s": 0.064038241980597,
+          "backend": "tvm_ffi",
+          "avg_difference": [
+            "1.000000"
+          ],
+          "gpu_name": "NVIDIA H100 PCIe",
+          "kg_kernel_total_s": 0.21487022796646,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_diagnosis": {
+            "text": "Element correctness remains 0.00% through 16x tolerance; this is unlikely to be a small precision error, so inspect indexing, permutation, masking, or core logic.",
+            "confidence": 0.8,
+            "evidence": [
+              "tolerance curve is flat from 1x through 16x"
+            ],
+            "category": "large_magnitude_or_indexing_error"
+          },
+          "kg_stage_current_started_at_unix_s": 1789711422.7395,
+          "correctness_reference_alias_clone_trials": {},
+          "kg_kernel_correctness_s": 0.039870216976851,
+          "kg_kernel_backend_compile_s": 0,
+          "correctness_input_transfer_trial_s": [
+            0.00010024383664131
+          ],
+          "correctness_custom_trial_s": [
+            0.00044728186912835
+          ],
+          "kg_stage_total_started_at_unix_s": 1789711422.5255,
+          "correctness_reference_trial_s": [
+            0.014314143918455
+          ],
+          "kg_stage_current_started_monotonic_ns": 1512282201051200.0,
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "correctness_atol": 0.001,
+          "inf_count": [
+            0
+          ],
+          "compile_artifact": {
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle",
+            "build_backend": "tvm_ffi.cpp.build",
+            "precheck": {
+              "error_message": "",
+              "cuda_source_count": 2,
+              "exported_functions": [
+                "add"
+              ],
+              "static_check": {
+                "warnings": {},
+                "precision": "fp32",
+                "passed": true,
+                "errors": {}
+              },
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "error_code": null,
+              "binding_mode": "tvm_ffi",
+              "detected_extension_calls": [
+                "add"
+              ],
+              "passed": true,
+              "header_files": {},
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "device": "cuda:0",
+            "compile_cache_hit": true,
+            "artifact_hostname": "ai-11-229",
+            "artifact_node_id": "v1",
+            "compile_artifact_cache_enabled": true,
+            "compile_artifact_cache_hit": true,
+            "compiled": true,
+            "entry_point": "ModelNew",
+            "profiling_hints": {
+              "detected_extension_calls": [
+                "add"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ],
+              "exported_functions": [
+                "add"
+              ],
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "add_kernel"
+              ]
+            },
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/7172251e984e9c2c6932edef538733e2034d57c8694c97daad80a0ee67be1273",
+            "backend": "tvm_ffi",
+            "module_name": "kernelgym_tvm_ffi_7172251e984e9c2c"
+          },
+          "element_correctness_curve": [
+            {
+              "4x": "0.00%",
+              "16x": "0.00%",
+              "2x": "0.00%",
+              "8x": "0.00%",
+              "1x": "0.00%"
+            }
+          ],
+          "correctness_rtol": 0.001,
+          "correctness_tf32_enabled": true,
+          "kg_kernel_prepare_init_inputs_s": 0.0011951620690525,
+          "correctness_forward_seed_reset_enabled": true,
+          "kg_stage_completed_s": {
+            "kernel.build_reference_model": 0.00063905492424965,
+            "kernel.load_original_src": 0.0013175311032683,
+            "kernel.compile_and_load": 0.039876392809674,
+            "kernel.prepare_init_inputs": 0.0011951620690525,
+            "kernel.build_custom_model": 0.064038241980597,
+            "kernel.incorrect_backend_usage_probe": 0.00062164198607206,
+            "kernel.correctness": 0.039870216976851
+          },
+          "correctness_early_stop_enabled": true,
+          "precision": "fp32",
+          "device_info": {
+            "warp_size": 32,
+            "shared_memory": {
+              "per_block_optin": "227 KiB",
+              "per_block_default": "48 KiB",
+              "per_sm": "228 KiB"
+            },
+            "compute_capability": "9.0",
+            "thread_limits": {
+              "max_warps_per_sm": 64,
+              "max_threads_per_block": 1024,
+              "max_grid_dimensions": [
+                2147483647,
+                65535,
+                65535
+              ],
+              "max_blocks_per_sm": 32,
+              "max_block_dimensions": [
+                1024,
+                1024,
+                64
+              ],
+              "max_threads_per_sm": 2048
+            },
+            "sm_count": 114,
+            "device_memory": "79.18 GiB",
+            "theoretical_memory_bandwidth": "2.039 TB/s",
+            "cuda_arch": "sm_90",
+            "register_limits": {
+              "per_sm": 65536,
+              "per_block": 65536
+            },
+            "l2_cache": "50 MiB",
+            "software": {
+              "nvcc_version": "12.9",
+              "driver_version": "590.48.01",
+              "cuda_version": "12.9"
+            },
+            "gpu_name": "NVIDIA H100 PCIe"
+          },
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe"
+        },
+        "error_message": "Kernel produced incorrect results: Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, element_correctness=0.00%, element_correctness_curve={1x:0.00%,2x:0.00%,4x:0.00%,8x:0.00%,16x:0.00%}, atol=0.001, rtol=0.001. Diagnosis: Element correctness remains 0.00% through 16x tolerance; this is unlikely to be a small precision error, so inspect indexing, permutation, masking, or core logic.",
+        "error_code": "CORRECTNESS_ERROR",
+        "submitted_at": null,
+        "completed_at": "2026-09-18T06:03:43.279974",
+        "processing_time": null
+      }
+    },
+    {
+      "block": 1,
+      "detail": false,
+      "wall_s": 1.7162098491098732,
+      "response": {
+        "task_id": "fusion-http-48010f8a4f524d13a3e39e888b152083",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "memory": null,
+        "metadata": {
+          "correctness_current_substage": "compare",
+          "correctness_failed_input_perturbation": "original",
+          "correctness_input_generation_trial_s": [
+            0.0034299690742046
+          ],
+          "fp32_math_mode": "tf32",
+          "kg_stage_total_started_monotonic_ns": 1512283690541100.0,
+          "correctness_requested_trials": 1,
+          "correctness_compare_trial_s": [
+            0.042150628985837
+          ],
+          "precompiled_artifact_used": true,
+          "correctness_trials_run": 1,
+          "correctness_failed_trial": 0,
+          "aten_detection_enabled": false,
+          "correctness_current_trial": 0,
+          "wg_run_toolkit_s": 0.60742211341858,
+          "kg_kernel_backend_load_s": 0.040885150199756,
+          "correctness_issue_name": "numerical_mismatch",
+          "correctness_input_perturbations_enabled": false,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "incorrect_backend_usage_probe": {
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED",
+            "backend": "tvm_ffi",
+            "attempted": false
+          },
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "correctness_candidate_forward_completed_trials": [
+            0
+          ],
+          "kg_kernel_compile_and_load_s": 0.041256489930674,
+          "kg_stage_is_active": false,
+          "tm_enter_monotonic_ns": 1512284116120600.0,
+          "correctness_reference_cache_poison_enabled": true,
+          "kernel_execution_device_id": 0,
+          "wg_pool_execute_s": 0.44908332824707,
+          "correctness_effective_trials": 1,
+          "compile_artifact_cache_enabled": true,
+          "correctness_reference_skipped_perturbations": {},
+          "kg_stage_current_elapsed_s": 0.00064652599394321,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "correctness_early_stopped": true,
+          "correctness_trials": "(0 / 1)",
+          "correctness_reference_skipped_perturbation_count": 0,
+          "model_mode": "eval",
+          "correctness_inputs_generated_on_gpu": true,
+          "kernel_execution_device": "cuda:0",
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_trial_s": [
+            0.064584909006953
+          ],
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "compile_artifact_cache_hit": true,
+          "correctness_output_mismatch": true,
+          "kg_kernel_backend_session_open_s": 7.1220565587282e-06,
+          "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, atol=0.001, rtol=0.001",
+          "hardware": "NVIDIA H100 PCIe",
+          "kernel_task_id": "fusion-http-48010f8a4f524d13a3e39e888b152083_kernel_3eb30b5fe02843d1af668bb449bc32cd",
+          "kg_kernel_build_reference_model_s": 0.00062170787714422,
+          "grad_mode": "no_grad",
+          "kg_kernel_incorrect_backend_usage_probe_s": 0.00064652599394321,
+          "build_backend": "tvm_ffi.cpp.build",
+          "correctness_reference_alias_clone_trial_s": [
+            0
+          ],
+          "kg_kernel_prepare_init_inputs_s": 0.001195312011987,
+          "split_compile_and_execute": true,
+          "wg_pool_retry_count": 0,
+          "kg_kernel_load_original_src_s": 0.0013250252231956,
+          "wg_pool_total_s": 0.59383344650269,
+          "correctness_candidate_forward_completed": true,
+          "num_perf_trials": 1,
+          "wg_pool_return_s": 0,
+          "wg_pool_restart_s": 0.14376497268677,
+          "wg_pool_idle_wait_s": 0.00016093254089355,
+          "kernel_execution_epoch_ns": 1.789711424495e+18,
+          "max_difference": [
+            "1.000000"
+          ],
+          "kernel_execution_hostname": "ai-11-229",
+          "kg_kernel_build_custom_model_s": 0.065559007925913,
+          "kernel_execution_pid": 3498627,
+          "avg_difference": [
+            "1.000000"
+          ],
+          "correctness_early_stop_enabled": true,
+          "num_correct_trials": 1,
+          "correctness_budget_min_pass_trials": 1,
+          "backend": "tvm_ffi",
+          "kg_stage_current_started_at_unix_s": 1789711424.4921,
+          "correctness_reference_alias_clone_trials": {},
+          "gpu_name": "NVIDIA H100 PCIe",
+          "kg_kernel_backend_compile_s": 0,
+          "kg_kernel_total_s": 0.26401913515292,
+          "kg_kernel_correctness_s": 0.075692043174058,
+          "kg_stage_total_started_at_unix_s": 1789711424.229,
+          "correctness_input_transfer_trial_s": [
+            0.00010757497511804
+          ],
+          "correctness_custom_trial_s": [
+            0.00046741310507059
+          ],
+          "correctness_reference_trial_s": [
+            0.014449004083872
+          ],
+          "correctness_atol": 0.001,
+          "kg_stage_current_started_monotonic_ns": 1512283953631500.0,
+          "compile_artifact": {
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle",
+            "build_backend": "tvm_ffi.cpp.build",
+            "precheck": {
+              "error_message": "",
+              "cuda_source_count": 2,
+              "exported_functions": [
+                "add"
+              ],
+              "static_check": {
+                "warnings": {},
+                "precision": "fp32",
+                "passed": true,
+                "errors": {}
+              },
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "error_code": null,
+              "binding_mode": "tvm_ffi",
+              "detected_extension_calls": [
+                "add"
+              ],
+              "passed": true,
+              "header_files": {},
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "device": "cuda:0",
+            "compile_cache_hit": true,
+            "artifact_hostname": "ai-11-229",
+            "artifact_node_id": "v1",
+            "compile_artifact_cache_enabled": true,
+            "compile_artifact_cache_hit": true,
+            "compiled": true,
+            "entry_point": "ModelNew",
+            "profiling_hints": {
+              "detected_extension_calls": [
+                "add"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ],
+              "exported_functions": [
+                "add"
+              ],
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "add_kernel"
+              ]
+            },
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/7172251e984e9c2c6932edef538733e2034d57c8694c97daad80a0ee67be1273",
+            "backend": "tvm_ffi",
+            "module_name": "kernelgym_tvm_ffi_7172251e984e9c2c"
+          },
+          "kg_stage_current_prefix": "kg_kernel",
+          "correctness_rtol": 0.001,
+          "device": "cuda:0",
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "correctness_tf32_enabled": true,
+          "kg_stage_completed_s": {
+            "kernel.build_reference_model": 0.00062170787714422,
+            "kernel.load_original_src": 0.0013250252231956,
+            "kernel.compile_and_load": 0.041256489930674,
+            "kernel.prepare_init_inputs": 0.001195312011987,
+            "kernel.build_custom_model": 0.065559007925913,
+            "kernel.incorrect_backend_usage_probe": 0.00064652599394321,
+            "kernel.correctness": 0.075692043174058
+          },
+          "correctness_forward_seed_reset_enabled": true,
+          "precision": "fp32",
+          "device_info": {
+            "warp_size": 32,
+            "shared_memory": {
+              "per_block_optin": "227 KiB",
+              "per_block_default": "48 KiB",
+              "per_sm": "228 KiB"
+            },
+            "compute_capability": "9.0",
+            "thread_limits": {
+              "max_warps_per_sm": 64,
+              "max_threads_per_block": 1024,
+              "max_grid_dimensions": [
+                2147483647,
+                65535,
+                65535
+              ],
+              "max_blocks_per_sm": 32,
+              "max_block_dimensions": [
+                1024,
+                1024,
+                64
+              ],
+              "max_threads_per_sm": 2048
+            },
+            "sm_count": 114,
+            "device_memory": "79.18 GiB",
+            "theoretical_memory_bandwidth": "2.039 TB/s",
+            "cuda_arch": "sm_90",
+            "register_limits": {
+              "per_sm": 65536,
+              "per_block": 65536
+            },
+            "l2_cache": "50 MiB",
+            "software": {
+              "nvcc_version": "12.9",
+              "driver_version": "590.48.01",
+              "cuda_version": "12.9"
+            },
+            "gpu_name": "NVIDIA H100 PCIe"
+          },
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe"
+        },
+        "error_message": "Kernel produced incorrect results: Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, atol=0.001, rtol=0.001",
+        "error_code": "CORRECTNESS_ERROR",
+        "submitted_at": null,
+        "completed_at": "2026-09-18T06:03:44.976493",
+        "processing_time": null
+      }
+    },
+    {
+      "block": 2,
+      "detail": false,
+      "wall_s": 1.7121920350473374,
+      "response": {
+        "task_id": "fusion-http-88da77e029fa4402885e8ad283574f31",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "memory": null,
+        "metadata": {
+          "correctness_current_substage": "compare",
+          "correctness_failed_input_perturbation": "original",
+          "correctness_input_generation_trial_s": [
+            0.0032893549650908
+          ],
+          "fp32_math_mode": "tf32",
+          "kg_stage_total_started_monotonic_ns": 1512285320191700.0,
+          "correctness_requested_trials": 1,
+          "correctness_compare_trial_s": [
+            0.039212941890582
+          ],
+          "precompiled_artifact_used": true,
+          "correctness_trials_run": 1,
+          "correctness_failed_trial": 0,
+          "aten_detection_enabled": false,
+          "correctness_current_trial": 0,
+          "wg_run_toolkit_s": 0.57947301864624,
+          "kg_kernel_backend_load_s": 0.039607900893316,
+          "correctness_issue_name": "numerical_mismatch",
+          "correctness_input_perturbations_enabled": false,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "incorrect_backend_usage_probe": {
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED",
+            "backend": "tvm_ffi",
+            "attempted": false
+          },
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "correctness_candidate_forward_completed_trials": [
+            0
+          ],
+          "kg_kernel_compile_and_load_s": 0.039972792845219,
+          "kg_stage_is_active": false,
+          "tm_enter_monotonic_ns": 1512285729449400.0,
+          "correctness_reference_cache_poison_enabled": true,
+          "kernel_execution_device_id": 0,
+          "wg_pool_execute_s": 0.42468190193176,
+          "correctness_effective_trials": 1,
+          "compile_artifact_cache_enabled": true,
+          "correctness_reference_skipped_perturbations": {},
+          "kg_stage_current_elapsed_s": 0.00060163205489516,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "correctness_early_stopped": true,
+          "correctness_trials": "(0 / 1)",
+          "correctness_reference_skipped_perturbation_count": 0,
+          "model_mode": "eval",
+          "correctness_inputs_generated_on_gpu": true,
+          "kernel_execution_device": "cuda:0",
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_trial_s": [
+            0.060126177035272
+          ],
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "compile_artifact_cache_hit": true,
+          "correctness_output_mismatch": true,
+          "kg_kernel_backend_session_open_s": 7.204944267869e-06,
+          "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, atol=0.001, rtol=0.001",
+          "hardware": "NVIDIA H100 PCIe",
+          "kernel_task_id": "fusion-http-88da77e029fa4402885e8ad283574f31_kernel_e682994cc11c4ab694288bafb735f659",
+          "kg_kernel_build_reference_model_s": 0.00063639204017818,
+          "grad_mode": "no_grad",
+          "kg_kernel_incorrect_backend_usage_probe_s": 0.00060163205489516,
+          "build_backend": "tvm_ffi.cpp.build",
+          "correctness_reference_alias_clone_trial_s": [
+            0
+          ],
+          "kg_kernel_prepare_init_inputs_s": 0.0011816390324384,
+          "split_compile_and_execute": true,
+          "wg_pool_retry_count": 0,
+          "kg_kernel_load_original_src_s": 0.0013453348074108,
+          "wg_pool_total_s": 0.57106781005859,
+          "correctness_candidate_forward_completed": true,
+          "num_perf_trials": 1,
+          "wg_pool_return_s": 0,
+          "wg_pool_restart_s": 0.14564561843872,
+          "wg_pool_idle_wait_s": 0.00011587142944336,
+          "kernel_execution_epoch_ns": 1.7897114261112e+18,
+          "max_difference": [
+            "1.000000"
+          ],
+          "kernel_execution_hostname": "ai-11-229",
+          "kg_kernel_build_custom_model_s": 0.064561601961032,
+          "kernel_execution_pid": 3498696,
+          "avg_difference": [
+            "1.000000"
+          ],
+          "correctness_early_stop_enabled": true,
+          "num_correct_trials": 1,
+          "correctness_budget_min_pass_trials": 1,
+          "backend": "tvm_ffi",
+          "kg_stage_current_started_at_unix_s": 1789711426.1083,
+          "correctness_reference_alias_clone_trials": {},
+          "gpu_name": "NVIDIA H100 PCIe",
+          "kg_kernel_backend_compile_s": 0,
+          "kg_kernel_total_s": 0.25055563892238,
+          "kg_kernel_correctness_s": 0.071789020905271,
+          "kg_stage_total_started_at_unix_s": 1789711425.8586,
+          "correctness_input_transfer_trial_s": [
+            8.1216217949986e-05
+          ],
+          "correctness_custom_trial_s": [
+            0.00041951192542911
+          ],
+          "correctness_reference_trial_s": [
+            0.013406159123406
+          ],
+          "correctness_atol": 0.001,
+          "kg_stage_current_started_monotonic_ns": 1512285569871700.0,
+          "compile_artifact": {
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle",
+            "build_backend": "tvm_ffi.cpp.build",
+            "precheck": {
+              "error_message": "",
+              "cuda_source_count": 2,
+              "exported_functions": [
+                "add"
+              ],
+              "static_check": {
+                "warnings": {},
+                "precision": "fp32",
+                "passed": true,
+                "errors": {}
+              },
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "error_code": null,
+              "binding_mode": "tvm_ffi",
+              "detected_extension_calls": [
+                "add"
+              ],
+              "passed": true,
+              "header_files": {},
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "device": "cuda:0",
+            "compile_cache_hit": true,
+            "artifact_hostname": "ai-11-229",
+            "artifact_node_id": "v1",
+            "compile_artifact_cache_enabled": true,
+            "compile_artifact_cache_hit": true,
+            "compiled": true,
+            "entry_point": "ModelNew",
+            "profiling_hints": {
+              "detected_extension_calls": [
+                "add"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ],
+              "exported_functions": [
+                "add"
+              ],
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "add_kernel"
+              ]
+            },
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/7172251e984e9c2c6932edef538733e2034d57c8694c97daad80a0ee67be1273",
+            "backend": "tvm_ffi",
+            "module_name": "kernelgym_tvm_ffi_7172251e984e9c2c"
+          },
+          "kg_stage_current_prefix": "kg_kernel",
+          "correctness_rtol": 0.001,
+          "device": "cuda:0",
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "correctness_tf32_enabled": true,
+          "kg_stage_completed_s": {
+            "kernel.build_reference_model": 0.00063639204017818,
+            "kernel.load_original_src": 0.0013453348074108,
+            "kernel.compile_and_load": 0.039972792845219,
+            "kernel.prepare_init_inputs": 0.0011816390324384,
+            "kernel.build_custom_model": 0.064561601961032,
+            "kernel.incorrect_backend_usage_probe": 0.00060163205489516,
+            "kernel.correctness": 0.071789020905271
+          },
+          "correctness_forward_seed_reset_enabled": true,
+          "precision": "fp32",
+          "device_info": {
+            "warp_size": 32,
+            "shared_memory": {
+              "per_block_optin": "227 KiB",
+              "per_block_default": "48 KiB",
+              "per_sm": "228 KiB"
+            },
+            "compute_capability": "9.0",
+            "thread_limits": {
+              "max_warps_per_sm": 64,
+              "max_threads_per_block": 1024,
+              "max_grid_dimensions": [
+                2147483647,
+                65535,
+                65535
+              ],
+              "max_blocks_per_sm": 32,
+              "max_block_dimensions": [
+                1024,
+                1024,
+                64
+              ],
+              "max_threads_per_sm": 2048
+            },
+            "sm_count": 114,
+            "device_memory": "79.18 GiB",
+            "theoretical_memory_bandwidth": "2.039 TB/s",
+            "cuda_arch": "sm_90",
+            "register_limits": {
+              "per_sm": 65536,
+              "per_block": 65536
+            },
+            "l2_cache": "50 MiB",
+            "software": {
+              "nvcc_version": "12.9",
+              "driver_version": "590.48.01",
+              "cuda_version": "12.9"
+            },
+            "gpu_name": "NVIDIA H100 PCIe"
+          },
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe"
+        },
+        "error_message": "Kernel produced incorrect results: Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, atol=0.001, rtol=0.001",
+        "error_code": "CORRECTNESS_ERROR",
+        "submitted_at": null,
+        "completed_at": "2026-09-18T06:03:46.694187",
+        "processing_time": null
+      }
+    },
+    {
+      "block": 2,
+      "detail": true,
+      "wall_s": 1.7225835539866239,
+      "response": {
+        "task_id": "fusion-http-f5fe61e8c3c3486eb68f1c8b95ca8b2f",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "memory": null,
+        "metadata": {
+          "correctness_current_substage": "compare",
+          "correctness_failed_input_perturbation": "original",
+          "correctness_input_generation_trial_s": [
+            0.0032439418137074
+          ],
+          "fp32_math_mode": "tf32",
+          "kg_stage_total_started_monotonic_ns": 1512287043286100.0,
+          "correctness_requested_trials": 1,
+          "correctness_compare_trial_s": [
+            0.0060391819570214
+          ],
+          "precompiled_artifact_used": true,
+          "correctness_trials_run": 1,
+          "correctness_failed_trial": 0,
+          "aten_detection_enabled": false,
+          "correctness_current_trial": 0,
+          "wg_run_toolkit_s": 0.52715182304382,
+          "kg_kernel_backend_load_s": 0.03896835912019,
+          "correctness_issue_name": "numerical_mismatch",
+          "correctness_input_perturbations_enabled": false,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "incorrect_backend_usage_probe": {
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED",
+            "backend": "tvm_ffi",
+            "attempted": false
+          },
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "correctness_candidate_forward_completed_trials": [
+            0
+          ],
+          "kg_kernel_compile_and_load_s": 0.039330465951934,
+          "kg_stage_is_active": false,
+          "mismatch_localization": [
+            {
+              "output_space": {
+                "batch_total": 4,
+                "row_correctness": 0,
+                "tile_correctness": 0,
+                "tile_correct": 0,
+                "batch_correctness": 0,
+                "tile_shape": [
+                  32,
+                  32
+                ],
+                "tile_total": 1024,
+                "batch_correct": 0,
+                "tensors": [
+                  {
+                    "batch": {
+                      "total": 4,
+                      "mismatches": [
+                        {
+                          "batch": 0
+                        },
+                        {
+                          "batch": 1
+                        },
+                        {
+                          "batch": 2
+                        },
+                        {
+                          "batch": 3
+                        }
+                      ],
+                      "mismatch_count": 4,
+                      "correctness": 0,
+                      "correct": 0,
+                      "mismatches_truncated": false
+                    },
+                    "tile": {
+                      "total": 1024,
+                      "mismatches": [
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            0,
+                            32
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            32,
+                            64
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            64,
+                            96
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            96,
+                            128
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            128,
+                            160
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            160,
+                            192
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            192,
+                            224
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            224,
+                            256
+                          ]
+                        }
+                      ],
+                      "mismatch_count": 1024,
+                      "correctness": 0,
+                      "correct": 0,
+                      "mismatches_truncated": true
+                    },
+                    "row": {
+                      "total": 2048,
+                      "mismatches": [
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 0
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 1
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 2
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 3
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 4
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 5
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 6
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 7
+                        }
+                      ],
+                      "mismatch_count": 2048,
+                      "correctness": 0,
+                      "correct": 0,
+                      "mismatches_truncated": true
+                    },
+                    "mismatch_bounds": {
+                      "M": [
+                        0,
+                        511
+                      ],
+                      "N": [
+                        0,
+                        511
+                      ],
+                      "B": [
+                        0,
+                        3
+                      ]
+                    },
+                    "shape": [
+                      4,
+                      512,
+                      512
+                    ],
+                    "output_path": "output"
+                  }
+                ],
+                "row_total": 2048,
+                "row_correct": 0
+              },
+              "element": {
+                "first": {
+                  "coordinate": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "output_path": "output"
+                },
+                "last": {
+                  "coordinate": [
+                    3,
+                    511,
+                    511
+                  ],
+                  "output_path": "output"
+                },
+                "top_3": [
+                  {
+                    "coordinate": [
+                      2,
+                      493,
+                      31
+                    ],
+                    "output_path": "output"
+                  },
+                  {
+                    "coordinate": [
+                      3,
+                      264,
+                      253
+                    ],
+                    "output_path": "output"
+                  },
+                  {
+                    "coordinate": [
+                      2,
+                      21,
+                      372
+                    ],
+                    "output_path": "output"
+                  }
+                ]
+              }
+            }
+          ],
+          "correctness_reference_cache_poison_enabled": true,
+          "kernel_execution_device_id": 0,
+          "wg_pool_execute_s": 0.3759937286377,
+          "correctness_effective_trials": 1,
+          "compile_artifact_cache_enabled": true,
+          "correctness_reference_skipped_perturbations": {},
+          "kg_stage_current_elapsed_s": 0.00060642696917057,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "correctness_early_stopped": true,
+          "correctness_trials": "(0 / 1)",
+          "correctness_reference_skipped_perturbation_count": 0,
+          "model_mode": "eval",
+          "correctness_inputs_generated_on_gpu": true,
+          "kernel_execution_device": "cuda:0",
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_trial_s": [
+            0.02728234208189
+          ],
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "nan_count": [
+            0
+          ],
+          "compile_artifact_cache_hit": true,
+          "correctness_output_mismatch": true,
+          "kg_kernel_backend_session_open_s": 6.1509199440479e-06,
+          "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, element_correctness=0.00%, element_correctness_curve={1x:0.00%,2x:0.00%,4x:0.00%,8x:0.00%,16x:0.00%}, atol=0.001, rtol=0.001",
+          "tm_enter_monotonic_ns": 1512287402456400.0,
+          "split_compile_and_execute": true,
+          "hardware": "NVIDIA H100 PCIe",
+          "kernel_task_id": "fusion-http-f5fe61e8c3c3486eb68f1c8b95ca8b2f_kernel_fcf1039b1ef84c678d9b39034fc8bff9",
+          "kg_kernel_build_reference_model_s": 0.00061696907505393,
+          "grad_mode": "no_grad",
+          "kg_kernel_incorrect_backend_usage_probe_s": 0.00060642696917057,
+          "wg_pool_restart_s": 0.14333009719849,
+          "build_backend": "tvm_ffi.cpp.build",
+          "correctness_reference_alias_clone_trial_s": [
+            0
+          ],
+          "device": "cuda:0",
+          "wg_pool_total_s": 0.52050232887268,
+          "wg_pool_return_s": 0,
+          "wg_pool_retry_count": 0,
+          "kg_kernel_load_original_src_s": 0.0012010941281915,
+          "wg_pool_idle_wait_s": 0.00016164779663086,
+          "correctness_candidate_forward_completed": true,
+          "num_perf_trials": 1,
+          "kernel_execution_epoch_ns": 1.789711427788e+18,
+          "kernel_execution_hostname": "ai-11-229",
+          "kernel_execution_pid": 3498789,
+          "kg_stage_current_prefix": "kg_kernel",
+          "max_difference": [
+            "1.000000"
+          ],
+          "num_correct_trials": 1,
+          "kg_kernel_build_custom_model_s": 0.060326847946271,
+          "backend": "tvm_ffi",
+          "avg_difference": [
+            "1.000000"
+          ],
+          "gpu_name": "NVIDIA H100 PCIe",
+          "kg_kernel_total_s": 0.20406142598949,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_diagnosis": {
+            "text": "Element correctness remains 0.00% through 16x tolerance; this is unlikely to be a small precision error, so inspect indexing, permutation, masking, or core logic.",
+            "confidence": 0.8,
+            "evidence": [
+              "tolerance curve is flat from 1x through 16x"
+            ],
+            "category": "large_magnitude_or_indexing_error"
+          },
+          "kg_stage_current_started_at_unix_s": 1789711427.7849,
+          "correctness_reference_alias_clone_trials": {},
+          "kg_kernel_correctness_s": 0.038717402843758,
+          "kg_kernel_backend_compile_s": 0,
+          "correctness_input_transfer_trial_s": [
+            8.4568047896028e-05
+          ],
+          "correctness_custom_trial_s": [
+            0.00045336503535509
+          ],
+          "kg_stage_total_started_at_unix_s": 1789711427.5817,
+          "correctness_reference_trial_s": [
+            0.013673383975402
+          ],
+          "kg_stage_current_started_monotonic_ns": 1512287246458400.0,
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "correctness_atol": 0.001,
+          "inf_count": [
+            0
+          ],
+          "compile_artifact": {
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle",
+            "build_backend": "tvm_ffi.cpp.build",
+            "precheck": {
+              "error_message": "",
+              "cuda_source_count": 2,
+              "exported_functions": [
+                "add"
+              ],
+              "static_check": {
+                "warnings": {},
+                "precision": "fp32",
+                "passed": true,
+                "errors": {}
+              },
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "error_code": null,
+              "binding_mode": "tvm_ffi",
+              "detected_extension_calls": [
+                "add"
+              ],
+              "passed": true,
+              "header_files": {},
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "device": "cuda:0",
+            "compile_cache_hit": true,
+            "artifact_hostname": "ai-11-229",
+            "artifact_node_id": "v1",
+            "compile_artifact_cache_enabled": true,
+            "compile_artifact_cache_hit": true,
+            "compiled": true,
+            "entry_point": "ModelNew",
+            "profiling_hints": {
+              "detected_extension_calls": [
+                "add"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ],
+              "exported_functions": [
+                "add"
+              ],
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "add_kernel"
+              ]
+            },
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/7172251e984e9c2c6932edef538733e2034d57c8694c97daad80a0ee67be1273",
+            "backend": "tvm_ffi",
+            "module_name": "kernelgym_tvm_ffi_7172251e984e9c2c"
+          },
+          "element_correctness_curve": [
+            {
+              "4x": "0.00%",
+              "16x": "0.00%",
+              "2x": "0.00%",
+              "8x": "0.00%",
+              "1x": "0.00%"
+            }
+          ],
+          "correctness_rtol": 0.001,
+          "correctness_tf32_enabled": true,
+          "kg_kernel_prepare_init_inputs_s": 0.0011515018995851,
+          "correctness_forward_seed_reset_enabled": true,
+          "kg_stage_completed_s": {
+            "kernel.build_reference_model": 0.00061696907505393,
+            "kernel.load_original_src": 0.0012010941281915,
+            "kernel.compile_and_load": 0.039330465951934,
+            "kernel.prepare_init_inputs": 0.0011515018995851,
+            "kernel.build_custom_model": 0.060326847946271,
+            "kernel.incorrect_backend_usage_probe": 0.00060642696917057,
+            "kernel.correctness": 0.038717402843758
+          },
+          "correctness_early_stop_enabled": true,
+          "precision": "fp32",
+          "device_info": {
+            "warp_size": 32,
+            "shared_memory": {
+              "per_block_optin": "227 KiB",
+              "per_block_default": "48 KiB",
+              "per_sm": "228 KiB"
+            },
+            "compute_capability": "9.0",
+            "thread_limits": {
+              "max_warps_per_sm": 64,
+              "max_threads_per_block": 1024,
+              "max_grid_dimensions": [
+                2147483647,
+                65535,
+                65535
+              ],
+              "max_blocks_per_sm": 32,
+              "max_block_dimensions": [
+                1024,
+                1024,
+                64
+              ],
+              "max_threads_per_sm": 2048
+            },
+            "sm_count": 114,
+            "device_memory": "79.18 GiB",
+            "theoretical_memory_bandwidth": "2.039 TB/s",
+            "cuda_arch": "sm_90",
+            "register_limits": {
+              "per_sm": 65536,
+              "per_block": 65536
+            },
+            "l2_cache": "50 MiB",
+            "software": {
+              "nvcc_version": "12.9",
+              "driver_version": "590.48.01",
+              "cuda_version": "12.9"
+            },
+            "gpu_name": "NVIDIA H100 PCIe"
+          },
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe"
+        },
+        "error_message": "Kernel produced incorrect results: Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, element_correctness=0.00%, element_correctness_curve={1x:0.00%,2x:0.00%,4x:0.00%,8x:0.00%,16x:0.00%}, atol=0.001, rtol=0.001. Diagnosis: Element correctness remains 0.00% through 16x tolerance; this is unlikely to be a small precision error, so inspect indexing, permutation, masking, or core logic.",
+        "error_code": "CORRECTNESS_ERROR",
+        "submitted_at": null,
+        "completed_at": "2026-09-18T06:03:48.430568",
+        "processing_time": null
+      }
+    },
+    {
+      "block": 3,
+      "detail": true,
+      "wall_s": 1.7241352258715779,
+      "response": {
+        "task_id": "fusion-http-e9a31f6ee378443e91ff05e92dbf6592",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "memory": null,
+        "metadata": {
+          "correctness_current_substage": "compare",
+          "correctness_failed_input_perturbation": "original",
+          "correctness_input_generation_trial_s": [
+            0.0033825619611889
+          ],
+          "fp32_math_mode": "tf32",
+          "kg_stage_total_started_monotonic_ns": 1512288816044400.0,
+          "correctness_requested_trials": 1,
+          "correctness_compare_trial_s": [
+            0.0062675671651959
+          ],
+          "precompiled_artifact_used": true,
+          "correctness_trials_run": 1,
+          "correctness_failed_trial": 0,
+          "aten_detection_enabled": false,
+          "correctness_current_trial": 0,
+          "wg_run_toolkit_s": 0.52865672111511,
+          "kg_kernel_backend_load_s": 0.040006899042055,
+          "correctness_issue_name": "numerical_mismatch",
+          "correctness_input_perturbations_enabled": false,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "incorrect_backend_usage_probe": {
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED",
+            "backend": "tvm_ffi",
+            "attempted": false
+          },
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "correctness_candidate_forward_completed_trials": [
+            0
+          ],
+          "kg_kernel_compile_and_load_s": 0.040378313977271,
+          "kg_stage_is_active": false,
+          "mismatch_localization": [
+            {
+              "output_space": {
+                "batch_total": 4,
+                "row_correctness": 0,
+                "tile_correctness": 0,
+                "tile_correct": 0,
+                "batch_correctness": 0,
+                "tile_shape": [
+                  32,
+                  32
+                ],
+                "tile_total": 1024,
+                "batch_correct": 0,
+                "tensors": [
+                  {
+                    "batch": {
+                      "total": 4,
+                      "mismatches": [
+                        {
+                          "batch": 0
+                        },
+                        {
+                          "batch": 1
+                        },
+                        {
+                          "batch": 2
+                        },
+                        {
+                          "batch": 3
+                        }
+                      ],
+                      "mismatch_count": 4,
+                      "correctness": 0,
+                      "correct": 0,
+                      "mismatches_truncated": false
+                    },
+                    "tile": {
+                      "total": 1024,
+                      "mismatches": [
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            0,
+                            32
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            32,
+                            64
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            64,
+                            96
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            96,
+                            128
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            128,
+                            160
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            160,
+                            192
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            192,
+                            224
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            224,
+                            256
+                          ]
+                        }
+                      ],
+                      "mismatch_count": 1024,
+                      "correctness": 0,
+                      "correct": 0,
+                      "mismatches_truncated": true
+                    },
+                    "row": {
+                      "total": 2048,
+                      "mismatches": [
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 0
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 1
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 2
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 3
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 4
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 5
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 6
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 7
+                        }
+                      ],
+                      "mismatch_count": 2048,
+                      "correctness": 0,
+                      "correct": 0,
+                      "mismatches_truncated": true
+                    },
+                    "mismatch_bounds": {
+                      "M": [
+                        0,
+                        511
+                      ],
+                      "N": [
+                        0,
+                        511
+                      ],
+                      "B": [
+                        0,
+                        3
+                      ]
+                    },
+                    "shape": [
+                      4,
+                      512,
+                      512
+                    ],
+                    "output_path": "output"
+                  }
+                ],
+                "row_total": 2048,
+                "row_correct": 0
+              },
+              "element": {
+                "first": {
+                  "coordinate": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "output_path": "output"
+                },
+                "last": {
+                  "coordinate": [
+                    3,
+                    511,
+                    511
+                  ],
+                  "output_path": "output"
+                },
+                "top_3": [
+                  {
+                    "coordinate": [
+                      2,
+                      493,
+                      31
+                    ],
+                    "output_path": "output"
+                  },
+                  {
+                    "coordinate": [
+                      3,
+                      264,
+                      253
+                    ],
+                    "output_path": "output"
+                  },
+                  {
+                    "coordinate": [
+                      2,
+                      21,
+                      372
+                    ],
+                    "output_path": "output"
+                  }
+                ]
+              }
+            }
+          ],
+          "correctness_reference_cache_poison_enabled": true,
+          "kernel_execution_device_id": 0,
+          "wg_pool_execute_s": 0.38158702850342,
+          "correctness_effective_trials": 1,
+          "compile_artifact_cache_enabled": true,
+          "correctness_reference_skipped_perturbations": {},
+          "kg_stage_current_elapsed_s": 0.00065045082010329,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "correctness_early_stopped": true,
+          "correctness_trials": "(0 / 1)",
+          "correctness_reference_skipped_perturbation_count": 0,
+          "model_mode": "eval",
+          "correctness_inputs_generated_on_gpu": true,
+          "kernel_execution_device": "cuda:0",
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_trial_s": [
+            0.027593460166827
+          ],
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "nan_count": [
+            0
+          ],
+          "compile_artifact_cache_hit": true,
+          "correctness_output_mismatch": true,
+          "kg_kernel_backend_session_open_s": 7.0580281317234e-06,
+          "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, element_correctness=0.00%, element_correctness_curve={1x:0.00%,2x:0.00%,4x:0.00%,8x:0.00%,16x:0.00%}, atol=0.001, rtol=0.001",
+          "tm_enter_monotonic_ns": 1512289175032100.0,
+          "split_compile_and_execute": true,
+          "hardware": "NVIDIA H100 PCIe",
+          "kernel_task_id": "fusion-http-e9a31f6ee378443e91ff05e92dbf6592_kernel_7c273c901bdd40aa8ea2d367d7e516a3",
+          "kg_kernel_build_reference_model_s": 0.00063652102835476,
+          "grad_mode": "no_grad",
+          "kg_kernel_incorrect_backend_usage_probe_s": 0.00065045082010329,
+          "wg_pool_restart_s": 0.13377952575684,
+          "build_backend": "tvm_ffi.cpp.build",
+          "correctness_reference_alias_clone_trial_s": [
+            0
+          ],
+          "device": "cuda:0",
+          "wg_pool_total_s": 0.5163209438324,
+          "wg_pool_return_s": 0,
+          "wg_pool_retry_count": 0,
+          "kg_kernel_load_original_src_s": 0.0013006080407649,
+          "wg_pool_idle_wait_s": 0.00012779235839844,
+          "correctness_candidate_forward_completed": true,
+          "num_perf_trials": 1,
+          "kernel_execution_epoch_ns": 1.7897114295644e+18,
+          "kernel_execution_hostname": "ai-11-229",
+          "kernel_execution_pid": 3498858,
+          "kg_stage_current_prefix": "kg_kernel",
+          "max_difference": [
+            "1.000000"
+          ],
+          "num_correct_trials": 1,
+          "kg_kernel_build_custom_model_s": 0.060621537966654,
+          "backend": "tvm_ffi",
+          "avg_difference": [
+            "1.000000"
+          ],
+          "gpu_name": "NVIDIA H100 PCIe",
+          "kg_kernel_total_s": 0.20766262686811,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_diagnosis": {
+            "text": "Element correctness remains 0.00% through 16x tolerance; this is unlikely to be a small precision error, so inspect indexing, permutation, masking, or core logic.",
+            "confidence": 0.8,
+            "evidence": [
+              "tolerance curve is flat from 1x through 16x"
+            ],
+            "category": "large_magnitude_or_indexing_error"
+          },
+          "kg_stage_current_started_at_unix_s": 1789711429.5612,
+          "correctness_reference_alias_clone_trials": {},
+          "kg_kernel_correctness_s": 0.039451924851164,
+          "kg_kernel_backend_compile_s": 0,
+          "correctness_input_transfer_trial_s": [
+            0.00011249398812652
+          ],
+          "correctness_custom_trial_s": [
+            0.00045308796688914
+          ],
+          "kg_stage_total_started_at_unix_s": 1789711429.3545,
+          "correctness_reference_trial_s": [
+            0.013472760096192
+          ],
+          "kg_stage_current_started_monotonic_ns": 1512289022770300.0,
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "correctness_atol": 0.001,
+          "inf_count": [
+            0
+          ],
+          "compile_artifact": {
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle",
+            "build_backend": "tvm_ffi.cpp.build",
+            "precheck": {
+              "error_message": "",
+              "cuda_source_count": 2,
+              "exported_functions": [
+                "add"
+              ],
+              "static_check": {
+                "warnings": {},
+                "precision": "fp32",
+                "passed": true,
+                "errors": {}
+              },
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "error_code": null,
+              "binding_mode": "tvm_ffi",
+              "detected_extension_calls": [
+                "add"
+              ],
+              "passed": true,
+              "header_files": {},
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "device": "cuda:0",
+            "compile_cache_hit": true,
+            "artifact_hostname": "ai-11-229",
+            "artifact_node_id": "v1",
+            "compile_artifact_cache_enabled": true,
+            "compile_artifact_cache_hit": true,
+            "compiled": true,
+            "entry_point": "ModelNew",
+            "profiling_hints": {
+              "detected_extension_calls": [
+                "add"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ],
+              "exported_functions": [
+                "add"
+              ],
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "add_kernel"
+              ]
+            },
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/7172251e984e9c2c6932edef538733e2034d57c8694c97daad80a0ee67be1273",
+            "backend": "tvm_ffi",
+            "module_name": "kernelgym_tvm_ffi_7172251e984e9c2c"
+          },
+          "element_correctness_curve": [
+            {
+              "4x": "0.00%",
+              "16x": "0.00%",
+              "2x": "0.00%",
+              "8x": "0.00%",
+              "1x": "0.00%"
+            }
+          ],
+          "correctness_rtol": 0.001,
+          "correctness_tf32_enabled": true,
+          "kg_kernel_prepare_init_inputs_s": 0.0011767058167607,
+          "correctness_forward_seed_reset_enabled": true,
+          "kg_stage_completed_s": {
+            "kernel.build_reference_model": 0.00063652102835476,
+            "kernel.load_original_src": 0.0013006080407649,
+            "kernel.compile_and_load": 0.040378313977271,
+            "kernel.prepare_init_inputs": 0.0011767058167607,
+            "kernel.build_custom_model": 0.060621537966654,
+            "kernel.incorrect_backend_usage_probe": 0.00065045082010329,
+            "kernel.correctness": 0.039451924851164
+          },
+          "correctness_early_stop_enabled": true,
+          "precision": "fp32",
+          "device_info": {
+            "warp_size": 32,
+            "shared_memory": {
+              "per_block_optin": "227 KiB",
+              "per_block_default": "48 KiB",
+              "per_sm": "228 KiB"
+            },
+            "compute_capability": "9.0",
+            "thread_limits": {
+              "max_warps_per_sm": 64,
+              "max_threads_per_block": 1024,
+              "max_grid_dimensions": [
+                2147483647,
+                65535,
+                65535
+              ],
+              "max_blocks_per_sm": 32,
+              "max_block_dimensions": [
+                1024,
+                1024,
+                64
+              ],
+              "max_threads_per_sm": 2048
+            },
+            "sm_count": 114,
+            "device_memory": "79.18 GiB",
+            "theoretical_memory_bandwidth": "2.039 TB/s",
+            "cuda_arch": "sm_90",
+            "register_limits": {
+              "per_sm": 65536,
+              "per_block": 65536
+            },
+            "l2_cache": "50 MiB",
+            "software": {
+              "nvcc_version": "12.9",
+              "driver_version": "590.48.01",
+              "cuda_version": "12.9"
+            },
+            "gpu_name": "NVIDIA H100 PCIe"
+          },
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe"
+        },
+        "error_message": "Kernel produced incorrect results: Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, element_correctness=0.00%, element_correctness_curve={1x:0.00%,2x:0.00%,4x:0.00%,8x:0.00%,16x:0.00%}, atol=0.001, rtol=0.001. Diagnosis: Element correctness remains 0.00% through 16x tolerance; this is unlikely to be a small precision error, so inspect indexing, permutation, masking, or core logic.",
+        "error_code": "CORRECTNESS_ERROR",
+        "submitted_at": null,
+        "completed_at": "2026-09-18T06:03:50.157162",
+        "processing_time": null
+      }
+    },
+    {
+      "block": 3,
+      "detail": false,
+      "wall_s": 1.7209785250015557,
+      "response": {
+        "task_id": "fusion-http-cb613099767b4bc983d0d6d1f8532c17",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "memory": null,
+        "metadata": {
+          "correctness_current_substage": "compare",
+          "correctness_failed_input_perturbation": "original",
+          "correctness_input_generation_trial_s": [
+            0.0033875659573823
+          ],
+          "fp32_math_mode": "tf32",
+          "kg_stage_total_started_monotonic_ns": 1512290482696800.0,
+          "correctness_requested_trials": 1,
+          "correctness_compare_trial_s": [
+            0.041990406112745
+          ],
+          "precompiled_artifact_used": true,
+          "correctness_trials_run": 1,
+          "correctness_failed_trial": 0,
+          "aten_detection_enabled": false,
+          "correctness_current_trial": 0,
+          "wg_run_toolkit_s": 0.58617115020752,
+          "kg_kernel_backend_load_s": 0.039961517089978,
+          "correctness_issue_name": "numerical_mismatch",
+          "correctness_input_perturbations_enabled": false,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "incorrect_backend_usage_probe": {
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED",
+            "backend": "tvm_ffi",
+            "attempted": false
+          },
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "correctness_candidate_forward_completed_trials": [
+            0
+          ],
+          "kg_kernel_compile_and_load_s": 0.040334424003959,
+          "kg_stage_is_active": false,
+          "tm_enter_monotonic_ns": 1512290899549500.0,
+          "correctness_reference_cache_poison_enabled": true,
+          "kernel_execution_device_id": 0,
+          "wg_pool_execute_s": 0.42662310600281,
+          "correctness_effective_trials": 1,
+          "compile_artifact_cache_enabled": true,
+          "correctness_reference_skipped_perturbations": {},
+          "kg_stage_current_elapsed_s": 0.00064740399830043,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "correctness_early_stopped": true,
+          "correctness_trials": "(0 / 1)",
+          "correctness_reference_skipped_perturbation_count": 0,
+          "model_mode": "eval",
+          "correctness_inputs_generated_on_gpu": true,
+          "kernel_execution_device": "cuda:0",
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_trial_s": [
+            0.063458822900429
+          ],
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "compile_artifact_cache_hit": true,
+          "correctness_output_mismatch": true,
+          "kg_kernel_backend_session_open_s": 7.5669959187508e-06,
+          "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, atol=0.001, rtol=0.001",
+          "hardware": "NVIDIA H100 PCIe",
+          "kernel_task_id": "fusion-http-cb613099767b4bc983d0d6d1f8532c17_kernel_7ab4b0a48a2e4c0091dac8be5deb746d",
+          "kg_kernel_build_reference_model_s": 0.00062139215879142,
+          "grad_mode": "no_grad",
+          "kg_kernel_incorrect_backend_usage_probe_s": 0.00064740399830043,
+          "build_backend": "tvm_ffi.cpp.build",
+          "correctness_reference_alias_clone_trial_s": [
+            0
+          ],
+          "kg_kernel_prepare_init_inputs_s": 0.0012007169425488,
+          "split_compile_and_execute": true,
+          "wg_pool_retry_count": 0,
+          "kg_kernel_load_original_src_s": 0.001291222171858,
+          "wg_pool_total_s": 0.57824277877808,
+          "correctness_candidate_forward_completed": true,
+          "num_perf_trials": 1,
+          "wg_pool_return_s": 0,
+          "wg_pool_restart_s": 0.15047526359558,
+          "wg_pool_idle_wait_s": 0.00014829635620117,
+          "kernel_execution_epoch_ns": 1.789711431277e+18,
+          "max_difference": [
+            "1.000000"
+          ],
+          "kernel_execution_hostname": "ai-11-229",
+          "kg_kernel_build_custom_model_s": 0.060775541001931,
+          "kernel_execution_pid": 3498943,
+          "avg_difference": [
+            "1.000000"
+          ],
+          "correctness_early_stop_enabled": true,
+          "num_correct_trials": 1,
+          "correctness_budget_min_pass_trials": 1,
+          "backend": "tvm_ffi",
+          "kg_stage_current_started_at_unix_s": 1789711431.274,
+          "correctness_reference_alias_clone_trials": {},
+          "gpu_name": "NVIDIA H100 PCIe",
+          "kg_kernel_backend_compile_s": 0,
+          "kg_kernel_total_s": 0.25379279092886,
+          "kg_kernel_correctness_s": 0.075368855148554,
+          "kg_stage_total_started_at_unix_s": 1789711431.0211,
+          "correctness_input_transfer_trial_s": [
+            0.00010622106492519
+          ],
+          "correctness_custom_trial_s": [
+            0.00046277116052806
+          ],
+          "correctness_reference_trial_s": [
+            0.013626883970574
+          ],
+          "correctness_atol": 0.001,
+          "kg_stage_current_started_monotonic_ns": 1512290735555300.0,
+          "compile_artifact": {
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle",
+            "build_backend": "tvm_ffi.cpp.build",
+            "precheck": {
+              "error_message": "",
+              "cuda_source_count": 2,
+              "exported_functions": [
+                "add"
+              ],
+              "static_check": {
+                "warnings": {},
+                "precision": "fp32",
+                "passed": true,
+                "errors": {}
+              },
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "error_code": null,
+              "binding_mode": "tvm_ffi",
+              "detected_extension_calls": [
+                "add"
+              ],
+              "passed": true,
+              "header_files": {},
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "device": "cuda:0",
+            "compile_cache_hit": true,
+            "artifact_hostname": "ai-11-229",
+            "artifact_node_id": "v1",
+            "compile_artifact_cache_enabled": true,
+            "compile_artifact_cache_hit": true,
+            "compiled": true,
+            "entry_point": "ModelNew",
+            "profiling_hints": {
+              "detected_extension_calls": [
+                "add"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ],
+              "exported_functions": [
+                "add"
+              ],
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "add_kernel"
+              ]
+            },
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/7172251e984e9c2c6932edef538733e2034d57c8694c97daad80a0ee67be1273",
+            "backend": "tvm_ffi",
+            "module_name": "kernelgym_tvm_ffi_7172251e984e9c2c"
+          },
+          "kg_stage_current_prefix": "kg_kernel",
+          "correctness_rtol": 0.001,
+          "device": "cuda:0",
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "correctness_tf32_enabled": true,
+          "kg_stage_completed_s": {
+            "kernel.build_reference_model": 0.00062139215879142,
+            "kernel.load_original_src": 0.001291222171858,
+            "kernel.compile_and_load": 0.040334424003959,
+            "kernel.prepare_init_inputs": 0.0012007169425488,
+            "kernel.build_custom_model": 0.060775541001931,
+            "kernel.incorrect_backend_usage_probe": 0.00064740399830043,
+            "kernel.correctness": 0.075368855148554
+          },
+          "correctness_forward_seed_reset_enabled": true,
+          "precision": "fp32",
+          "device_info": {
+            "warp_size": 32,
+            "shared_memory": {
+              "per_block_optin": "227 KiB",
+              "per_block_default": "48 KiB",
+              "per_sm": "228 KiB"
+            },
+            "compute_capability": "9.0",
+            "thread_limits": {
+              "max_warps_per_sm": 64,
+              "max_threads_per_block": 1024,
+              "max_grid_dimensions": [
+                2147483647,
+                65535,
+                65535
+              ],
+              "max_blocks_per_sm": 32,
+              "max_block_dimensions": [
+                1024,
+                1024,
+                64
+              ],
+              "max_threads_per_sm": 2048
+            },
+            "sm_count": 114,
+            "device_memory": "79.18 GiB",
+            "theoretical_memory_bandwidth": "2.039 TB/s",
+            "cuda_arch": "sm_90",
+            "register_limits": {
+              "per_sm": 65536,
+              "per_block": 65536
+            },
+            "l2_cache": "50 MiB",
+            "software": {
+              "nvcc_version": "12.9",
+              "driver_version": "590.48.01",
+              "cuda_version": "12.9"
+            },
+            "gpu_name": "NVIDIA H100 PCIe"
+          },
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe"
+        },
+        "error_message": "Kernel produced incorrect results: Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, atol=0.001, rtol=0.001",
+        "error_code": "CORRECTNESS_ERROR",
+        "submitted_at": null,
+        "completed_at": "2026-09-18T06:03:51.876025",
+        "processing_time": null
+      }
+    },
+    {
+      "block": 4,
+      "detail": false,
+      "wall_s": 1.6987256328575313,
+      "response": {
+        "task_id": "fusion-http-a8012652177f4fad89a683e53e05b7e2",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "memory": null,
+        "metadata": {
+          "correctness_current_substage": "compare",
+          "correctness_failed_input_perturbation": "original",
+          "correctness_input_generation_trial_s": [
+            0.0033436960075051
+          ],
+          "fp32_math_mode": "tf32",
+          "kg_stage_total_started_monotonic_ns": 1512292200311700.0,
+          "correctness_requested_trials": 1,
+          "correctness_compare_trial_s": [
+            0.040078816004097
+          ],
+          "precompiled_artifact_used": true,
+          "correctness_trials_run": 1,
+          "correctness_failed_trial": 0,
+          "aten_detection_enabled": false,
+          "correctness_current_trial": 0,
+          "wg_run_toolkit_s": 0.58198046684265,
+          "kg_kernel_backend_load_s": 0.039857038063928,
+          "correctness_issue_name": "numerical_mismatch",
+          "correctness_input_perturbations_enabled": false,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "incorrect_backend_usage_probe": {
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED",
+            "backend": "tvm_ffi",
+            "attempted": false
+          },
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "correctness_candidate_forward_completed_trials": [
+            0
+          ],
+          "kg_kernel_compile_and_load_s": 0.040233489125967,
+          "kg_stage_is_active": false,
+          "tm_enter_monotonic_ns": 1512292621336400.0,
+          "correctness_reference_cache_poison_enabled": true,
+          "kernel_execution_device_id": 0,
+          "wg_pool_execute_s": 0.41735982894897,
+          "correctness_effective_trials": 1,
+          "compile_artifact_cache_enabled": true,
+          "correctness_reference_skipped_perturbations": {},
+          "kg_stage_current_elapsed_s": 0.00063831685110927,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "correctness_early_stopped": true,
+          "correctness_trials": "(0 / 1)",
+          "correctness_reference_skipped_perturbation_count": 0,
+          "model_mode": "eval",
+          "correctness_inputs_generated_on_gpu": true,
+          "kernel_execution_device": "cuda:0",
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_trial_s": [
+            0.06123672099784
+          ],
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "compile_artifact_cache_hit": true,
+          "correctness_output_mismatch": true,
+          "kg_kernel_backend_session_open_s": 7.5788702815771e-06,
+          "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, atol=0.001, rtol=0.001",
+          "hardware": "NVIDIA H100 PCIe",
+          "kernel_task_id": "fusion-http-a8012652177f4fad89a683e53e05b7e2_kernel_3932739a7c3e48428028f30991db35f2",
+          "kg_kernel_build_reference_model_s": 0.00061841402202845,
+          "grad_mode": "no_grad",
+          "kg_kernel_incorrect_backend_usage_probe_s": 0.00063831685110927,
+          "build_backend": "tvm_ffi.cpp.build",
+          "correctness_reference_alias_clone_trial_s": [
+            0
+          ],
+          "kg_kernel_prepare_init_inputs_s": 0.0011483558919281,
+          "split_compile_and_execute": true,
+          "wg_pool_retry_count": 0,
+          "kg_kernel_load_original_src_s": 0.0013030129484832,
+          "wg_pool_total_s": 0.57038807868958,
+          "correctness_candidate_forward_completed": true,
+          "num_perf_trials": 1,
+          "wg_pool_return_s": 0,
+          "wg_pool_restart_s": 0.15238666534424,
+          "wg_pool_idle_wait_s": 0.00011968612670898,
+          "kernel_execution_epoch_ns": 1.7897114329933e+18,
+          "max_difference": [
+            "1.000000"
+          ],
+          "kernel_execution_hostname": "ai-11-229",
+          "kg_kernel_build_custom_model_s": 0.062586397863925,
+          "kernel_execution_pid": 3499020,
+          "avg_difference": [
+            "1.000000"
+          ],
+          "correctness_early_stop_enabled": true,
+          "num_correct_trials": 1,
+          "correctness_budget_min_pass_trials": 1,
+          "backend": "tvm_ffi",
+          "kg_stage_current_started_at_unix_s": 1789711432.9903,
+          "correctness_reference_alias_clone_trials": {},
+          "gpu_name": "NVIDIA H100 PCIe",
+          "kg_kernel_backend_compile_s": 0,
+          "kg_kernel_total_s": 0.25252830889076,
+          "kg_kernel_correctness_s": 0.072788476012647,
+          "kg_stage_total_started_at_unix_s": 1789711432.7387,
+          "correctness_input_transfer_trial_s": [
+            8.5544073954225e-05
+          ],
+          "correctness_custom_trial_s": [
+            0.00047632702626288
+          ],
+          "correctness_reference_trial_s": [
+            0.01346629508771
+          ],
+          "correctness_atol": 0.001,
+          "kg_stage_current_started_monotonic_ns": 1512292451913800.0,
+          "compile_artifact": {
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "idle",
+            "build_backend": "tvm_ffi.cpp.build",
+            "precheck": {
+              "error_message": "",
+              "cuda_source_count": 2,
+              "exported_functions": [
+                "add"
+              ],
+              "static_check": {
+                "warnings": {},
+                "precision": "fp32",
+                "passed": true,
+                "errors": {}
+              },
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "error_code": null,
+              "binding_mode": "tvm_ffi",
+              "detected_extension_calls": [
+                "add"
+              ],
+              "passed": true,
+              "header_files": {},
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "device": "cuda:0",
+            "compile_cache_hit": true,
+            "artifact_hostname": "ai-11-229",
+            "artifact_node_id": "v1",
+            "compile_artifact_cache_enabled": true,
+            "compile_artifact_cache_hit": true,
+            "compiled": true,
+            "entry_point": "ModelNew",
+            "profiling_hints": {
+              "detected_extension_calls": [
+                "add"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ],
+              "exported_functions": [
+                "add"
+              ],
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "add_kernel"
+              ]
+            },
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/7172251e984e9c2c6932edef538733e2034d57c8694c97daad80a0ee67be1273",
+            "backend": "tvm_ffi",
+            "module_name": "kernelgym_tvm_ffi_7172251e984e9c2c"
+          },
+          "kg_stage_current_prefix": "kg_kernel",
+          "correctness_rtol": 0.001,
+          "device": "cuda:0",
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "correctness_tf32_enabled": true,
+          "kg_stage_completed_s": {
+            "kernel.build_reference_model": 0.00061841402202845,
+            "kernel.load_original_src": 0.0013030129484832,
+            "kernel.compile_and_load": 0.040233489125967,
+            "kernel.prepare_init_inputs": 0.0011483558919281,
+            "kernel.build_custom_model": 0.062586397863925,
+            "kernel.incorrect_backend_usage_probe": 0.00063831685110927,
+            "kernel.correctness": 0.072788476012647
+          },
+          "correctness_forward_seed_reset_enabled": true,
+          "precision": "fp32",
+          "device_info": {
+            "warp_size": 32,
+            "shared_memory": {
+              "per_block_optin": "227 KiB",
+              "per_block_default": "48 KiB",
+              "per_sm": "228 KiB"
+            },
+            "compute_capability": "9.0",
+            "thread_limits": {
+              "max_warps_per_sm": 64,
+              "max_threads_per_block": 1024,
+              "max_grid_dimensions": [
+                2147483647,
+                65535,
+                65535
+              ],
+              "max_blocks_per_sm": 32,
+              "max_block_dimensions": [
+                1024,
+                1024,
+                64
+              ],
+              "max_threads_per_sm": 2048
+            },
+            "sm_count": 114,
+            "device_memory": "79.18 GiB",
+            "theoretical_memory_bandwidth": "2.039 TB/s",
+            "cuda_arch": "sm_90",
+            "register_limits": {
+              "per_sm": 65536,
+              "per_block": 65536
+            },
+            "l2_cache": "50 MiB",
+            "software": {
+              "nvcc_version": "12.9",
+              "driver_version": "590.48.01",
+              "cuda_version": "12.9"
+            },
+            "gpu_name": "NVIDIA H100 PCIe"
+          },
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe"
+        },
+        "error_message": "Kernel produced incorrect results: Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, atol=0.001, rtol=0.001",
+        "error_code": "CORRECTNESS_ERROR",
+        "submitted_at": null,
+        "completed_at": "2026-09-18T06:03:53.584768",
+        "processing_time": null
+      }
+    },
+    {
+      "block": 4,
+      "detail": true,
+      "wall_s": 1.722599791130051,
+      "response": {
+        "task_id": "fusion-http-10b5eba46ce740298ddf2f39e8f16577",
+        "status": "completed",
+        "compiled": true,
+        "correctness": false,
+        "decoy_kernel": false,
+        "reference_runtime": -1.0,
+        "kernel_runtime": -1.0,
+        "speedup": 0.0,
+        "memory": null,
+        "metadata": {
+          "correctness_current_substage": "compare",
+          "correctness_failed_input_perturbation": "original",
+          "correctness_input_generation_trial_s": [
+            0.0034355409443378
+          ],
+          "fp32_math_mode": "tf32",
+          "kg_stage_total_started_monotonic_ns": 1512293945880000.0,
+          "correctness_requested_trials": 1,
+          "correctness_compare_trial_s": [
+            0.0063847280107439
+          ],
+          "precompiled_artifact_used": true,
+          "correctness_trials_run": 1,
+          "correctness_failed_trial": 0,
+          "aten_detection_enabled": false,
+          "correctness_current_trial": 0,
+          "wg_run_toolkit_s": 0.59582996368408,
+          "kg_kernel_backend_load_s": 0.04101377306506,
+          "correctness_issue_name": "numerical_mismatch",
+          "correctness_input_perturbations_enabled": false,
+          "correctness_inplace_compare_enabled": true,
+          "correctness_tf32_state_before": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "none"
+          },
+          "incorrect_backend_usage_probe": {
+            "num_forwards": 0,
+            "skip_reason": "DECOY_DETECTION_DISABLED",
+            "backend": "tvm_ffi",
+            "attempted": false
+          },
+          "execution_policy": "eval_no_grad_tf32_decoy_v3",
+          "correctness_candidate_forward_completed_trials": [
+            0
+          ],
+          "kg_kernel_compile_and_load_s": 0.041401597904041,
+          "kg_stage_is_active": false,
+          "mismatch_localization": [
+            {
+              "output_space": {
+                "batch_total": 4,
+                "row_correctness": 0,
+                "tile_correctness": 0,
+                "tile_correct": 0,
+                "batch_correctness": 0,
+                "tile_shape": [
+                  32,
+                  32
+                ],
+                "tile_total": 1024,
+                "batch_correct": 0,
+                "tensors": [
+                  {
+                    "batch": {
+                      "total": 4,
+                      "mismatches": [
+                        {
+                          "batch": 0
+                        },
+                        {
+                          "batch": 1
+                        },
+                        {
+                          "batch": 2
+                        },
+                        {
+                          "batch": 3
+                        }
+                      ],
+                      "mismatch_count": 4,
+                      "correctness": 0,
+                      "correct": 0,
+                      "mismatches_truncated": false
+                    },
+                    "tile": {
+                      "total": 1024,
+                      "mismatches": [
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            0,
+                            32
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            32,
+                            64
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            64,
+                            96
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            96,
+                            128
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            128,
+                            160
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            160,
+                            192
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            192,
+                            224
+                          ]
+                        },
+                        {
+                          "M": [
+                            0,
+                            32
+                          ],
+                          "batch_index": [
+                            0
+                          ],
+                          "N": [
+                            224,
+                            256
+                          ]
+                        }
+                      ],
+                      "mismatch_count": 1024,
+                      "correctness": 0,
+                      "correct": 0,
+                      "mismatches_truncated": true
+                    },
+                    "row": {
+                      "total": 2048,
+                      "mismatches": [
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 0
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 1
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 2
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 3
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 4
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 5
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 6
+                        },
+                        {
+                          "batch_index": [
+                            0
+                          ],
+                          "row": 7
+                        }
+                      ],
+                      "mismatch_count": 2048,
+                      "correctness": 0,
+                      "correct": 0,
+                      "mismatches_truncated": true
+                    },
+                    "mismatch_bounds": {
+                      "M": [
+                        0,
+                        511
+                      ],
+                      "N": [
+                        0,
+                        511
+                      ],
+                      "B": [
+                        0,
+                        3
+                      ]
+                    },
+                    "shape": [
+                      4,
+                      512,
+                      512
+                    ],
+                    "output_path": "output"
+                  }
+                ],
+                "row_total": 2048,
+                "row_correct": 0
+              },
+              "element": {
+                "first": {
+                  "coordinate": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "output_path": "output"
+                },
+                "last": {
+                  "coordinate": [
+                    3,
+                    511,
+                    511
+                  ],
+                  "output_path": "output"
+                },
+                "top_3": [
+                  {
+                    "coordinate": [
+                      2,
+                      493,
+                      31
+                    ],
+                    "output_path": "output"
+                  },
+                  {
+                    "coordinate": [
+                      3,
+                      264,
+                      253
+                    ],
+                    "output_path": "output"
+                  },
+                  {
+                    "coordinate": [
+                      2,
+                      21,
+                      372
+                    ],
+                    "output_path": "output"
+                  }
+                ]
+              }
+            }
+          ],
+          "correctness_reference_cache_poison_enabled": true,
+          "kernel_execution_device_id": 0,
+          "wg_pool_execute_s": 0.42435789108276,
+          "correctness_effective_trials": 1,
+          "compile_artifact_cache_enabled": true,
+          "correctness_reference_skipped_perturbations": {},
+          "kg_stage_current_elapsed_s": 0.00067223096266389,
+          "correctness_tolerance_source": "kernelbench_precision_or_fp32_integral",
+          "correctness_early_stopped": true,
+          "correctness_trials": "(0 / 1)",
+          "correctness_reference_skipped_perturbation_count": 0,
+          "model_mode": "eval",
+          "correctness_inputs_generated_on_gpu": true,
+          "kernel_execution_device": "cuda:0",
+          "correctness_budget_pass_on_success_enabled": false,
+          "correctness_trial_s": [
+            0.028352621011436
+          ],
+          "correctness_tf32_state_forced": {
+            "cudnn.conv.fp32_precision": "tf32",
+            "cuda.matmul.fp32_precision": "tf32"
+          },
+          "nan_count": [
+            0
+          ],
+          "compile_artifact_cache_hit": true,
+          "correctness_output_mismatch": true,
+          "kg_kernel_backend_session_open_s": 5.9830490499735e-06,
+          "correctness_issue": "Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, element_correctness=0.00%, element_correctness_curve={1x:0.00%,2x:0.00%,4x:0.00%,8x:0.00%,16x:0.00%}, atol=0.001, rtol=0.001",
+          "tm_enter_monotonic_ns": 1512294354593300.0,
+          "split_compile_and_execute": true,
+          "hardware": "NVIDIA H100 PCIe",
+          "kernel_task_id": "fusion-http-10b5eba46ce740298ddf2f39e8f16577_kernel_b5a978e78c3a4d319b127ec62bed6ee2",
+          "kg_kernel_build_reference_model_s": 0.000621457118541,
+          "grad_mode": "no_grad",
+          "kg_kernel_incorrect_backend_usage_probe_s": 0.00067223096266389,
+          "wg_pool_restart_s": 0.15757989883423,
+          "build_backend": "tvm_ffi.cpp.build",
+          "correctness_reference_alias_clone_trial_s": [
+            0
+          ],
+          "device": "cuda:0",
+          "wg_pool_total_s": 0.5829644203186,
+          "wg_pool_return_s": 0,
+          "wg_pool_retry_count": 0,
+          "kg_kernel_load_original_src_s": 0.001267516054213,
+          "wg_pool_idle_wait_s": 0.00016236305236816,
+          "correctness_candidate_forward_completed": true,
+          "num_perf_trials": 1,
+          "kernel_execution_epoch_ns": 1.7897114347197e+18,
+          "kernel_execution_hostname": "ai-11-229",
+          "kernel_execution_pid": 3499105,
+          "kg_stage_current_prefix": "kg_kernel",
+          "max_difference": [
+            "1.000000"
+          ],
+          "num_correct_trials": 1,
+          "kg_kernel_build_custom_model_s": 0.06699205795303,
+          "backend": "tvm_ffi",
+          "avg_difference": [
+            "1.000000"
+          ],
+          "gpu_name": "NVIDIA H100 PCIe",
+          "kg_kernel_total_s": 0.23299292800948,
+          "correctness_budget_min_pass_trials": 1,
+          "correctness_diagnosis": {
+            "text": "Element correctness remains 0.00% through 16x tolerance; this is unlikely to be a small precision error, so inspect indexing, permutation, masking, or core logic.",
+            "confidence": 0.8,
+            "evidence": [
+              "tolerance curve is flat from 1x through 16x"
+            ],
+            "category": "large_magnitude_or_indexing_error"
+          },
+          "kg_stage_current_started_at_unix_s": 1789711434.7163,
+          "correctness_reference_alias_clone_trials": {},
+          "kg_kernel_correctness_s": 0.039792286930606,
+          "kg_kernel_backend_compile_s": 0,
+          "correctness_input_transfer_trial_s": [
+            8.8070053607225e-05
+          ],
+          "correctness_custom_trial_s": [
+            0.00050470908172429
+          ],
+          "kg_stage_total_started_at_unix_s": 1789711434.4843,
+          "correctness_reference_trial_s": [
+            0.013978688046336
+          ],
+          "kg_stage_current_started_monotonic_ns": 1512294177909200.0,
+          "kg_stage_last_completed": "kernel.incorrect_backend_usage_probe",
+          "correctness_atol": 0.001,
+          "inf_count": [
+            0
+          ],
+          "compile_artifact": {
+            "target_gpu_worker_id": "worker_gpu_0",
+            "target_gpu_selection_strategy": "task_id_mod",
+            "build_backend": "tvm_ffi.cpp.build",
+            "precheck": {
+              "error_message": "",
+              "cuda_source_count": 2,
+              "exported_functions": [
+                "add"
+              ],
+              "static_check": {
+                "warnings": {},
+                "precision": "fp32",
+                "passed": true,
+                "errors": {}
+              },
+              "cpp_files": [
+                "kernels/generated_binding.cpp"
+              ],
+              "error_code": null,
+              "binding_mode": "tvm_ffi",
+              "detected_extension_calls": [
+                "add"
+              ],
+              "passed": true,
+              "header_files": {},
+              "cu_files": [
+                "kernels/generated.cu"
+              ],
+              "binding_files": [
+                "kernels/generated_binding.cpp"
+              ]
+            },
+            "device": "cuda:0",
+            "compile_cache_hit": true,
+            "artifact_hostname": "ai-11-229",
+            "artifact_node_id": "v1",
+            "compile_artifact_cache_enabled": true,
+            "compile_artifact_cache_hit": true,
+            "compiled": true,
+            "entry_point": "ModelNew",
+            "profiling_hints": {
+              "detected_extension_calls": [
+                "add"
+              ],
+              "source_files": [
+                "kernels/generated.cu",
+                "kernels/generated_binding.cpp"
+              ],
+              "exported_functions": [
+                "add"
+              ],
+              "backend": "tvm_ffi",
+              "custom_kernel_names": [
+                "add_kernel"
+              ]
+            },
+            "compile_artifact_cache_dir": "/dev/shm/kernelgym/compile_cache/tvm_ffi_artifacts/7172251e984e9c2c6932edef538733e2034d57c8694c97daad80a0ee67be1273",
+            "backend": "tvm_ffi",
+            "module_name": "kernelgym_tvm_ffi_7172251e984e9c2c"
+          },
+          "element_correctness_curve": [
+            {
+              "4x": "0.00%",
+              "16x": "0.00%",
+              "2x": "0.00%",
+              "8x": "0.00%",
+              "1x": "0.00%"
+            }
+          ],
+          "correctness_rtol": 0.001,
+          "correctness_tf32_enabled": true,
+          "kg_kernel_prepare_init_inputs_s": 0.001201607985422,
+          "correctness_forward_seed_reset_enabled": true,
+          "kg_stage_completed_s": {
+            "kernel.build_reference_model": 0.000621457118541,
+            "kernel.load_original_src": 0.001267516054213,
+            "kernel.compile_and_load": 0.041401597904041,
+            "kernel.prepare_init_inputs": 0.001201607985422,
+            "kernel.build_custom_model": 0.06699205795303,
+            "kernel.incorrect_backend_usage_probe": 0.00067223096266389,
+            "kernel.correctness": 0.039792286930606
+          },
+          "correctness_early_stop_enabled": true,
+          "precision": "fp32",
+          "device_info": {
+            "warp_size": 32,
+            "shared_memory": {
+              "per_block_optin": "227 KiB",
+              "per_block_default": "48 KiB",
+              "per_sm": "228 KiB"
+            },
+            "compute_capability": "9.0",
+            "thread_limits": {
+              "max_warps_per_sm": 64,
+              "max_threads_per_block": 1024,
+              "max_grid_dimensions": [
+                2147483647,
+                65535,
+                65535
+              ],
+              "max_blocks_per_sm": 32,
+              "max_block_dimensions": [
+                1024,
+                1024,
+                64
+              ],
+              "max_threads_per_sm": 2048
+            },
+            "sm_count": 114,
+            "device_memory": "79.18 GiB",
+            "theoretical_memory_bandwidth": "2.039 TB/s",
+            "cuda_arch": "sm_90",
+            "register_limits": {
+              "per_sm": 65536,
+              "per_block": 65536
+            },
+            "l2_cache": "50 MiB",
+            "software": {
+              "nvcc_version": "12.9",
+              "driver_version": "590.48.01",
+              "cuda_version": "12.9"
+            },
+            "gpu_name": "NVIDIA H100 PCIe"
+          },
+          "kg_stage_current": "kernel.incorrect_backend_usage_probe"
+        },
+        "error_message": "Kernel produced incorrect results: Numerical output mismatch under input perturbation original: max_difference=1, avg_difference=1, element_correctness=0.00%, element_correctness_curve={1x:0.00%,2x:0.00%,4x:0.00%,8x:0.00%,16x:0.00%}, atol=0.001, rtol=0.001. Diagnosis: Element correctness remains 0.00% through 16x tolerance; this is unlikely to be a small precision error, so inspect indexing, permutation, masking, or core logic.",
+        "error_code": "CORRECTNESS_ERROR",
+        "submitted_at": null,
+        "completed_at": "2026-09-18T06:03:55.332688",
+        "processing_time": null
+      }
+    }
+  ]
+}

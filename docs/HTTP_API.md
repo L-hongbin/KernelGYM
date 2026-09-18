@@ -241,6 +241,8 @@ With `return_detail_correctness=true`, rank-2-or-higher tensor outputs additiona
 
 `metadata` is a large dict of server-side timing + caching diagnostics. Notable keys:
 
+Detailed correctness uses a lazy CUDA fusion for contiguous, same-dtype FP16/BF16/FP32/FP64 outputs with at most 65,536 logical 32×32 tiles. One device scan computes error statistics, tolerance buckets, top-3 candidates, and row/column occupancy; a single transfer of per-tile summaries supplies CPU localization assembly. Higher curve percentages are assembled only until the first exact 100% point. Output fields and tolerances are unchanged; tied top-3 errors use ascending flat coordinates, whereas the former `torch.topk` tie order was unspecified. Mean error may differ at floating-point reduction roundoff. Other layouts/dtypes and unavailable native builds fall back to the existing PyTorch implementation. `KERNELGYM_FUSED_CORRECTNESS=false` disables fusion for debugging. Compilation occurs on the first detailed request and is cached across processes under `.native` (override with `KERNELGYM_CORRECTNESS_CACHE_DIR`), keyed by source, CUDA architecture, and compiler identity. Ordinary requests neither import nor build the fused module, and worker initialization does not prewarm it.
+
 | Key | Meaning |
 |---|---|
 | `device`, `gpu_name` | GPU the run landed on |
