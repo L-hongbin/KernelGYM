@@ -10,8 +10,7 @@ from kernelgym.toolkit.kernelbench.correctness import (
     _compare_tensors_inplace_with_element_counts,
     _format_element_correctness,
     _format_element_correctness_curve,
-    _format_mismatch_coordinate,
-    _format_output_space_localization,
+    _format_mismatch_localization,
 )
 
 
@@ -118,7 +117,8 @@ def test_mismatch_diagnostics_count_nonfinite_values_and_nested_coordinates() ->
     outputs_close, _max_diff, _avg_diff, curve_counts, total, nan_count, inf_count, coordinates = (
         _compare_outputs_inplace_with_diagnostics(reference, candidate)
     )
-    public_coordinates = _format_mismatch_coordinate(coordinates)
+    localization = _format_mismatch_localization(coordinates)
+    public_coordinates = localization["element"]
 
     assert outputs_close is False
     assert total - curve_counts[1] == 3
@@ -138,6 +138,7 @@ def test_mismatch_diagnostics_count_nonfinite_values_and_nested_coordinates() ->
         ("output.matrix", (1, 2)),
         ("output.tail", (1,)),
     }
+    assert localization["output_space"]["tensors"][0]["output_path"] == "output.matrix"
 
 
 def test_output_space_localization_reports_batch_row_tile_and_axis_bounds() -> None:
@@ -148,7 +149,8 @@ def test_output_space_localization_reports_batch_row_tile_and_axis_bounds() -> N
     _close, _max_diff, _avg_diff, _curve, _total, _nan, _inf, coordinates = _compare_outputs_inplace_with_diagnostics(
         reference, candidate
     )
-    localization = _format_output_space_localization(coordinates)
+    mismatch_localization = _format_mismatch_localization(coordinates)
+    localization = mismatch_localization["output_space"]
 
     assert localization is not None
     assert localization["tile_shape"] == [32, 32]
@@ -161,12 +163,45 @@ def test_output_space_localization_reports_batch_row_tile_and_axis_bounds() -> N
         "M": [0, 0],
         "N": [32, 47],
     }
-    assert tensor_localization["batch"]["failed"] == [{"batch": 0}]
-    assert tensor_localization["row"]["failed"] == [{"batch_index": [0], "row": 0}]
-    assert tensor_localization["tile"]["failed"] == [
+    assert tensor_localization["batch"]["mismatches"] == [{"batch": 0}]
+    assert tensor_localization["row"]["mismatches"] == [{"batch_index": [0], "row": 0}]
+    assert tensor_localization["tile"]["mismatches"] == [
         {
             "batch_index": [0],
             "M": [0, 32],
             "N": [32, 64],
         }
     ]
+
+
+def test_output_space_localization_limits_mismatch_units_to_eight() -> None:
+    reference = torch.zeros((10, 1))
+    candidate = torch.ones_like(reference)
+
+    _close, _max_diff, _avg_diff, _curve, _total, _nan, _inf, coordinates = (
+        _compare_outputs_inplace_with_diagnostics(reference, candidate)
+    )
+    mismatch_localization = _format_mismatch_localization(coordinates)
+    localization = mismatch_localization["output_space"]
+
+    assert localization is not None
+    row = localization["tensors"][0]["row"]
+    assert row["mismatch_count"] == 10
+    assert len(row["mismatches"]) == 8
+    assert row["mismatches_truncated"] is True
+
+
+def test_rank_one_mismatch_localization_omits_output_space() -> None:
+    reference = torch.zeros(4)
+    candidate = torch.ones_like(reference)
+
+    _close, _max_diff, _avg_diff, _curve, _total, _nan, _inf, coordinates = (
+        _compare_outputs_inplace_with_diagnostics(reference, candidate)
+    )
+    localization = _format_mismatch_localization(coordinates)
+
+    assert set(localization) == {"element"}
+    assert localization["element"]["first"] == {
+        "output_path": "output",
+        "coordinate": [0],
+    }

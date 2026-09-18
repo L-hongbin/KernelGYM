@@ -191,6 +191,7 @@ def test_numerical_mismatch_defaults_to_legacy_metadata(monkeypatch) -> None:
         "nan_count",
         "inf_count",
         "mismatch_coordinate",
+        "mismatch_localization",
         "batch_correctness",
         "row_correctness",
         "tile_correctness",
@@ -233,13 +234,13 @@ def test_rand_sign_perturbation_returns_numerical_mismatch_details() -> None:
     assert result.metadata["correctness_issue_name"] == "numerical_mismatch"
     assert float(result.metadata["max_difference"][0]) > 0
     assert float(result.metadata["avg_difference"][0]) > 0
-    element_correctness = result.metadata["element_correctness"][0]
-    assert re.fullmatch(r"\d+\.\d{2}%", element_correctness)
-    assert f"element_correctness={element_correctness}" in result.metadata["correctness_issue"]
+    assert "element_correctness" not in result.metadata
     element_correctness_curve = result.metadata["element_correctness_curve"][0]
     expected_multipliers = ["1x", "2x", "4x", "8x", "16x"]
     assert list(element_correctness_curve) == expected_multipliers[: len(element_correctness_curve)]
-    assert element_correctness_curve["1x"] == element_correctness
+    element_correctness = element_correctness_curve["1x"]
+    assert re.fullmatch(r"\d+\.\d{2}%", element_correctness)
+    assert f"element_correctness={element_correctness}" in result.metadata["correctness_issue"]
     assert all(re.fullmatch(r"\d+\.\d{2}%", value) for value in element_correctness_curve.values())
     assert all(
         float(element_correctness_curve[left][:-1]) <= float(element_correctness_curve[right][:-1])
@@ -254,15 +255,21 @@ def test_rand_sign_perturbation_returns_numerical_mismatch_details() -> None:
     assert f"element_correctness_curve={curve_text}" in result.metadata["correctness_issue"]
     assert result.metadata["nan_count"] == [0]
     assert result.metadata["inf_count"] == [0]
-    mismatch_coordinate = result.metadata["mismatch_coordinate"][0]
+    assert "mismatch_coordinate" not in result.metadata
+    assert "output_space_localization" not in result.metadata
+    mismatch_localization = result.metadata["mismatch_localization"][0]
+    mismatch_coordinate = mismatch_localization["element"]
     assert set(mismatch_coordinate) == {"first", "last", "top_3"}
     assert mismatch_coordinate["first"]["output_path"] == "output"
     assert mismatch_coordinate["last"]["output_path"] == "output"
     assert len(mismatch_coordinate["top_3"]) == 3
-    assert 0.0 <= result.metadata["batch_correctness"][0] <= 1.0
-    assert 0.0 <= result.metadata["row_correctness"][0] <= 1.0
-    assert 0.0 <= result.metadata["tile_correctness"][0] <= 1.0
-    assert result.metadata["output_space_localization"][0]["tile_shape"] == [32, 32]
+    for field in ("batch_correctness", "row_correctness", "tile_correctness"):
+        assert field not in result.metadata
+    localization = mismatch_localization["output_space"]
+    assert localization["tile_shape"] == [32, 32]
+    assert 0.0 <= localization["batch_correctness"] <= 1.0
+    assert 0.0 <= localization["row_correctness"] <= 1.0
+    assert 0.0 <= localization["tile_correctness"] <= 1.0
     assert "correctness_numerical_errors" not in result.metadata
     sign_trial = result.metadata["correctness_input_perturbation_trials"][-1]
     assert sign_trial["detected_input_kinds"] == {"torch.rand": 1}
@@ -303,7 +310,10 @@ def test_nonfinite_candidate_returns_counts_and_mismatch_coordinates() -> None:
     assert result.metadata["nan_count"] == [1]
     assert result.metadata["inf_count"] == [1]
     assert isinstance(result.metadata["correctness_failed_trial_seed"], int)
-    mismatch_coordinate = result.metadata["mismatch_coordinate"][0]
+    assert "mismatch_coordinate" not in result.metadata
+    assert "output_space_localization" not in result.metadata
+    mismatch_localization = result.metadata["mismatch_localization"][0]
+    mismatch_coordinate = mismatch_localization["element"]
     assert mismatch_coordinate["first"] == {
         "output_path": "output",
         "coordinate": [0, 1],
@@ -313,10 +323,13 @@ def test_nonfinite_candidate_returns_counts_and_mismatch_coordinates() -> None:
         "coordinate": [1, 2],
     }
     assert len(mismatch_coordinate["top_3"]) == 3
-    assert result.metadata["batch_correctness"] == [0.0]
-    assert result.metadata["row_correctness"] == [0.0]
-    assert result.metadata["tile_correctness"] == [0.0]
-    tensor_localization = result.metadata["output_space_localization"][0]["tensors"][0]
+    for field in ("batch_correctness", "row_correctness", "tile_correctness"):
+        assert field not in result.metadata
+    localization = mismatch_localization["output_space"]
+    assert localization["batch_correctness"] == 0.0
+    assert localization["row_correctness"] == 0.0
+    assert localization["tile_correctness"] == 0.0
+    tensor_localization = localization["tensors"][0]
     assert tensor_localization["mismatch_bounds"] == {"M": [0, 1], "N": [0, 2]}
 
 

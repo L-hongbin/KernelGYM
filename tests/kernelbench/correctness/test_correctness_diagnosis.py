@@ -40,7 +40,7 @@ def test_nonfinite_output_has_priority_over_localization() -> None:
         _numerical_metadata(
             nan_count=[2],
             inf_count=[1],
-            output_space_localization=[{"tensors": []}],
+            mismatch_localization=[{"element": {}, "output_space": {"tensors": []}}],
         )
     )
 
@@ -52,23 +52,26 @@ def test_nonfinite_output_has_priority_over_localization() -> None:
 def test_diagnoses_terminal_tile_pattern() -> None:
     diagnosis = diagnose_correctness_failure(
         _numerical_metadata(
-            output_space_localization=[
+            mismatch_localization=[
                 {
-                    "tensors": [
-                        {
-                            "output_path": "output",
-                            "shape": [64, 64],
-                            "tile": {
-                                "failed_count": 2,
-                                "total": 4,
-                                "failed": [
-                                    {"M": [0, 32], "N": [32, 64]},
-                                    {"M": [32, 64], "N": [32, 64]},
-                                ],
-                                "failed_truncated": False,
-                            },
-                        }
-                    ]
+                    "element": {},
+                    "output_space": {
+                        "tensors": [
+                            {
+                                "output_path": "output",
+                                "shape": [64, 64],
+                                "tile": {
+                                    "mismatch_count": 2,
+                                    "total": 4,
+                                    "mismatches": [
+                                        {"M": [0, 32], "N": [32, 64]},
+                                        {"M": [32, 64], "N": [32, 64]},
+                                    ],
+                                    "mismatches_truncated": False,
+                                },
+                            }
+                        ]
+                    },
                 }
             ]
         )
@@ -82,26 +85,29 @@ def test_diagnoses_terminal_tile_pattern() -> None:
 def test_diagnoses_partial_batch_pattern() -> None:
     diagnosis = diagnose_correctness_failure(
         _numerical_metadata(
-            output_space_localization=[
+            mismatch_localization=[
                 {
-                    "tensors": [
-                        {
-                            "output_path": "output",
-                            "shape": [4, 32, 32],
-                            "tile": {
-                                "failed_count": 4,
-                                "total": 4,
-                                "failed": [],
-                                "failed_truncated": True,
-                            },
-                            "batch": {
-                                "failed_count": 1,
-                                "total": 4,
-                                "failed": [{"batch": 2}],
-                                "failed_truncated": False,
-                            },
-                        }
-                    ]
+                    "element": {},
+                    "output_space": {
+                        "tensors": [
+                            {
+                                "output_path": "output",
+                                "shape": [4, 32, 32],
+                                "tile": {
+                                    "mismatch_count": 4,
+                                    "total": 4,
+                                    "mismatches": [],
+                                    "mismatches_truncated": True,
+                                },
+                                "batch": {
+                                    "mismatch_count": 1,
+                                    "total": 4,
+                                    "mismatches": [{"batch": 2}],
+                                    "mismatches_truncated": False,
+                                },
+                            }
+                        ]
+                    },
                 }
             ]
         )

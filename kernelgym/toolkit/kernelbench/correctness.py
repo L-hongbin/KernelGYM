@@ -201,7 +201,7 @@ def _output_aliases_inputs(output: Any, inputs: Any) -> bool:
 ELEMENT_CORRECTNESS_CURVE_MULTIPLIERS = (1, 2, 4, 8, 16)
 MISMATCH_COORDINATE_TOP_K = 3
 OUTPUT_LOCALIZATION_TILE_SIZE = 32
-OUTPUT_LOCALIZATION_MAX_FAILED_UNITS = 32
+OUTPUT_LOCALIZATION_MAX_MISMATCH_UNITS = 8
 
 
 def _candidate_nonfinite_count_tensors(candidate: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -229,15 +229,19 @@ def _coordinate_record(output_path: str, flat_index: int, shape: torch.Size) -> 
     }
 
 
-def _unit_correctness_summary(total: int, failed: int, failed_units: list[dict[str, Any]]) -> dict[str, Any]:
-    correctness = (total - failed) / total if total else 1.0
+def _unit_correctness_summary(
+    total: int,
+    mismatch_count: int,
+    mismatches: list[dict[str, Any]],
+) -> dict[str, Any]:
+    correctness = (total - mismatch_count) / total if total else 1.0
     return {
         "correctness": round(correctness, 6),
-        "correct": total - failed,
+        "correct": total - mismatch_count,
         "total": total,
-        "failed_count": failed,
-        "failed": failed_units,
-        "failed_truncated": failed > len(failed_units),
+        "mismatch_count": mismatch_count,
+        "mismatches": mismatches,
+        "mismatches_truncated": mismatch_count > len(mismatches),
     }
 
 
@@ -277,8 +281,8 @@ def _empty_tensor_mismatch_diagnostics(tensor: torch.Tensor, output_path: str) -
 
 def _limited_nonzero_indices(mask: torch.Tensor) -> tuple[list[list[int]], int]:
     indices = torch.nonzero(mask, as_tuple=False)
-    failed_count = indices.shape[0]
-    return indices[:OUTPUT_LOCALIZATION_MAX_FAILED_UNITS].tolist(), failed_count
+    mismatch_count = indices.shape[0]
+    return indices[:OUTPUT_LOCALIZATION_MAX_MISMATCH_UNITS].tolist(), mismatch_count
 
 
 def _mismatch_axis_bounds(mismatch_mask: torch.Tensor, row_bad: torch.Tensor) -> dict[str, list[int]]:
@@ -918,6 +922,14 @@ def _format_output_space_localization(coordinates: dict[str, Any]) -> dict[str, 
     return result
 
 
+def _format_mismatch_localization(coordinates: dict[str, Any]) -> dict[str, Any]:
+    result = {"element": _format_mismatch_coordinate(coordinates)}
+    output_space = _format_output_space_localization(coordinates)
+    if output_space is not None:
+        result["output_space"] = output_space
+    return result
+
+
 def register_and_format_exception(
     exception_type: str,
     exception_msg: Exception | str,
@@ -1354,27 +1366,14 @@ def run_and_check_correctness(
                     if return_detail_correctness:
                         element_correctness_curve = _format_element_correctness_curve(curve_counts, total_elements)
                         element_correctness_text = element_correctness_curve["1x"]
-                        output_space_localization = _format_output_space_localization(mismatch_coordinates)
                         # Internal-only replay input for mismatch-triggered sanitizer diagnostics.
                         metadata["correctness_failed_trial_seed"] = int(trial_seed)
-                        metadata.setdefault("element_correctness", []).append(element_correctness_text)
                         metadata.setdefault("element_correctness_curve", []).append(element_correctness_curve)
                         metadata.setdefault("nan_count", []).append(nan_count)
                         metadata.setdefault("inf_count", []).append(inf_count)
-                        metadata.setdefault("mismatch_coordinate", []).append(
-                            _format_mismatch_coordinate(mismatch_coordinates)
+                        metadata.setdefault("mismatch_localization", []).append(
+                            _format_mismatch_localization(mismatch_coordinates)
                         )
-                        if output_space_localization is not None:
-                            metadata.setdefault("batch_correctness", []).append(
-                                output_space_localization["batch_correctness"]
-                            )
-                            metadata.setdefault("row_correctness", []).append(
-                                output_space_localization["row_correctness"]
-                            )
-                            metadata.setdefault("tile_correctness", []).append(
-                                output_space_localization["tile_correctness"]
-                            )
-                            metadata.setdefault("output_space_localization", []).append(output_space_localization)
                         metadata["correctness_issue"] = (
                             f"Numerical output mismatch under input perturbation {perturbation}: "
                             f"max_difference={max_diff:.6g}, avg_difference={avg_diff:.6g}, "

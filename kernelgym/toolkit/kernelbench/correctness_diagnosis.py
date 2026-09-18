@@ -35,7 +35,12 @@ def _diagnosis(
 
 
 def _localized_diagnosis(metadata: dict[str, Any]) -> dict[str, Any] | None:
-    localization = _latest(metadata.get("output_space_localization"))
+    mismatch_localization = _latest(metadata.get("mismatch_localization"))
+    localization = (
+        mismatch_localization.get("output_space")
+        if isinstance(mismatch_localization, dict)
+        else None
+    )
     if not isinstance(localization, dict):
         return None
     tensors = localization.get("tensors")
@@ -51,21 +56,21 @@ def _localized_diagnosis(metadata: dict[str, Any]) -> dict[str, Any] | None:
         tile = tensor.get("tile")
         if not isinstance(shape, list) or len(shape) < 2 or not isinstance(tile, dict):
             continue
-        failed = tile.get("failed")
-        failed_count = tile.get("failed_count")
+        mismatches = tile.get("mismatches")
+        mismatch_count = tile.get("mismatch_count")
         total = tile.get("total")
         if (
-            not isinstance(failed, list)
-            or not isinstance(failed_count, int)
+            not isinstance(mismatches, list)
+            or not isinstance(mismatch_count, int)
             or not isinstance(total, int)
-            or tile.get("failed_truncated")
-            or failed_count != len(failed)
-            or not (0 < failed_count < total)
+            or tile.get("mismatches_truncated")
+            or mismatch_count != len(mismatches)
+            or not (0 < mismatch_count < total)
         ):
             continue
         for axis, dimension in (("M", shape[-2]), ("N", shape[-1])):
-            ranges = [item.get(axis) for item in failed if isinstance(item, dict)]
-            if len(ranges) != failed_count or not ranges:
+            ranges = [item.get(axis) for item in mismatches if isinstance(item, dict)]
+            if len(ranges) != mismatch_count or not ranges:
                 continue
             if all(
                 isinstance(bounds, list)
@@ -83,8 +88,8 @@ def _localized_diagnosis(metadata: dict[str, Any]) -> dict[str, Any] | None:
                         "inspect tail masking, ceil-div grid sizing, and boundary indexing."
                     ),
                     [
-                        f"{failed_count}/{total} tiles fail and every failed tile touches {axis}={dimension}",
-                        f"{total - failed_count} preceding/non-terminal tiles are correct",
+                        f"{mismatch_count}/{total} tiles fail and every failed tile touches {axis}={dimension}",
+                        f"{total - mismatch_count} preceding/non-terminal tiles are correct",
                     ],
                 )
 
@@ -115,22 +120,22 @@ def _localized_diagnosis(metadata: dict[str, Any]) -> dict[str, Any] | None:
             units = tensor.get(unit_name)
             if not isinstance(units, dict):
                 continue
-            failed_count = units.get("failed_count")
+            mismatch_count = units.get("mismatch_count")
             total = units.get("total")
-            failed = units.get("failed")
+            mismatches = units.get("mismatches")
             if (
-                isinstance(failed_count, int)
+                isinstance(mismatch_count, int)
                 and isinstance(total, int)
-                and isinstance(failed, list)
-                and not units.get("failed_truncated")
-                and failed_count == len(failed)
-                and 0 < failed_count < total
+                and isinstance(mismatches, list)
+                and not units.get("mismatches_truncated")
+                and mismatch_count == len(mismatches)
+                and 0 < mismatch_count < total
             ):
                 return _diagnosis(
                     category,
                     confidence,
-                    f"Mismatch is localized to {failed_count}/{total} {unit_name} units of {path}; {hint}.",
-                    [f"{total - failed_count}/{total} {unit_name} units are fully correct"],
+                    f"Mismatch is localized to {mismatch_count}/{total} {unit_name} units of {path}; {hint}.",
+                    [f"{total - mismatch_count}/{total} {unit_name} units are fully correct"],
                 )
     return None
 
